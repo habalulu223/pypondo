@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Booking Manager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+    <style>
+        body { background-color: #0b0c15; color: #e0e6ed; font-family: 'Roboto', sans-serif; padding: 30px; }
+        h1 { font-family: 'Orbitron', sans-serif; color: #00ff9d; border-bottom: 2px solid #00ff9d; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; background: #151922; margin-top: 20px; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #333; }
+        th { color: #00ff9d; text-transform: uppercase; font-family: 'Orbitron', sans-serif; }
+        tr:hover { background-color: #1f2430; }
+        .back-btn { display: inline-block; margin-bottom: 20px; color: #00ff9d; text-decoration: none; border: 1px solid #00ff9d; padding: 10px 20px; font-family: 'Orbitron', sans-serif; }
+        .back-btn:hover { background: #00ff9d; color: black; }
+        .del-btn { color: #ff0055; text-decoration: none; border: 1px solid #ff0055; padding: 5px 10px; font-size: 0.8em; }
+        .del-btn:hover { background: #ff0055; color: white; }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-btn">← Back to Dashboard</a>
+    <h1>Active Reservations / Tickets</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Ticket ID</th>
+                <th>Customer</th>
+                <th>PC Station</th>
+                <th>Requested Time</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for booking in bookings %}
+            <tr>
+                <td>#{{ booking.id }}</td>
+                <td style="font-weight: bold; color: white;">{{ booking.user.username }}</td>
+                <td style="color: #00f3ff;">{{ booking.pc.name }}</td>
+                <td>{{ booking.time_slot }}</td>
+                <td><a href="/delete_booking/{{ booking.id }}" class="del-btn">CANCEL TICKET</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" style="text-align:center; color:#666;">No active bookings.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

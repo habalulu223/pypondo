@@ -47,6 +47,9 @@ class Booking(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     pc_id = db.Column(db.Integer, db.ForeignKey('pc.id'), nullable=False)
     time_slot = db.Column(db.String(20), nullable=False)
+    # Relationships for easy access in templates
+    user = db.relationship('User', backref='bookings')
+    pc = db.relationship('PC', backref='bookings')
 
 
 class Session(db.Model):
@@ -58,7 +61,6 @@ class Session(db.Model):
     cost = db.Column(db.Float, default=0.0)
 
 
-# NEW: Admin Log Table
 class AdminLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     admin_name = db.Column(db.String(80))
@@ -75,27 +77,25 @@ def load_user(user_id):
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    if current_user.is_authenticated:
-        return redirect(url_for('index'))
+    if current_user.is_authenticated: return redirect(url_for('index'))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
         if User.query.filter_by(username=username).first():
-            flash('Username already taken.', 'error')
+            flash('Username taken.', 'error')
             return redirect(url_for('register'))
         new_user = User(username=username)
         new_user.set_password(password)
         db.session.add(new_user)
         db.session.commit()
-        flash('Account created! Please log in.', 'success')
+        flash('Account created!', 'success')
         return redirect(url_for('login'))
     return render_template('register.html')
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if current_user.is_authenticated:
-        return redirect(url_for('index'))
+    if current_user.is_authenticated: return redirect(url_for('index'))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
@@ -104,7 +104,7 @@ def login():
             login_user(user)
             return redirect(url_for('index'))
         else:
-            flash('Invalid username or password', 'error')
+            flash('Invalid credentials', 'error')
     return render_template('login.html')
 
 
@@ -127,52 +127,79 @@ def index():
     return render_template('index.html', pcs=pcs, users=users, sessions=active_sessions)
 
 
-# 1. ADMIN LOGS VIEW
+# --- ADMIN FEATURES ---
+
+@app.route('/add_pc')
+@login_required
+def add_pc():
+    if not current_user.is_admin: return redirect(url_for('index'))
+
+    # Auto-generate name based on count
+    count = PC.query.count()
+    new_name = f"PC-{count + 1}"
+
+    new_pc = PC(name=new_name)
+    db.session.add(new_pc)
+
+    # Log it
+    log = AdminLog(admin_name=current_user.username, action=f"Added new unit: {new_name}")
+    db.session.add(log)
+
+    db.session.commit()
+    flash(f'Added {new_name} to the station list.', 'success')
+    return redirect(url_for('index'))
+
+
+@app.route('/bookings')
+@login_required
+def view_bookings():
+    if not current_user.is_admin: return redirect(url_for('index'))
+    bookings = Booking.query.all()
+    return render_template('bookings.html', bookings=bookings)
+
+
+@app.route('/delete_booking/<int:id>')
+@login_required
+def delete_booking(id):
+    if not current_user.is_admin: return redirect(url_for('index'))
+    booking = Booking.query.get(id)
+    if booking:
+        db.session.delete(booking)
+        db.session.commit()
+        flash('Booking cancelled/removed.', 'info')
+    return redirect(url_for('view_bookings'))
+
+
 @app.route('/logs')
 @login_required
 def view_logs():
-    if not current_user.is_admin:
-        flash('Access Denied', 'error')
-        return redirect(url_for('index'))
-
-    # Get logs, newest first
+    if not current_user.is_admin: return redirect(url_for('index'))
     logs = AdminLog.query.order_by(AdminLog.timestamp.desc()).all()
     return render_template('logs.html', logs=logs)
 
 
-# 2. PONDO SYSTEM (Updated with Logging)
+# --- SYSTEM FEATURES ---
+
 @app.route('/pondo', methods=['GET', 'POST'])
 @login_required
 def manage_pondo():
-    if not current_user.is_admin:
-        flash('Only Staff can load Pondo.', 'error')
-        return redirect(url_for('index'))
-
+    if not current_user.is_admin: return redirect(url_for('index'))
     if request.method == 'POST':
         username = request.form['username']
         try:
             amount = float(request.form['amount'])
-        except ValueError:
-            flash('Invalid amount', 'error')
+        except:
             return redirect(url_for('manage_pondo'))
 
         user = User.query.filter_by(username=username).first()
         if user:
             user.pondo += amount
-
-            # --- CREATE LOG ---
-            new_log = AdminLog(
-                admin_name=current_user.username,
-                action=f"Added ₱{amount} to user '{username}'"
-            )
-            db.session.add(new_log)
-            # ------------------
-
+            log = AdminLog(admin_name=current_user.username, action=f"Added ₱{amount} to '{username}'")
+            db.session.add(log)
             db.session.commit()
-            flash(f'Added {amount} to {username}s Pondo!', 'success')
+            flash(f'Credits added to {username}!', 'success')
         else:
             flash('User not found.', 'error')
-
         return redirect(url_for('index'))
     return render_template('pondo.html')
 
@@ -182,20 +209,22 @@ def manage_pondo():
 def book_pc():
     pc_id = request.form['pc_id']
     time_slot = request.form['time_slot']
-    user = current_user
-    new_booking = Booking(user_id=user.id, pc_id=pc_id, time_slot=time_slot)
+
+    # Check if already booked for that slot (Optional logic improvement)
+    # existing = Booking.query.filter_by(pc_id=pc_id, time_slot=time_slot).first()
+    # if existing: flash('Slot taken', 'error'); return ...
+
+    new_booking = Booking(user_id=current_user.id, pc_id=pc_id, time_slot=time_slot)
     db.session.add(new_booking)
     db.session.commit()
-    flash('Booking Successful!', 'success')
+    flash('Reservation confirmed!', 'success')
     return redirect(url_for('index'))
 
 
 @app.route('/start_session/<int:pc_id>/<int:user_id>')
 @login_required
 def start_session(pc_id, user_id):
-    if not current_user.is_admin:
-        flash('Only Staff can start sessions.', 'error')
-        return redirect(url_for('index'))
+    if not current_user.is_admin: return redirect(url_for('index'))
     user = User.query.get(user_id)
     pc = PC.query.get(pc_id)
     if user.pondo <= 0:
@@ -210,9 +239,7 @@ def start_session(pc_id, user_id):
 @app.route('/end_session/<int:session_id>')
 @login_required
 def end_session(session_id):
-    if not current_user.is_admin:
-        flash('Only Staff can end sessions.', 'error')
-        return redirect(url_for('index'))
+    if not current_user.is_admin: return redirect(url_for('index'))
     session = Session.query.get(session_id)
     if not session: return redirect(url_for('index'))
     pc = PC.query.get(session.pc_id)
@@ -224,13 +251,8 @@ def end_session(session_id):
     session.cost = cost
     user.pondo -= cost
     pc.is_occupied = False
-
-    # Optional: Log that a session ended
-    # log = AdminLog(admin_name=current_user.username, action=f"Billed '{user.username}' ₱{cost}")
-    # db.session.add(log)
-
     db.session.commit()
-    flash(f'Session Ended. Cost: {cost}.', 'info')
+    flash(f'Session Ended. Cost: ₱{cost}.', 'info')
     return redirect(url_for('index'))
 
 
@@ -238,11 +260,13 @@ if __name__ == '__main__':
     if not os.path.exists(os.path.join(basedir, 'pccafe.db')):
         with app.app_context():
             db.create_all()
+            # Default PCs
             for i in range(1, 6):
                 db.session.add(PC(name=f'PC-{i}'))
+            # Admin
             admin = User(username='admin', is_admin=True)
             admin.set_password('admin123')
             db.session.add(admin)
             db.session.commit()
-            print("Database initialized with Admin (user: admin, pass: admin123)")
+            print("DB Init: admin/admin123")
     app.run(debug=True)
