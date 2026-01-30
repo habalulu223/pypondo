@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyberCore Cafe</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0c15;
+            --card-bg: #151922;
+            --neon-blue: #00f3ff;
+            --neon-red: #ff0055;
+            --neon-green: #00ff9d;
+            --text-main: #e0e6ed;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Orbitron', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+        }
+
+        /* Top Bar Styling */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid var(--neon-blue);
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+        }
+
+        .top-bar h1 {
+            border: none;
+            margin: 0;
+            padding: 0;
+            text-align: left;
+            font-size: 1.8em;
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+        }
+
+        /* --- Layout --- */
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section {
+            flex: 1;
+            min-width: 300px;
+        }
+
+        /* --- Flash Messages --- */
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            background: rgba(0, 255, 157, 0.1);
+            border: 1px solid var(--neon-green);
+            color: var(--neon-green);
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        /* --- PC Cards Grid --- */
+        .pc-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            position: relative;
+            transition: transform 0.3s, box-shadow 0.3s;
+            overflow: hidden;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        /* Status Colors */
+        .free {
+            border-color: var(--neon-blue);
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.1);
+        }
+        .free:hover {
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.4);
+        }
+
+        .occupied {
+            border-color: var(--neon-red);
+            box-shadow: 0 0 10px rgba(255, 0, 85, 0.1);
+        }
+        .occupied:hover {
+            box-shadow: 0 0 20px rgba(255, 0, 85, 0.4);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .free .status-badge { background: rgba(0, 243, 255, 0.2); color: var(--neon-blue); }
+        .occupied .status-badge { background: rgba(255, 0, 85, 0.2); color: var(--neon-red); }
+
+        /* --- Forms & Inputs --- */
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            background: #0b0c15;
+            border: 1px solid #444;
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            outline: none;
+            border-color: var(--neon-blue);
+        }
+
+        button, .btn {
+            background: transparent;
+            border: 1px solid var(--neon-blue);
+            color: var(--neon-blue);
+            padding: 10px 20px;
+            cursor: pointer;
+            text-transform: uppercase;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.9em;
+            transition: 0.3s;
+            display: inline-block;
+            text-decoration: none;
+            margin-top: 10px;
+        }
+
+        button:hover, .btn:hover {
+            background: var(--neon-blue);
+            color: #000;
+            box-shadow: 0 0 15px var(--neon-blue);
+        }
+
+        .btn-red {
+            border-color: var(--neon-red);
+            color: var(--neon-red);
+            width: 100%;
+            text-align: center;
+            box-sizing: border-box;
+        }
+        .btn-red:hover {
+            background: var(--neon-red);
+            color: white;
+            box-shadow: 0 0 15px var(--neon-red);
+        }
+
+        .walk-in-link {
+            display: block;
+            font-size: 0.9em;
+            color: #888;
+            margin-top: 5px;
+            text-decoration: none;
+            border-bottom: 1px solid #444;
+            padding: 5px 0;
+        }
+        .walk-in-link:hover {
+            color: white;
+            border-color: white;
+        }
+
+        /* --- Pondo Table --- */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--card-bg);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #333;
+        }
+        th {
+            background: #1f2430;
+            color: var(--neon-green);
+            font-family: 'Orbitron', sans-serif;
+        }
+        tr:hover {
+            background: #1f2430;
+        }
+        .pondo-btn {
+            display: block;
+            text-align: center;
+            margin-bottom: 15px;
+            background: linear-gradient(45deg, #00f3ff, #0066ff);
+            color: white !important;
+            border: none;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="top-bar">
+        <h1>CyberCore // System Dashboard</h1>
+        <div>
+            <span style="color:#aaa; margin-right:15px; font-size: 0.9em;">
+                Logged in as: <strong style="color: white;">{{ current_user.username }}</strong>
+                {% if current_user.is_admin %} <span style="color: var(--neon-red);">(ADMIN)</span> {% endif %}
+            </span>
+            <a href="/logout" style="color:var(--neon-red); text-decoration:none; border:1px solid var(--neon-red); padding:5px 10px; font-size:0.8em; border-radius: 4px;">LOGOUT</a>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            {% for msg in messages %}
+                <div class="alert">{{ msg }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="container">
+
+        <div class="section" style="flex: 2;">
+            <h2>Station Status</h2>
+            <div class="pc-grid">
+                {% for pc in pcs %}
+                <div class="card {{ 'occupied' if pc.is_occupied else 'free' }}">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <h3>{{ pc.name }}</h3>
+                        <span class="status-badge">{{ 'In Use' if pc.is_occupied else 'Ready' }}</span>
+                    </div>
+
+                    {% if pc.is_occupied %}
+                        {% for sess in sessions %}
+                            {% if sess.pc_id == pc.id %}
+                                <p style="color: #aaa; font-size: 0.9em;">User ID: #{{ sess.user_id }}</p>
+                                <p style="color: #aaa; font-size: 0.9em;">Started: {{ sess.start_time.strftime('%H:%M') }}</p>
+
+                                {% if current_user.is_admin %}
+                                    <a href="/end_session/{{ sess.id }}" class="btn btn-red">STOP & BILL</a>
+                                {% else %}
+                                    <p style="color: var(--neon-red); font-size: 0.8em; margin-top: 10px;">SESSION ACTIVE</p>
+                                {% endif %}
+                            {% endif %}
+                        {% endfor %}
+
+                    {% else %}
+                        <form action="/book" method="POST">
+                            <input type="hidden" name="pc_id" value="{{ pc.id }}">
+                            <input type="text" name="time_slot" placeholder="Time (e.g. 2:00 PM)" required>
+                            <button type="submit" style="width:100%">Reserve for Me</button>
+                        </form>
+
+                        {% if current_user.is_admin %}
+                        <div style="margin-top:15px; border-top:1px solid #333; padding-top:10px;">
+                            <small style="color:#666; text-transform:uppercase;">Admin Quick Start:</small>
+                            <div style="max-height: 100px; overflow-y: auto;">
+                                {% for user in users %}
+                                    <a href="/start_session/{{ pc.id }}/{{ user.id }}" class="walk-in-link">
+                                        ▶ Start {{ user.username }}
+                                    </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="section" style="flex: 1;">
+    <h2>User Profile</h2>
+
+    {% if current_user.is_admin %}
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <a href="/pondo" class="btn pondo-btn" style="flex:1;">+ LOAD CREDITS</a>
+            <a href="/logs" class="btn" style="flex:1; border-color: #aaa; color: #aaa; text-align:center;">VIEW LOGS</a>
+        </div>
+    {% endif %}
+
+        <div class="section" style="flex: 1;">
+            <h2>User Profile</h2>
+
+            {% if current_user.is_admin %}
+                <a href="/pondo" class="btn pondo-btn">+ LOAD PONDO CREDITS</a>
+            {% endif %}
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Credits (₱)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td style="font-weight:bold; color:white;">{{ user.username }}</td>
+                        <td style="color: {{ 'var(--neon-green)' if user.pondo > 0 else 'var(--neon-red)' }}">
+                            ₱ {{ "%.2f"|format(user.pondo) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+
+</body>
+</html>

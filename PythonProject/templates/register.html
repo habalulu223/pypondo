@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Join CyberCore</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #0b0c15;
+            color: #e0e6ed;
+            font-family: 'Roboto', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .register-box {
+            background: #151922;
+            padding: 40px;
+            border-radius: 10px;
+            border: 1px solid #00ff9d; /* Green for Register */
+            box-shadow: 0 0 30px rgba(0, 255, 157, 0.15);
+            width: 300px;
+            text-align: center;
+        }
+        h1 {
+            font-family: 'Orbitron', sans-serif;
+            color: #00ff9d;
+            margin-bottom: 30px;
+            text-transform: uppercase;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            background: #0b0c15;
+            border: 1px solid #333;
+            color: white;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            border-color: #00ff9d;
+            outline: none;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #00ff9d;
+            border: none;
+            color: #000;
+            font-weight: bold;
+            font-family: 'Orbitron', sans-serif;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        button:hover {
+            box-shadow: 0 0 15px #00ff9d;
+            background: white;
+        }
+        a {
+            display: block;
+            margin-top: 20px;
+            color: #666;
+            text-decoration: none;
+            font-size: 0.9em;
+        }
+        a:hover { color: white; }
+        .error { color: #ff0055; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div class="register-box">
+        <h1>New Player</h1>
+
+        {% with messages = get_flashed_messages(category_filter=["error"]) %}
+            {% if messages %}
+                {% for msg in messages %}
+                    <div class="error">{{ msg }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST">
+            <input type="text" name="username" placeholder="Username" required autocomplete="off">
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit">CREATE ACCOUNT</button>
+        </form>
+
+        <a href="/login">Already have an account? Login</a>
+    </div>
+</body>
+</html>

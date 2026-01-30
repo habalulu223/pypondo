@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>System Logs</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #0b0c15;
+            color: #e0e6ed;
+            font-family: 'Roboto', sans-serif;
+            padding: 30px;
+        }
+        h1 {
+            font-family: 'Orbitron', sans-serif;
+            color: #00f3ff;
+            border-bottom: 2px solid #00f3ff;
+            padding-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #151922;
+            margin-top: 20px;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.1);
+        }
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #333;
+        }
+        th {
+            color: #00f3ff;
+            text-transform: uppercase;
+            font-family: 'Orbitron', sans-serif;
+        }
+        tr:hover { background-color: #1f2430; }
+        .back-btn {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #ff0055;
+            text-decoration: none;
+            border: 1px solid #ff0055;
+            padding: 10px 20px;
+            font-family: 'Orbitron', sans-serif;
+        }
+        .back-btn:hover { background: #ff0055; color: white; }
+    </style>
+</head>
+<body>
+
+    <a href="/" class="back-btn">← Back to Dashboard</a>
+
+    <h1>Admin Activity Logs</h1>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Admin User</th>
+                <th>Action Details</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in logs %}
+            <tr>
+                <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                <td style="font-weight: bold; color: white;">{{ log.admin_name }}</td>
+                <td>{{ log.action }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="3" style="text-align:center; color:#666;">No logs found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+</html>
