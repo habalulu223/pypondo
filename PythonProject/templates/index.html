@@ -29,7 +29,8 @@
         .free .status-badge { background: rgba(0, 243, 255, 0.2); color: var(--neon-blue); }
         .occupied .status-badge { background: rgba(255, 0, 85, 0.2); color: var(--neon-red); }
 
-        input[type="text"] { width: 100%; padding: 10px; margin: 5px 0; background: #0b0c15; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
+        input[type="text"], input[type="number"] { width: 100%; padding: 10px; margin: 5px 0; background: #0b0c15; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
+        select { width: 100%; padding: 10px; margin: 5px 0; background: #0b0c15; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
         input:focus { outline: none; border-color: var(--neon-blue); }
 
         button, .btn { background: transparent; border: 1px solid var(--neon-blue); color: var(--neon-blue); padding: 10px 20px; cursor: pointer; text-transform: uppercase; font-family: 'Orbitron', sans-serif; font-size: 0.9em; transition: 0.3s; display: inline-block; text-decoration: none; margin-top: 10px; }
@@ -48,6 +49,11 @@
         th { background: #1f2430; color: var(--neon-green); font-family: 'Orbitron', sans-serif; }
         tr:hover { background: #1f2430; }
         .pondo-btn { display: block; text-align: center; margin-bottom: 15px; background: linear-gradient(45deg, #00f3ff, #0066ff); color: white !important; border: none; font-weight: bold; }
+        .wallet-box { border: 1px solid #2b3a4d; border-radius: 10px; padding: 14px; margin-bottom: 15px; background: linear-gradient(180deg, #121927, #0c111a); }
+        .wallet-balance { font-size: 2rem; color: var(--neon-green); margin: 6px 0 10px; font-family: 'Orbitron', sans-serif; }
+        .quick-amounts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+        .quick-amounts button { margin-top: 0; padding: 8px 4px; font-size: 0.75rem; }
+        .pay-note { font-size: 0.8rem; color: #9db0c6; margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -88,6 +94,15 @@
                         <h3>{{ pc.name }}</h3>
                         <span class="status-badge">{{ 'In Use' if pc.is_occupied else 'Ready' }}</span>
                     </div>
+                    {% if current_user.is_admin %}
+                        <p style="color:#bbb; font-size:0.85em; margin: 4px 0 8px;">
+                            LAN IP: <strong style="color:white;">{{ pc.lan_ip if pc.lan_ip else 'Not assigned' }}</strong>
+                        </p>
+                        <form action="/admin/set_pc_ip/{{ pc.id }}" method="POST">
+                            <input type="text" name="lan_ip" placeholder="Set LAN IP (blank to clear)" value="{{ pc.lan_ip or '' }}">
+                            <button type="submit" style="width:100%">Save LAN IP</button>
+                        </form>
+                    {% endif %}
 
                     {% if pc.is_occupied %}
                         {% for sess in sessions %}
@@ -119,6 +134,19 @@
                                 {% endfor %}
                             </div>
                         </div>
+                        <div style="margin-top:12px;">
+                            <small style="color:#666; text-transform:uppercase;">LAN Command:</small>
+                            <form action="/pc_command" method="POST">
+                                <input type="hidden" name="pc_id" value="{{ pc.id }}">
+                                <select name="command" required>
+                                    <option value="lock">Lock</option>
+                                    <option value="restart">Restart</option>
+                                    <option value="shutdown">Shutdown</option>
+                                    <option value="wake">Wake</option>
+                                </select>
+                                <button type="submit" style="width:100%">Send to {{ pc.name }}</button>
+                            </form>
+                        </div>
                         {% endif %}
                     {% endif %}
                 </div>
@@ -135,6 +163,39 @@
                     <a href="/bookings" class="btn" style="border-color: #00ff9d; color: #00ff9d; text-align:center;">BOOKINGS</a>
                     <a href="/logs" class="btn" style="border-color: #aaa; color: #aaa; text-align:center;">LOGS</a>
                 </div>
+                <div style="margin-bottom:15px; border:1px solid #333; border-radius:8px; padding:12px;">
+                    <small style="color:#666; text-transform:uppercase;">LAN Discovery</small>
+                    <a href="/admin/auto_assign_ips" class="btn" style="width:100%; box-sizing:border-box; text-align:center;">Auto Assign IPs</a>
+                    <p style="font-size:0.85em; color:#aaa; margin:8px 0 4px;">Server IPs: {{ local_ips|join(', ') if local_ips else 'N/A' }}</p>
+                    <p style="font-size:0.85em; color:#aaa; margin:0 0 4px;">Router/ARP Devices:</p>
+                    <div style="max-height:100px; overflow-y:auto; border-top:1px solid #333; padding-top:6px;">
+                        {% if discovered_ips %}
+                            {% for ip in discovered_ips %}
+                                <div style="font-size:0.85em; color: {{ 'var(--neon-green)' if ip in assigned_ips else '#aaa' }};">{{ ip }}</div>
+                            {% endfor %}
+                        {% else %}
+                            <div style="font-size:0.85em; color:#666;">No LAN IPs discovered.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% else %}
+                <div class="wallet-box">
+                    <small style="color:#7992ac; text-transform:uppercase;">My Wallet</small>
+                    <div class="wallet-balance">₱ {{ "%.2f"|format(current_user.pondo) }}</div>
+                    <form id="onlineTopupForm" action="/topup/online" method="POST">
+                        <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required>
+                        <div class="quick-amounts">
+                            <button type="button" onclick="setTopup(100)">₱100</button>
+                            <button type="button" onclick="setTopup(200)">₱200</button>
+                            <button type="button" onclick="setTopup(500)">₱500</button>
+                            <button type="button" onclick="setTopup(1000)">₱1000</button>
+                        </div>
+                        <button type="submit" style="width:100%; margin-top:10px;">Save Payment Request</button>
+                    </form>
+                    <div class="pay-note">
+                        This only saves your online payment request in the database.
+                    </div>
+                </div>
             {% endif %}
 
             <table>
@@ -142,6 +203,9 @@
                     <tr>
                         <th>Username</th>
                         <th>Credits (₱)</th>
+                        {% if current_user.is_admin %}
+                            <th>Action</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -151,13 +215,45 @@
                         <td style="color: {{ 'var(--neon-green)' if user.pondo > 0 else 'var(--neon-red)' }}">
                             ₱ {{ "%.2f"|format(user.pondo) }}
                         </td>
+                        {% if current_user.is_admin %}
+                            <td>
+                                <a href="/force_stop_user/{{ user.id }}" class="btn btn-red" style="margin-top:0; padding:6px 10px;">
+                                    Force Stop
+                                </a>
+                            </td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
+            {% if not current_user.is_admin %}
+                <div style="margin-top:15px; border:1px solid #333; border-radius:8px; padding:12px;">
+                    <small style="color:#666; text-transform:uppercase;">Recent Top-Ups</small>
+                    <div style="max-height:140px; overflow-y:auto; margin-top:8px;">
+                        {% if recent_payments %}
+                            {% for tx in recent_payments %}
+                                <div style="display:flex; justify-content:space-between; font-size:0.85em; padding:4px 0; border-bottom:1px solid #222;">
+                                    <span style="color:#9db0c6;">{{ tx.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                    <span style="color: {{ 'var(--neon-green)' if tx.status == 'paid' else '#d3a961' }};">
+                                        {{ tx.status|upper }} ₱{{ "%.2f"|format(tx.amount) }}
+                                    </span>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div style="font-size:0.85em; color:#666;">No top-up transactions yet.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
         </div>
 
     </div>
 
+    <script>
+        function setTopup(amount) {
+            var field = document.getElementById('topupAmount');
+            if (field) field.value = amount;
+        }
+    </script>
 </body>
 </html>
