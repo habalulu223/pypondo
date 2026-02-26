@@ -27,11 +27,19 @@ On each Windows client machine:
 
 ```powershell
 $env:LAN_AGENT_TOKEN="replace-with-strong-shared-secret"
+$env:LAN_PC_NAME="PC-1"
+$env:LAN_SERVER_REGISTER_URL="http://192.168.1.10:5000/api/agent/register-lan"
 $env:LAN_AGENT_PORT="5001"
 python lan_agent.py
 ```
 
 Allow inbound TCP `5001` in Windows Firewall for your LAN.
+
+Auto-registration behavior:
+- Client detects its own LAN IPv4.
+- Client calls `POST /api/agent/register-lan` on server.
+- Server updates `PC.lan_ip` for the matching `LAN_PC_NAME`.
+- Optional: set `LAN_REGISTER_INTERVAL_SECONDS` (default `60`, set `0` for one-time registration).
 
 ## 3) Call the API
 

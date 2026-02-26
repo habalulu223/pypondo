@@ -166,8 +166,8 @@
                 <div style="margin-bottom:15px; border:1px solid #333; border-radius:8px; padding:12px;">
                     <small style="color:#666; text-transform:uppercase;">LAN Discovery</small>
                     <a href="/admin/auto_assign_ips" class="btn" style="width:100%; box-sizing:border-box; text-align:center;">Auto Assign IPs</a>
-                    <p style="font-size:0.85em; color:#aaa; margin:8px 0 4px;">Server IPs: {{ local_ips|join(', ') if local_ips else 'N/A' }}</p>
-                    <p style="font-size:0.85em; color:#aaa; margin:0 0 4px;">Router/ARP Devices:</p>
+                    <p style="font-size:0.85em; color:#aaa; margin:8px 0 4px;">Server LAN IPs (IPv4/IPv6): {{ local_ips|join(', ') if local_ips else 'N/A' }}</p>
+                    <p style="font-size:0.85em; color:#aaa; margin:0 0 4px;">Router + LAN Devices (ARP/IPv6 Neighbors):</p>
                     <div style="max-height:100px; overflow-y:auto; border-top:1px solid #333; padding-top:6px;">
                         {% if discovered_ips %}
                             {% for ip in discovered_ips %}

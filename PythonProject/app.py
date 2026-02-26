@@ -30,6 +30,7 @@ HOURLY_RATE = 20.0
 ALLOWED_LAN_COMMANDS = {"lock", "restart", "shutdown", "wake"}
 MAX_TOPUP_AMOUNT = 10000.0
 TOPUP_CURRENCY = os.getenv("TOPUP_CURRENCY", "php").strip().lower() or "php"
+DEFAULT_LAN_AGENT_TOKEN = "pypondo-lan-token-change-me"
 
 
 # --- Database Models ---
@@ -121,25 +122,122 @@ def normalize_ipv4(value):
     return str(ip)
 
 
+def normalize_ipv6(value):
+    raw = value.strip()
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    raw = raw.split("%", 1)[0]
+    try:
+        ip = ipaddress.ip_address(raw)
+    except Exception:
+        return None
+    if ip.version != 6:
+        return None
+    if ip.is_loopback or ip.is_multicast or ip.is_unspecified:
+        return None
+    return str(ip)
+
+
+def normalize_lan_ip(value):
+    if value is None:
+        return None
+    text_value = str(value).strip()
+    if not text_value:
+        return None
+    return normalize_ipv4(text_value) or normalize_ipv6(text_value)
+
+
+def extract_ips_from_text(text):
+    found = []
+    for token in re.split(r"[\s,]+", text):
+        candidate = token.strip("[](){}<>;")
+        if not candidate:
+            continue
+        ip = normalize_lan_ip(candidate)
+        if ip and ip not in found:
+            found.append(ip)
+    return found
+
+
 def get_local_ipv4_addresses():
     try:
         output = subprocess.check_output(["ipconfig"], text=True, encoding="utf-8", errors="ignore")
     except Exception:
         return []
 
-    matches = re.findall(r"(\d+\.\d+\.\d+\.\d+)", output)
     ips = []
-    for value in matches:
+    for value in re.findall(r"(?im)^\s*[^:\r\n]*IPv4[^:\r\n]*:\s*([0-9.]+)\s*$", output):
         ip = normalize_ipv4(value)
         if not ip:
             continue
-        if ip.startswith("169.254.") or ip not in ips:
-            if not ip.startswith("169.254."):
-                ips.append(ip)
+        if ip.startswith("169.254."):
+            continue
+        if ip not in ips:
+            ips.append(ip)
     return ips
 
 
-def discover_lan_ips():
+def get_local_ipv6_addresses():
+    try:
+        output = subprocess.check_output(["ipconfig"], text=True, encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    ips = []
+    for value in re.findall(r"(?im)^\s*[^:\r\n]*IPv6[^:\r\n]*:\s*([0-9a-fA-F:%]+)\s*$", output):
+        ip = normalize_ipv6(value)
+        if not ip:
+            continue
+        if ip not in ips:
+            ips.append(ip)
+    return ips
+
+
+def get_default_gateway_ips():
+    try:
+        output = subprocess.check_output(["ipconfig"], text=True, encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    lines = output.splitlines()
+    gateways = []
+
+    for i, line in enumerate(lines):
+        if "Default Gateway" not in line:
+            continue
+
+        _, _, remainder = line.partition(":")
+        for ip in extract_ips_from_text(remainder):
+            if ip not in gateways:
+                gateways.append(ip)
+
+        if remainder.strip():
+            continue
+
+        j = i + 1
+        while j < len(lines):
+            next_line = lines[j]
+            if not next_line.strip():
+                break
+            if ":" in next_line and "Default Gateway" not in next_line:
+                break
+            for ip in extract_ips_from_text(next_line):
+                if ip not in gateways:
+                    gateways.append(ip)
+            j += 1
+
+    return gateways
+
+
+def get_local_lan_addresses():
+    addresses = []
+    for ip in get_local_ipv4_addresses() + get_local_ipv6_addresses():
+        if ip not in addresses:
+            addresses.append(ip)
+    return addresses
+
+
+def discover_lan_ipv4_neighbors():
     try:
         output = subprocess.check_output(["arp", "-a"], text=True, encoding="utf-8", errors="ignore")
     except Exception:
@@ -156,6 +254,67 @@ def discover_lan_ips():
         if ip not in found:
             found.append(ip)
     return found
+
+
+def discover_lan_ipv6_neighbors():
+    try:
+        output = subprocess.check_output(
+            ["netsh", "interface", "ipv6", "show", "neighbors"],
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+    except Exception:
+        return []
+
+    local_ips = set(get_local_ipv6_addresses())
+    found = []
+    for token in re.split(r"\s+", output):
+        ip = normalize_ipv6(token)
+        if not ip or ip in local_ips:
+            continue
+        if ip not in found:
+            found.append(ip)
+    return found
+
+
+def discover_lan_addresses():
+    local_ips = set(get_local_lan_addresses())
+    found = []
+
+    for ip in get_default_gateway_ips():
+        if ip in local_ips:
+            continue
+        if ip not in found:
+            found.append(ip)
+
+    for ip in discover_lan_ipv4_neighbors() + discover_lan_ipv6_neighbors():
+        if ip in local_ips:
+            continue
+        if ip not in found:
+            found.append(ip)
+
+    return found
+
+
+def discover_lan_ips():
+    return [ip for ip in discover_lan_addresses() if ":" not in ip]
+
+
+def clear_undetected_pc_ips(detected_ips):
+    detected_set = set(detected_ips or [])
+    cleared = []
+    pcs = PC.query.order_by(PC.id.asc()).all()
+
+    for pc in pcs:
+        if not pc.lan_ip:
+            continue
+        if pc.lan_ip in detected_set:
+            continue
+        cleared.append({"pc_id": pc.id, "pc_name": pc.name, "old_ip": pc.lan_ip})
+        pc.lan_ip = None
+
+    return cleared
 
 
 def load_lan_targets():
@@ -184,6 +343,10 @@ def load_lan_targets():
     return normalized
 
 
+def get_lan_agent_token():
+    return os.getenv("LAN_AGENT_TOKEN", DEFAULT_LAN_AGENT_TOKEN).strip() or DEFAULT_LAN_AGENT_TOKEN
+
+
 def resolve_pc_target(pc_name):
     targets = load_lan_targets()
     target = targets.get(pc_name)
@@ -195,7 +358,10 @@ def resolve_pc_target(pc_name):
         return None
 
     default_port = os.getenv("LAN_AGENT_DEFAULT_PORT", "5001").strip() or "5001"
-    return f"http://{pc.lan_ip}:{default_port}"
+    host = pc.lan_ip
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return f"http://{host}:{default_port}"
 
 
 def send_lan_command(pc_name, command, payload=None):
@@ -203,9 +369,7 @@ def send_lan_command(pc_name, command, payload=None):
     if not target:
         return False, f"No LAN agent configured for {pc_name}"
 
-    shared_token = os.getenv("LAN_AGENT_TOKEN", "").strip()
-    if not shared_token:
-        return False, "LAN_AGENT_TOKEN is missing on server"
+    shared_token = get_lan_agent_token()
 
     body = json.dumps({
         "command": command,
@@ -234,6 +398,24 @@ def send_lan_command(pc_name, command, payload=None):
         return False, f"Agent rejected command ({exc.code}): {detail}"
     except Exception as exc:
         return False, f"Failed to reach LAN agent: {exc}"
+
+
+def get_client_ip_from_request():
+    forwarded_for = request.headers.get("X-Forwarded-For", "").strip()
+    if forwarded_for:
+        first_ip = forwarded_for.split(",")[0].strip()
+        ip = normalize_lan_ip(first_ip)
+        if ip:
+            return ip
+
+    real_ip = request.headers.get("X-Real-IP", "").strip()
+    if real_ip:
+        ip = normalize_lan_ip(real_ip)
+        if ip:
+            return ip
+
+    remote_addr = (request.remote_addr or "").strip()
+    return normalize_lan_ip(remote_addr)
 
 
 def finalize_session(session):
@@ -344,8 +526,8 @@ def index():
     users = User.query.all() if current_user.is_admin else [current_user]
     active_sessions = Session.query.filter_by(end_time=None).all()
     recent_payments = PaymentTransaction.query.filter_by(user_id=current_user.id).order_by(PaymentTransaction.created_at.desc()).limit(5).all()
-    local_ips = get_local_ipv4_addresses() if current_user.is_admin else []
-    discovered_ips = discover_lan_ips() if current_user.is_admin else []
+    local_ips = get_local_lan_addresses() if current_user.is_admin else []
+    discovered_ips = discover_lan_addresses() if current_user.is_admin else []
     assigned_ips = {pc.lan_ip for pc in pcs if pc.lan_ip}
     return render_template(
         'index.html',
@@ -416,14 +598,17 @@ def auto_assign_ips():
     if not current_user.is_admin:
         return redirect(url_for('index'))
 
-    discovered = discover_lan_ips()
-    if not discovered:
-        flash('No LAN IPs discovered. Ensure clients are online and visible in ARP table.', 'error')
+    discovered_all = discover_lan_addresses()
+    discovered_ipv4 = [ip for ip in discovered_all if ":" not in ip]
+    cleared = clear_undetected_pc_ips(discovered_all) if discovered_all else []
+
+    if not discovered_ipv4 and not cleared:
+        flash('No LAN IPv4 devices discovered. Ensure clients are online and visible in ARP table.', 'error')
         return redirect(url_for('index'))
 
     pcs = PC.query.order_by(PC.id.asc()).all()
     already_used = {pc.lan_ip for pc in pcs if pc.lan_ip}
-    available = [ip for ip in discovered if ip not in already_used]
+    available = [ip for ip in discovered_ipv4 if ip not in already_used]
 
     assigned_count = 0
     for pc in pcs:
@@ -434,9 +619,12 @@ def auto_assign_ips():
         pc.lan_ip = available.pop(0)
         assigned_count += 1
 
-    db.session.add(AdminLog(admin_name=current_user.username, action=f"Auto-assigned LAN IPs to {assigned_count} PC(s)"))
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action=f"Auto-assign LAN sync: cleared {len(cleared)} stale IP(s), assigned {assigned_count} IP(s)"
+    ))
     db.session.commit()
-    flash(f'Auto-assigned LAN IP to {assigned_count} PC(s).', 'success')
+    flash(f'LAN sync complete. Cleared {len(cleared)} stale IP(s), assigned {assigned_count} IP(s).', 'success')
     return redirect(url_for('index'))
 
 
@@ -459,9 +647,9 @@ def set_pc_ip(pc_id):
         flash(f'Cleared LAN IP for {pc.name}.', 'info')
         return redirect(url_for('index'))
 
-    ip = normalize_ipv4(raw_ip)
+    ip = normalize_lan_ip(raw_ip)
     if not ip:
-        flash('Invalid IPv4 address.', 'error')
+        flash('Invalid IP address.', 'error')
         return redirect(url_for('index'))
 
     in_use = PC.query.filter(PC.id != pc.id, PC.lan_ip == ip).first()
@@ -814,8 +1002,9 @@ def api_admin_lan_discovery():
     pcs = PC.query.order_by(PC.id.asc()).all()
     return jsonify({
         "ok": True,
-        "local_ips": get_local_ipv4_addresses(),
-        "discovered_ips": discover_lan_ips(),
+        "local_ips": get_local_lan_addresses(),
+        "discovered_ips": discover_lan_addresses(),
+        "gateway_ips": get_default_gateway_ips(),
         "pc_assignments": [{"pc_id": pc.id, "pc_name": pc.name, "lan_ip": pc.lan_ip} for pc in pcs]
     }), 200
 
@@ -826,10 +1015,16 @@ def api_admin_auto_assign_ips():
     if not current_user.is_admin:
         return jsonify({"ok": False, "error": "admin-only endpoint"}), 403
 
-    discovered = discover_lan_ips()
+    discovered_all = discover_lan_addresses()
+    discovered_ipv4 = [ip for ip in discovered_all if ":" not in ip]
+    cleared = clear_undetected_pc_ips(discovered_all) if discovered_all else []
+
+    if not discovered_ipv4 and not cleared:
+        return jsonify({"ok": False, "error": "no LAN IPv4 devices discovered"}), 404
+
     pcs = PC.query.order_by(PC.id.asc()).all()
     already_used = {pc.lan_ip for pc in pcs if pc.lan_ip}
-    available = [ip for ip in discovered if ip not in already_used]
+    available = [ip for ip in discovered_ipv4 if ip not in already_used]
 
     assigned = []
     for pc in pcs:
@@ -839,9 +1034,54 @@ def api_admin_auto_assign_ips():
         pc.lan_ip = ip
         assigned.append({"pc_id": pc.id, "pc_name": pc.name, "lan_ip": ip})
 
-    db.session.add(AdminLog(admin_name=current_user.username, action=f"API auto-assigned LAN IPs to {len(assigned)} PC(s)"))
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action=f"API auto-assign LAN sync: cleared {len(cleared)} stale IP(s), assigned {len(assigned)} IP(s)"
+    ))
     db.session.commit()
-    return jsonify({"ok": True, "assigned_count": len(assigned), "assigned": assigned}), 200
+    return jsonify({
+        "ok": True,
+        "cleared_count": len(cleared),
+        "cleared": cleared,
+        "assigned_count": len(assigned),
+        "assigned": assigned
+    }), 200
+
+
+@app.route('/api/agent/register-lan', methods=['POST'])
+def api_agent_register_lan():
+    shared_token = get_lan_agent_token()
+
+    provided_token = request.headers.get("X-Agent-Token", "").strip()
+    if provided_token != shared_token:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    pc_name = str(data.get("pc_name", "")).strip()
+    if not pc_name:
+        return jsonify({"ok": False, "error": "pc_name is required"}), 400
+
+    pc = PC.query.filter_by(name=pc_name).first()
+    if not pc:
+        return jsonify({"ok": False, "error": "pc not found"}), 404
+
+    body_ip = normalize_lan_ip(str(data.get("lan_ip", "")).strip()) if data.get("lan_ip") else None
+    detected_ip = body_ip or get_client_ip_from_request()
+    if not detected_ip:
+        return jsonify({"ok": False, "error": "unable to determine LAN IP"}), 400
+
+    in_use = PC.query.filter(PC.id != pc.id, PC.lan_ip == detected_ip).first()
+    if in_use:
+        return jsonify({
+            "ok": False,
+            "error": f"IP already assigned to {in_use.name}",
+            "lan_ip": detected_ip
+        }), 409
+
+    pc.lan_ip = detected_ip
+    db.session.add(AdminLog(admin_name=f"agent:{pc_name}", action=f"Auto-registered LAN IP {detected_ip}"))
+    db.session.commit()
+    return jsonify({"ok": True, "pc_name": pc_name, "lan_ip": detected_ip}), 200
 
 
 if __name__ == '__main__':
