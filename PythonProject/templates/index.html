@@ -96,7 +96,7 @@
                     </div>
                     {% if current_user.is_admin %}
                         <p style="color:#bbb; font-size:0.85em; margin: 4px 0 8px;">
-                            LAN IP: <strong style="color:white;">{{ pc.lan_ip if pc.lan_ip else 'Not assigned' }}</strong>
+                            LAN Target: <strong style="color:white;">{{ (pc.lan_ip ~ ':' ~ pc.lan_port) if pc.lan_ip and pc.lan_port else (pc.lan_ip if pc.lan_ip else 'Not assigned') }}</strong>
                         </p>
                         <form action="/admin/set_pc_ip/{{ pc.id }}" method="POST">
                             <input type="text" name="lan_ip" placeholder="Set LAN IP (blank to clear)" value="{{ pc.lan_ip or '' }}">
@@ -167,7 +167,26 @@
                     <small style="color:#666; text-transform:uppercase;">LAN Discovery</small>
                     <a href="/admin/auto_assign_ips" class="btn" style="width:100%; box-sizing:border-box; text-align:center;">Auto Assign IPs</a>
                     <p style="font-size:0.85em; color:#aaa; margin:8px 0 4px;">Server LAN IPs (IPv4/IPv6): {{ local_ips|join(', ') if local_ips else 'N/A' }}</p>
-                    <p style="font-size:0.85em; color:#aaa; margin:0 0 4px;">Router + LAN Devices (ARP/IPv6 Neighbors):</p>
+                    {% if lan_summary %}
+                        <p style="font-size:0.85em; color:#aaa; margin:2px 0 2px;">Router: {{ lan_summary.gateway_ipv4 or 'N/A' }} | Mask: {{ lan_summary.subnet_mask or 'N/A' }}</p>
+                        <p style="font-size:0.85em; color:#aaa; margin:0 0 4px;">Network: {{ lan_summary.cidr }} | Used: {{ lan_summary.used_ipv4_count }}/{{ lan_summary.total_usable_hosts }} | Free: {{ lan_summary.available_ipv4_count }}</p>
+                    {% endif %}
+                    {% if gateway_scan %}
+                        {% if gateway_scan.ok %}
+                            <p style="font-size:0.85em; color:#aaa; margin:0 0 4px;">Active Clients by Gateway Scan (DNS checked): {{ gateway_scan.client_count }}{% if gateway_scan.stale %} (refreshing...){% endif %}</p>
+                            <div style="max-height:110px; overflow-y:auto; border-top:1px solid #333; padding-top:6px; margin-bottom:6px;">
+                                {% for host in gateway_scan.clients %}
+                                    <div style="font-size:0.82em; color:#9db0c6;">{{ host.ip }} - {{ host.source_pc_name or host.device_name or 'unknown' }}</div>
+                                {% endfor %}
+                                {% if not gateway_scan.clients %}
+                                    <div style="font-size:0.85em; color:#666;">No active client hosts found in subnet.</div>
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            <p style="font-size:0.85em; color:#d3a961; margin:0 0 4px;">Gateway scan: {{ gateway_scan.error }}</p>
+                        {% endif %}
+                    {% endif %}
+                    <p style="font-size:0.85em; color:#aaa; margin:0 0 4px;">Detected PC/Client IPs (router excluded):</p>
                     <div style="max-height:100px; overflow-y:auto; border-top:1px solid #333; padding-top:6px;">
                         {% if discovered_ips %}
                             {% for ip in discovered_ips %}
@@ -175,6 +194,24 @@
                             {% endfor %}
                         {% else %}
                             <div style="font-size:0.85em; color:#666;">No LAN IPs discovered.</div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div style="margin-bottom:15px; border:1px solid #333; border-radius:8px; padding:12px;">
+                    <small style="color:#666; text-transform:uppercase;">Agent Status</small>
+                    <p style="font-size:0.8em; color:#777; margin:6px 0 6px;">OFFLINE means no recent agent heartbeat; PC may be on but agent/network may be down.</p>
+                    <div style="max-height:180px; overflow-y:auto; margin-top:8px; border-top:1px solid #333; padding-top:6px;">
+                        {% if agent_status %}
+                            {% for row in agent_status %}
+                                <div style="display:flex; justify-content:space-between; gap:8px; font-size:0.82em; padding:5px 0; border-bottom:1px solid #222;">
+                                    <span style="color:#9db0c6;">{{ row.pc_name }}{% if row.lan_ip %} ({{ row.lan_ip }}){% endif %}</span>
+                                    <span style="color: {{ 'var(--neon-green)' if row.online else '#d3a961' }};">{{ 'ONLINE' if row.online else 'OFFLINE' }}</span>
+                                    <span style="color:#aaa;">{{ row.seen_text }}</span>
+                                    <span style="color: {{ 'var(--neon-red)' if row.queue_count > 0 else '#666' }};">Q: {{ row.queue_count }}</span>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div style="font-size:0.85em; color:#666;">No agent status data yet.</div>
                         {% endif %}
                     </div>
                 </div>

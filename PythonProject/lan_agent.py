@@ -17,6 +17,11 @@ PORT = int(os.getenv("LAN_AGENT_PORT", "5001"))
 PC_NAME = os.getenv("LAN_PC_NAME", "").strip()
 REGISTER_URL = os.getenv("LAN_SERVER_REGISTER_URL", "").strip()
 REGISTER_INTERVAL_SECONDS = int(os.getenv("LAN_REGISTER_INTERVAL_SECONDS", "60"))
+SERVER_BASE_URL = os.getenv("LAN_SERVER_BASE_URL", "").strip()
+COMMAND_POLL_URL = os.getenv("LAN_SERVER_COMMAND_POLL_URL", "").strip()
+COMMAND_ACK_URL = os.getenv("LAN_SERVER_COMMAND_ACK_URL", "").strip()
+POLL_INTERVAL_SECONDS = int(os.getenv("LAN_POLL_INTERVAL_SECONDS", "3"))
+AGENT_IDENTITY = PC_NAME or socket.gethostname()
 
 
 def detect_local_lan_ip():
@@ -56,6 +61,16 @@ def register_with_server():
         with http_request.urlopen(req, timeout=8) as response:
             payload = json.loads(response.read().decode("utf-8") or "{}")
             if payload.get("ok"):
+                pending = payload.get("pending_command")
+                if isinstance(pending, dict) and pending.get("command"):
+                    command_id = pending.get("command_id")
+                    command = str(pending.get("command", "")).strip().lower()
+                    server_pc_name = str(pending.get("pc_name", "")).strip() or AGENT_IDENTITY
+                    exec_ok, exec_message = execute_allowed_command(command)
+                    ack_ok, ack_message = ack_command_to_server(command_id, exec_ok, exec_message, pc_identity=server_pc_name)
+                    if not ack_ok:
+                        return True, f"Registered {payload.get('pc_name')} -> {payload.get('lan_ip')} | executed queued #{command_id} ({'ok' if exec_ok else 'fail'}) but ack failed: {ack_message}"
+                    return True, f"Registered {payload.get('pc_name')} -> {payload.get('lan_ip')} | executed queued #{command_id}: {'ok' if exec_ok else 'fail'}"
                 return True, f"Registered {payload.get('pc_name')} -> {payload.get('lan_ip')}"
             return False, payload.get("error", "Registration failed")
     except http_error.HTTPError as exc:
@@ -65,6 +80,24 @@ def register_with_server():
         return False, str(exc)
 
 
+def resolve_server_url(path):
+    if SERVER_BASE_URL:
+        return SERVER_BASE_URL.rstrip("/") + path
+    if REGISTER_URL and "/api/agent/register-lan" in REGISTER_URL:
+        return REGISTER_URL.split("/api/agent/register-lan", 1)[0] + path
+    if REGISTER_URL and "/api/" in REGISTER_URL:
+        return REGISTER_URL.split("/api/", 1)[0] + path
+    return ""
+
+
+def get_poll_url():
+    return COMMAND_POLL_URL or resolve_server_url("/api/agent/pull-command")
+
+
+def get_ack_url():
+    return COMMAND_ACK_URL or resolve_server_url("/api/agent/ack-command")
+
+
 def registration_loop():
     while True:
         ok, message = register_with_server()
@@ -72,6 +105,93 @@ def registration_loop():
         if REGISTER_INTERVAL_SECONDS <= 0:
             break
         time.sleep(REGISTER_INTERVAL_SECONDS)
+
+
+def pull_command_from_server():
+    poll_url = get_poll_url()
+    if not poll_url or not AGENT_TOKEN:
+        return False, "Polling disabled (missing URL/token)", None
+
+    body = json.dumps({
+        "pc_name": AGENT_IDENTITY,
+        "lan_ip": detect_local_lan_ip()
+    }).encode("utf-8")
+    req = http_request.Request(
+        poll_url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Agent-Token": AGENT_TOKEN
+        }
+    )
+
+    try:
+        with http_request.urlopen(req, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8") or "{}")
+            return True, "ok", payload
+    except http_error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        return False, f"HTTP {exc.code}: {detail}", None
+    except Exception as exc:
+        return False, str(exc), None
+
+
+def ack_command_to_server(command_id, ok, message, pc_identity=None):
+    ack_url = get_ack_url()
+    if not ack_url or not AGENT_TOKEN:
+        return False, "Ack skipped (missing URL/token)"
+
+    identity = (pc_identity or AGENT_IDENTITY).strip() or AGENT_IDENTITY
+    body = json.dumps({
+        "pc_name": identity,
+        "lan_ip": detect_local_lan_ip(),
+        "command_id": command_id,
+        "ok": bool(ok),
+        "message": str(message or "")
+    }).encode("utf-8")
+    req = http_request.Request(
+        ack_url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Agent-Token": AGENT_TOKEN
+        }
+    )
+
+    try:
+        with http_request.urlopen(req, timeout=8):
+            return True, "ok"
+    except http_error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        return False, f"HTTP {exc.code}: {detail}"
+    except Exception as exc:
+        return False, str(exc)
+
+
+def command_poll_loop():
+    while True:
+        ok, message, payload = pull_command_from_server()
+        if not ok:
+            print(f"[LAN_AGENT] poll: fail - {message}")
+            time.sleep(max(1, POLL_INTERVAL_SECONDS))
+            continue
+
+        if not isinstance(payload, dict) or payload.get("no_command", False):
+            time.sleep(max(1, POLL_INTERVAL_SECONDS))
+            continue
+
+        command_id = payload.get("command_id")
+        server_pc_name = str(payload.get("pc_name", "")).strip() or AGENT_IDENTITY
+        command = str(payload.get("command", "")).strip().lower()
+        exec_ok, exec_message = execute_allowed_command(command)
+        print(f"[LAN_AGENT] polled command #{command_id}: {command} -> {'ok' if exec_ok else 'fail'} ({exec_message})")
+
+        ack_ok, ack_message = ack_command_to_server(command_id, exec_ok, exec_message, pc_identity=server_pc_name)
+        if not ack_ok:
+            print(f"[LAN_AGENT] ack fail for #{command_id}: {ack_message}")
+        time.sleep(0.2)
 
 
 def run_windows_command(command_args):
@@ -129,4 +249,9 @@ if __name__ == "__main__":
         threading.Thread(target=registration_loop, daemon=True).start()
     else:
         print("[LAN_AGENT] Auto-registration disabled. Set LAN_SERVER_REGISTER_URL, LAN_PC_NAME, and LAN_AGENT_TOKEN.")
+    if get_poll_url() and get_ack_url() and AGENT_TOKEN:
+        threading.Thread(target=command_poll_loop, daemon=True).start()
+        print(f"[LAN_AGENT] Command polling enabled for {AGENT_IDENTITY} every {max(1, POLL_INTERVAL_SECONDS)}s")
+    else:
+        print("[LAN_AGENT] Command polling disabled. Set LAN_SERVER_BASE_URL or LAN_SERVER_COMMAND_POLL_URL/LAN_SERVER_COMMAND_ACK_URL with LAN_AGENT_TOKEN.")
     app.run(host=HOST, port=PORT, debug=False)

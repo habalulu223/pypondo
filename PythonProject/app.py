@@ -13,6 +13,10 @@ from decimal import Decimal, InvalidOperation
 from urllib import request as http_request
 from urllib import error as http_error
 from sqlalchemy import text
+import socket
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 app = Flask(__name__)
 
@@ -26,11 +30,17 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-HOURLY_RATE = 20.0
+HOURLY_RATE = 15.0
 ALLOWED_LAN_COMMANDS = {"lock", "restart", "shutdown", "wake"}
 MAX_TOPUP_AMOUNT = 10000.0
 TOPUP_CURRENCY = os.getenv("TOPUP_CURRENCY", "php").strip().lower() or "php"
 DEFAULT_LAN_AGENT_TOKEN = "pypondo-lan-token-change-me"
+LAN_SCAN_CACHE = {"timestamp": 0, "cidr": None, "result": None, "scan_in_progress": False}
+LAN_SCAN_LOCK = threading.Lock()
+NETWORK_CMD_CACHE = {}
+NETWORK_CMD_CACHE_LOCK = threading.Lock()
+HOSTNAME_CACHE = {}
+HOSTNAME_CACHE_LOCK = threading.Lock()
 
 
 # --- Database Models ---
@@ -54,6 +64,8 @@ class PC(db.Model):
     name = db.Column(db.String(20), unique=True, nullable=False)
     is_occupied = db.Column(db.Boolean, default=False)
     lan_ip = db.Column(db.String(64), nullable=True)
+    lan_port = db.Column(db.Integer, nullable=True)
+    last_agent_seen_at = db.Column(db.DateTime, nullable=True)
 
 
 class Booking(db.Model):
@@ -94,9 +106,22 @@ class PaymentTransaction(db.Model):
     credited_at = db.Column(db.DateTime, nullable=True)
 
 
+class LanCommand(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    pc_name = db.Column(db.String(64), nullable=False, index=True)
+    command = db.Column(db.String(32), nullable=False)
+    payload_json = db.Column(db.Text, nullable=False, default="{}")
+    status = db.Column(db.String(16), nullable=False, default="queued", index=True)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True)
+    sent_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    result_message = db.Column(db.String(512), nullable=True)
+
+
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 
 def ensure_pc_lan_ip_column():
@@ -108,6 +133,22 @@ def ensure_pc_lan_ip_column():
     if "lan_ip" not in cols:
         db.session.execute(text("ALTER TABLE pc ADD COLUMN lan_ip VARCHAR(64)"))
         db.session.commit()
+    if "lan_port" not in cols:
+        db.session.execute(text("ALTER TABLE pc ADD COLUMN lan_port INTEGER"))
+        db.session.commit()
+    if "last_agent_seen_at" not in cols:
+        db.session.execute(text("ALTER TABLE pc ADD COLUMN last_agent_seen_at DATETIME"))
+        db.session.commit()
+
+
+def normalize_agent_port(value):
+    try:
+        port = int(str(value).strip())
+    except Exception:
+        return None
+    if port < 1 or port > 65535:
+        return None
+    return port
 
 
 def normalize_ipv4(value):
@@ -159,10 +200,26 @@ def extract_ips_from_text(text):
     return found
 
 
-def get_local_ipv4_addresses():
+def run_cached_network_command(cache_key, command_args, ttl_seconds):
+    now = time.time()
+    with NETWORK_CMD_CACHE_LOCK:
+        cached = NETWORK_CMD_CACHE.get(cache_key)
+        if cached and (now - cached["timestamp"] < ttl_seconds):
+            return cached["output"]
+
     try:
-        output = subprocess.check_output(["ipconfig"], text=True, encoding="utf-8", errors="ignore")
+        output = subprocess.check_output(command_args, text=True, encoding="utf-8", errors="ignore")
     except Exception:
+        output = ""
+
+    with NETWORK_CMD_CACHE_LOCK:
+        NETWORK_CMD_CACHE[cache_key] = {"timestamp": now, "output": output}
+    return output
+
+
+def get_local_ipv4_addresses():
+    output = run_cached_network_command("ipconfig", ["ipconfig"], ttl_seconds=8)
+    if not output:
         return []
 
     ips = []
@@ -178,9 +235,8 @@ def get_local_ipv4_addresses():
 
 
 def get_local_ipv6_addresses():
-    try:
-        output = subprocess.check_output(["ipconfig"], text=True, encoding="utf-8", errors="ignore")
-    except Exception:
+    output = run_cached_network_command("ipconfig", ["ipconfig"], ttl_seconds=8)
+    if not output:
         return []
 
     ips = []
@@ -194,9 +250,8 @@ def get_local_ipv6_addresses():
 
 
 def get_default_gateway_ips():
-    try:
-        output = subprocess.check_output(["ipconfig"], text=True, encoding="utf-8", errors="ignore")
-    except Exception:
+    output = run_cached_network_command("ipconfig", ["ipconfig"], ttl_seconds=8)
+    if not output:
         return []
 
     lines = output.splitlines()
@@ -229,6 +284,357 @@ def get_default_gateway_ips():
     return gateways
 
 
+def parse_ipv4_interfaces():
+    output = run_cached_network_command("ipconfig", ["ipconfig"], ttl_seconds=8)
+    if not output:
+        return []
+
+    interfaces = []
+    current = {}
+
+    def flush_current():
+        if current.get("ipv4") and current.get("subnet_mask"):
+            interfaces.append({
+                "name": current.get("name", "Unknown"),
+                "ipv4": current["ipv4"],
+                "subnet_mask": current["subnet_mask"],
+                "default_gateway": current.get("default_gateway")
+            })
+
+    for raw_line in output.splitlines():
+        line = raw_line.rstrip()
+
+        if line and not raw_line.startswith(" "):
+            flush_current()
+            current = {"name": line.strip().rstrip(":")}
+            continue
+
+        if "IPv4 Address" in line:
+            _, _, value = line.partition(":")
+            ip = normalize_ipv4(value.strip())
+            if ip:
+                current["ipv4"] = ip
+            continue
+
+        if "Subnet Mask" in line:
+            _, _, value = line.partition(":")
+            mask = normalize_ipv4(value.strip())
+            if mask:
+                current["subnet_mask"] = mask
+            continue
+
+        if "Default Gateway" in line:
+            _, _, value = line.partition(":")
+            gateway = None
+            for ip in extract_ips_from_text(value):
+                if ":" in ip:
+                    continue
+                gateway = ip
+                break
+            if gateway:
+                current["default_gateway"] = gateway
+            continue
+
+    flush_current()
+    return interfaces
+
+
+def build_primary_ipv4_network_summary():
+    interfaces = parse_ipv4_interfaces()
+    if not interfaces:
+        return None
+
+    primary = None
+    for iface in interfaces:
+        if iface.get("default_gateway"):
+            primary = iface
+            break
+    if primary is None:
+        primary = interfaces[0]
+
+    try:
+        network = ipaddress.IPv4Network(f"{primary['ipv4']}/{primary['subnet_mask']}", strict=False)
+    except Exception:
+        return None
+
+    total_addresses = int(network.num_addresses)
+    if network.prefixlen >= 31:
+        total_usable = total_addresses
+    else:
+        total_usable = max(total_addresses - 2, 0)
+
+    used = set()
+    local_ip = normalize_ipv4(primary.get("ipv4", ""))
+    gateway_ip = normalize_ipv4(primary.get("default_gateway", "") or "")
+
+    if local_ip and ipaddress.IPv4Address(local_ip) in network:
+        used.add(local_ip)
+    if gateway_ip and ipaddress.IPv4Address(gateway_ip) in network:
+        used.add(gateway_ip)
+
+    for ip in discover_lan_ipv4_neighbors():
+        try:
+            if ipaddress.IPv4Address(ip) in network:
+                used.add(ip)
+        except Exception:
+            continue
+
+    used_count = len(used)
+    available_count = max(total_usable - used_count, 0)
+
+    return {
+        "interface": primary.get("name"),
+        "local_ipv4": local_ip,
+        "subnet_mask": primary.get("subnet_mask"),
+        "gateway_ipv4": gateway_ip,
+        "network": str(network.network_address),
+        "broadcast": str(network.broadcast_address),
+        "cidr": str(network),
+        "prefixlen": int(network.prefixlen),
+        "total_usable_hosts": total_usable,
+        "used_ipv4_count": used_count,
+        "available_ipv4_count": available_count,
+        "used_ipv4": sorted(used, key=lambda value: tuple(int(part) for part in value.split(".")))
+    }
+
+
+def ping_ipv4_host(ip, timeout_ms=200):
+    try:
+        return subprocess.run(
+            ["ping", "-n", "1", "-w", str(timeout_ms), ip],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        ).returncode == 0
+    except Exception:
+        return False
+
+
+def reverse_dns_name(ip):
+    ttl = int(os.getenv("LAN_DNS_CACHE_TTL_SECONDS", "300"))
+    now = time.time()
+    with HOSTNAME_CACHE_LOCK:
+        cached = HOSTNAME_CACHE.get(ip)
+        if cached and (now - cached["timestamp"] < ttl):
+            return cached["hostname"]
+
+    try:
+        host, _, _ = socket.gethostbyaddr(ip)
+        value = host
+    except Exception:
+        value = None
+
+    with HOSTNAME_CACHE_LOCK:
+        HOSTNAME_CACHE[ip] = {"timestamp": now, "hostname": value}
+    return value
+
+
+def netbios_name(ip, timeout_seconds=0.5):
+    try:
+        result = subprocess.run(
+            ["nbtstat", "-A", ip],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=timeout_seconds
+        )
+    except Exception:
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    match = re.search(r"(?im)^\s*([^\s<]+)\s+<00>\s+UNIQUE\s*$", result.stdout)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def short_host_name(value):
+    if not value:
+        return None
+    return str(value).split(".", 1)[0].strip() or None
+
+
+def _quick_gateway_scan_result(summary):
+    gateway_ip = summary.get("gateway_ipv4")
+    local_ip = summary.get("local_ipv4")
+
+    clients = []
+    for ip in discover_lan_ipv4_neighbors():
+        if ip in {gateway_ip, local_ip}:
+            continue
+        clients.append({
+            "ip": ip,
+            "hostname": "unknown",
+            "source_pc_name": "unknown"
+        })
+
+    clients = sorted(clients, key=lambda row: tuple(int(part) for part in row["ip"].split(".")))
+    return {
+        "ok": True,
+        "network": summary["cidr"],
+        "gateway_ipv4": gateway_ip,
+        "local_ipv4": local_ip,
+        "client_count": len(clients),
+        "clients": clients,
+        "stale": True,
+        "mode": "quick"
+    }
+
+
+def _full_gateway_scan(summary):
+    network = ipaddress.IPv4Network(summary["cidr"], strict=False)
+    max_hosts = int(os.getenv("LAN_SCAN_MAX_HOSTS", "254"))
+    workers = int(os.getenv("LAN_SCAN_WORKERS", "48"))
+    timeout_ms = int(os.getenv("LAN_SCAN_PING_TIMEOUT_MS", "150"))
+    dns_workers = int(os.getenv("LAN_SCAN_DNS_WORKERS", "24"))
+    enable_netbios = str(os.getenv("LAN_SCAN_ENABLE_NETBIOS", "0")).strip().lower() in {"1", "true", "yes"}
+    nbt_timeout = float(os.getenv("LAN_SCAN_NBTSTAT_TIMEOUT_SECONDS", "0.5"))
+    gateway_ip = summary.get("gateway_ipv4")
+    local_ip = summary.get("local_ipv4")
+
+    host_pool = [str(ip) for ip in network.hosts()]
+    if local_ip in host_pool:
+        host_pool.remove(local_ip)
+    if gateway_ip in host_pool:
+        host_pool.remove(gateway_ip)
+
+    if len(host_pool) > max_hosts:
+        result = {
+            "ok": False,
+            "error": f"network too large to scan safely ({len(host_pool)} hosts, max {max_hosts})",
+            "network": summary["cidr"],
+            "gateway_ipv4": gateway_ip,
+            "clients": [],
+            "stale": False,
+            "mode": "full"
+        }
+        return result
+
+    active_ips = set(discover_lan_ipv4_neighbors())
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
+        futures = {executor.submit(ping_ipv4_host, ip, timeout_ms): ip for ip in host_pool}
+        for future in as_completed(futures):
+            ip = futures[future]
+            try:
+                if future.result():
+                    active_ips.add(ip)
+            except Exception:
+                continue
+
+    active_ips.discard(local_ip)
+    active_ips.discard(gateway_ip)
+
+    mapped_pc_by_ip = {pc.lan_ip: pc.name for pc in PC.query.filter(PC.lan_ip.isnot(None)).all()}
+    ordered_ips = sorted(active_ips, key=lambda value: tuple(int(part) for part in value.split(".")))
+    resolved = {}
+
+    def resolve_one(ip):
+        dns_name = reverse_dns_name(ip)
+        nb_name = None
+        if enable_netbios:
+            try:
+                nb_name = netbios_name(ip, timeout_seconds=nbt_timeout)
+            except Exception:
+                nb_name = None
+        return ip, dns_name, nb_name
+
+    with ThreadPoolExecutor(max_workers=max(1, dns_workers)) as executor:
+        futures = {executor.submit(resolve_one, ip): ip for ip in ordered_ips}
+        for future in as_completed(futures):
+            ip = futures[future]
+            try:
+                resolved_ip, dns_name, nb_name = future.result()
+                resolved[resolved_ip] = (dns_name, nb_name)
+            except Exception:
+                resolved[ip] = (None, None)
+
+    clients = []
+    for ip in ordered_ips:
+        dns_name, nb_name = resolved.get(ip, (None, None))
+        source_pc_name = nb_name or short_host_name(dns_name) or "unknown"
+        clients.append({
+            "ip": ip,
+            "hostname": dns_name or "unknown",
+            "source_pc_name": source_pc_name,
+            "device_name": source_pc_name,
+            "mapped_pc_name": mapped_pc_by_ip.get(ip)
+        })
+
+    return {
+        "ok": True,
+        "network": summary["cidr"],
+        "gateway_ipv4": gateway_ip,
+        "local_ipv4": local_ip,
+        "client_count": len(clients),
+        "clients": clients,
+        "stale": False,
+        "mode": "full"
+    }
+
+
+def _store_gateway_scan_cache(cidr, result):
+    with LAN_SCAN_LOCK:
+        LAN_SCAN_CACHE["timestamp"] = time.time()
+        LAN_SCAN_CACHE["cidr"] = cidr
+        LAN_SCAN_CACHE["result"] = result
+        LAN_SCAN_CACHE["scan_in_progress"] = False
+
+
+def _run_gateway_scan_background():
+    summary = build_primary_ipv4_network_summary()
+    if not summary:
+        with LAN_SCAN_LOCK:
+            LAN_SCAN_CACHE["scan_in_progress"] = False
+        return
+    try:
+        result = _full_gateway_scan(summary)
+        _store_gateway_scan_cache(summary["cidr"], result)
+    except Exception:
+        with LAN_SCAN_LOCK:
+            LAN_SCAN_CACHE["scan_in_progress"] = False
+
+
+def _trigger_gateway_scan_background():
+    with LAN_SCAN_LOCK:
+        if LAN_SCAN_CACHE.get("scan_in_progress"):
+            return
+        LAN_SCAN_CACHE["scan_in_progress"] = True
+    threading.Thread(target=_run_gateway_scan_background, daemon=True).start()
+
+
+def get_gateway_client_scan(force=False, non_blocking=False):
+    summary = build_primary_ipv4_network_summary()
+    if not summary:
+        return {"ok": False, "error": "no active IPv4 router network detected", "clients": []}
+
+    ttl = int(os.getenv("LAN_SCAN_TTL_SECONDS", "45"))
+    now = time.time()
+    with LAN_SCAN_LOCK:
+        cached = LAN_SCAN_CACHE.get("result")
+        cached_cidr = LAN_SCAN_CACHE.get("cidr")
+        cached_age = now - float(LAN_SCAN_CACHE.get("timestamp", 0))
+
+    if not force and cached is not None and cached_cidr == summary["cidr"] and cached_age < ttl:
+        return cached
+
+    if non_blocking:
+        _trigger_gateway_scan_background()
+        if cached is not None and cached_cidr == summary["cidr"]:
+            if isinstance(cached, dict):
+                stale_cached = dict(cached)
+                stale_cached["stale"] = True
+                stale_cached["mode"] = stale_cached.get("mode", "cache")
+                return stale_cached
+            return cached
+        return _quick_gateway_scan_result(summary)
+
+    result = _full_gateway_scan(summary)
+    _store_gateway_scan_cache(summary["cidr"], result)
+    return result
+
+
 def get_local_lan_addresses():
     addresses = []
     for ip in get_local_ipv4_addresses() + get_local_ipv6_addresses():
@@ -238,9 +644,8 @@ def get_local_lan_addresses():
 
 
 def discover_lan_ipv4_neighbors():
-    try:
-        output = subprocess.check_output(["arp", "-a"], text=True, encoding="utf-8", errors="ignore")
-    except Exception:
+    output = run_cached_network_command("arp_a", ["arp", "-a"], ttl_seconds=5)
+    if not output:
         return []
 
     local_ips = set(get_local_ipv4_addresses())
@@ -257,14 +662,12 @@ def discover_lan_ipv4_neighbors():
 
 
 def discover_lan_ipv6_neighbors():
-    try:
-        output = subprocess.check_output(
-            ["netsh", "interface", "ipv6", "show", "neighbors"],
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
-    except Exception:
+    output = run_cached_network_command(
+        "netsh_ipv6_neighbors",
+        ["netsh", "interface", "ipv6", "show", "neighbors"],
+        ttl_seconds=10
+    )
+    if not output:
         return []
 
     local_ips = set(get_local_ipv6_addresses())
@@ -301,17 +704,75 @@ def discover_lan_ips():
     return [ip for ip in discover_lan_addresses() if ":" not in ip]
 
 
+def get_gateway_ipv4_set():
+    gateways = set()
+    for ip in get_default_gateway_ips():
+        if ":" in ip:
+            continue
+        normalized = normalize_ipv4(ip)
+        if normalized:
+            gateways.add(normalized)
+    return gateways
+
+
+def get_assignable_pc_ipv4_addresses(online_only=False):
+    local_ipv4 = set(get_local_ipv4_addresses())
+    gateway_ipv4 = get_gateway_ipv4_set()
+    assignable = []
+    dns_only = str(os.getenv("LAN_ASSIGN_DNS_ONLY", "0")).strip().lower() in {"1", "true", "yes"}
+
+    if online_only:
+        scan = get_gateway_client_scan(force=True, non_blocking=False)
+    else:
+        scan = get_gateway_client_scan(non_blocking=True)
+
+    candidate_ips = []
+    if isinstance(scan, dict) and scan.get("ok"):
+        for row in scan.get("clients", []):
+            ip = row.get("ip")
+            if not ip:
+                continue
+            if dns_only:
+                name = str(row.get("source_pc_name", "")).strip().lower()
+                if not name or name == "unknown":
+                    continue
+            if ip not in candidate_ips:
+                candidate_ips.append(ip)
+
+    if not online_only:
+        for ip in discover_lan_ipv4_neighbors():
+            if ip not in candidate_ips:
+                candidate_ips.append(ip)
+
+    for ip in candidate_ips:
+        if not ip:
+            continue
+        if ip in local_ipv4:
+            continue
+        if ip in gateway_ipv4:
+            continue
+        if ip not in assignable:
+            assignable.append(ip)
+
+    return assignable
+
+
 def clear_undetected_pc_ips(detected_ips):
     detected_set = set(detected_ips or [])
+    gateway_ipv4 = get_gateway_ipv4_set()
     cleared = []
     pcs = PC.query.order_by(PC.id.asc()).all()
 
     for pc in pcs:
         if not pc.lan_ip:
             continue
+        if pc.lan_ip in gateway_ipv4:
+            cleared.append({"pc_id": pc.id, "pc_name": pc.name, "old_ip": pc.lan_ip, "reason": "gateway_ip"})
+            pc.lan_ip = None
+            continue
         if pc.lan_ip in detected_set:
             continue
-        cleared.append({"pc_id": pc.id, "pc_name": pc.name, "old_ip": pc.lan_ip})
+        cleared.append({"pc_id": pc.id, "pc_name": pc.name, "old_ip": pc.lan_ip, "reason": "not_detected"})
         pc.lan_ip = None
 
     return cleared
@@ -347,27 +808,178 @@ def get_lan_agent_token():
     return os.getenv("LAN_AGENT_TOKEN", DEFAULT_LAN_AGENT_TOKEN).strip() or DEFAULT_LAN_AGENT_TOKEN
 
 
-def resolve_pc_target(pc_name):
+def resolve_pc_targets(pc_name):
     targets = load_lan_targets()
     target = targets.get(pc_name)
     if target:
-        return target
+        return [target]
 
     pc = PC.query.filter_by(name=pc_name).first()
     if not pc or not pc.lan_ip:
-        return None
+        return []
 
-    default_port = os.getenv("LAN_AGENT_DEFAULT_PORT", "5001").strip() or "5001"
+    ports = []
+    if pc.lan_port:
+        ports.append(pc.lan_port)
+
+    default_port = normalize_agent_port(os.getenv("LAN_AGENT_DEFAULT_PORT", "5001"))
+    if default_port:
+        ports.append(default_port)
+
+    for fallback in (5001, 5000):
+        if fallback not in ports:
+            ports.append(fallback)
+
     host = pc.lan_ip
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
-    return f"http://{host}:{default_port}"
+    return [f"http://{host}:{port}" for port in ports]
+
+
+def remote_windows_control_fallback(pc_name, command):
+    if command not in {"restart", "shutdown"}:
+        return False, "No fallback path for this command"
+
+    pc = PC.query.filter_by(name=pc_name).first()
+    if not pc or not pc.lan_ip or ":" in pc.lan_ip:
+        return False, "Fallback requires PC IPv4 address"
+
+    unc_host = f"\\\\{pc.lan_ip}"
+    target_ipc = f"{unc_host}\\IPC$"
+    shutdown_flag = "/r" if command == "restart" else "/s"
+    remote_user = os.getenv("LAN_REMOTE_USERNAME", "").strip()
+    remote_password = os.getenv("LAN_REMOTE_PASSWORD", "").strip()
+
+    try:
+        # First try with the current Windows session credentials.
+        control = subprocess.run(
+            ["shutdown", "/m", unc_host, shutdown_flag, "/t", "0", "/f"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+        if control.returncode == 0:
+            return True, f"Fallback {command} sent via remote Windows control (current credentials)"
+
+        initial_detail = (control.stderr or control.stdout or "").strip()
+        if not remote_user or not remote_password:
+            return False, f"Fallback failed using current credentials: {initial_detail or 'access denied'}. Set LAN_REMOTE_USERNAME and LAN_REMOTE_PASSWORD."
+
+        login = subprocess.run(
+            ["net", "use", target_ipc, remote_password, f"/user:{remote_user}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+        if login.returncode != 0:
+            detail = (login.stderr or login.stdout or "").strip()
+            return False, f"Fallback auth failed: {detail or 'cannot authenticate to remote host'}"
+
+        control = subprocess.run(
+            ["shutdown", "/m", unc_host, shutdown_flag, "/t", "0", "/f"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+        if control.returncode != 0:
+            detail = (control.stderr or control.stdout or "").strip()
+            return False, f"Fallback remote command failed after auth: {detail or 'unknown error'}"
+        return True, f"Fallback {command} sent via remote Windows control (explicit credentials)"
+    except Exception as exc:
+        return False, f"Fallback failed: {exc}"
+    finally:
+        try:
+            subprocess.run(
+                ["net", "use", target_ipc, "/delete", "/y"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore"
+            )
+        except Exception:
+            pass
+
+
+def get_agent_status_note(pc_name):
+    pc = PC.query.filter_by(name=pc_name).first()
+    if not pc:
+        return "agent status: unknown PC"
+    if not pc.last_agent_seen_at:
+        return "agent status: never seen"
+    age_seconds = int(max((datetime.now() - pc.last_agent_seen_at).total_seconds(), 0))
+    if age_seconds < 60:
+        return f"agent status: last seen {age_seconds}s ago"
+    return f"agent status: last seen {age_seconds // 60}m ago"
+
+
+def enqueue_lan_command(pc_name, command, payload=None, note=None):
+    payload_data = payload if isinstance(payload, dict) else {}
+    existing = LanCommand.query.filter(
+        LanCommand.pc_name == pc_name,
+        LanCommand.command == command,
+        LanCommand.status.in_(["queued", "sent"])
+    ).order_by(LanCommand.created_at.asc()).first()
+    if existing is not None:
+        return existing, False
+
+    queued = LanCommand(
+        pc_name=pc_name,
+        command=command,
+        payload_json=json.dumps(payload_data),
+        status="queued"
+    )
+    db.session.add(queued)
+    db.session.flush()
+    db.session.add(AdminLog(
+        admin_name="system",
+        action=f"Queued LAN command #{queued.id} for {pc_name}: {command}" + (f" ({note})" if note else "")
+    ))
+    db.session.commit()
+    return queued, True
+
+
+def pick_next_lan_command_for_names(candidate_names):
+    if not candidate_names:
+        return None
+
+    now = datetime.now()
+    retry_after_seconds = int(os.getenv("LAN_COMMAND_RETRY_AFTER_SECONDS", "20"))
+
+    cmd = LanCommand.query.filter(
+        LanCommand.pc_name.in_(candidate_names),
+        LanCommand.status == "queued"
+    ).order_by(LanCommand.created_at.asc()).first()
+
+    if cmd is None:
+        sent_cmd = LanCommand.query.filter(
+            LanCommand.pc_name.in_(candidate_names),
+            LanCommand.status == "sent"
+        ).order_by(LanCommand.sent_at.asc()).first()
+        if sent_cmd and sent_cmd.sent_at:
+            if (now - sent_cmd.sent_at).total_seconds() >= retry_after_seconds:
+                cmd = sent_cmd
+
+    if cmd is None:
+        return None
+
+    cmd.status = "sent"
+    cmd.sent_at = now
+    cmd.attempts = int(cmd.attempts or 0) + 1
+    db.session.commit()
+    return cmd
 
 
 def send_lan_command(pc_name, command, payload=None):
-    target = resolve_pc_target(pc_name)
-    if not target:
-        return False, f"No LAN agent configured for {pc_name}"
+    targets = resolve_pc_targets(pc_name)
+    status_note = get_agent_status_note(pc_name)
+    if not targets:
+        queued, created = enqueue_lan_command(pc_name, command, payload, note="no direct target")
+        if created:
+            return True, f"No direct LAN target; queued command #{queued.id} for client pull ({status_note})"
+        return True, f"Existing pending command #{queued.id} retained ({status_note})"
 
     shared_token = get_lan_agent_token()
 
@@ -376,28 +988,42 @@ def send_lan_command(pc_name, command, payload=None):
         "payload": payload if isinstance(payload, dict) else {}
     }).encode("utf-8")
 
-    req = http_request.Request(
-        f"{target}/agent/command",
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "X-Agent-Token": shared_token
-        }
-    )
+    errors = []
+    for target in targets:
+        req = http_request.Request(
+            f"{target}/agent/command",
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "X-Agent-Token": shared_token
+            }
+        )
 
-    try:
-        with http_request.urlopen(req, timeout=6) as response:
-            response_text = response.read().decode("utf-8")
-            response_data = json.loads(response_text) if response_text else {}
-            ok = bool(response_data.get("ok", True))
-            message = response_data.get("message", "Command sent")
-            return ok, message
-    except http_error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore")
-        return False, f"Agent rejected command ({exc.code}): {detail}"
-    except Exception as exc:
-        return False, f"Failed to reach LAN agent: {exc}"
+        try:
+            with http_request.urlopen(req, timeout=6) as response:
+                response_text = response.read().decode("utf-8")
+                response_data = json.loads(response_text) if response_text else {}
+                ok = bool(response_data.get("ok", True))
+                message = response_data.get("message", "Command sent")
+                if ok:
+                    return True, message
+                errors.append(f"{target}: {message}")
+        except http_error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            errors.append(f"{target}: HTTP {exc.code} {detail}")
+        except Exception as exc:
+            errors.append(f"{target}: {exc}")
+
+    fallback_ok, fallback_message = remote_windows_control_fallback(pc_name, command)
+    if fallback_ok:
+        return True, fallback_message
+
+    queued, created = enqueue_lan_command(pc_name, command, payload, note="direct+fallback failed")
+    details = " | ".join(errors[:3]) if errors else "no connection details"
+    if created:
+        return True, f"Queued command #{queued.id} for client pickup (direct path unavailable, {status_note}). Details: {details}. {fallback_message}"
+    return True, f"Command already pending as #{queued.id} ({status_note}). Direct details: {details}. {fallback_message}"
 
 
 def get_client_ip_from_request():
@@ -422,8 +1048,8 @@ def finalize_session(session):
     if not session or session.end_time is not None:
         return 0.0
 
-    pc = PC.query.get(session.pc_id)
-    user = User.query.get(session.user_id)
+    pc = db.session.get(PC, session.pc_id)
+    user = db.session.get(User, session.user_id)
     session.end_time = datetime.now()
     duration = session.end_time - session.start_time
     hours_played = duration.total_seconds() / 3600
@@ -527,8 +1153,39 @@ def index():
     active_sessions = Session.query.filter_by(end_time=None).all()
     recent_payments = PaymentTransaction.query.filter_by(user_id=current_user.id).order_by(PaymentTransaction.created_at.desc()).limit(5).all()
     local_ips = get_local_lan_addresses() if current_user.is_admin else []
-    discovered_ips = discover_lan_addresses() if current_user.is_admin else []
+    lan_summary = build_primary_ipv4_network_summary() if current_user.is_admin else None
+    gateway_scan = get_gateway_client_scan(non_blocking=True) if current_user.is_admin else None
+    discovered_ips = [row.get("ip") for row in (gateway_scan.get("clients", []) if isinstance(gateway_scan, dict) else [])] if current_user.is_admin else []
     assigned_ips = {pc.lan_ip for pc in pcs if pc.lan_ip}
+    online_window_seconds = int(os.getenv("LAN_AGENT_ONLINE_WINDOW_SECONDS", "90"))
+    now_dt = datetime.now()
+    pending_statuses = {"queued", "sent"}
+    pending_counts = {}
+    if current_user.is_admin:
+        for cmd in LanCommand.query.filter(LanCommand.status.in_(list(pending_statuses))).all():
+            pending_counts[cmd.pc_name] = pending_counts.get(cmd.pc_name, 0) + 1
+
+    agent_status = []
+    if current_user.is_admin:
+        for pc in pcs:
+            last_seen = pc.last_agent_seen_at
+            is_online = bool(last_seen and (now_dt - last_seen).total_seconds() <= online_window_seconds)
+            if last_seen:
+                age_seconds = int(max((now_dt - last_seen).total_seconds(), 0))
+                if age_seconds < 60:
+                    seen_text = f"{age_seconds}s ago"
+                else:
+                    seen_text = f"{age_seconds // 60}m ago"
+            else:
+                seen_text = "never"
+            agent_status.append({
+                "pc_name": pc.name,
+                "lan_ip": pc.lan_ip,
+                "online": is_online,
+                "seen_text": seen_text,
+                "queue_count": pending_counts.get(pc.name, 0)
+            })
+
     return render_template(
         'index.html',
         pcs=pcs,
@@ -537,7 +1194,10 @@ def index():
         recent_payments=recent_payments,
         local_ips=local_ips,
         discovered_ips=discovered_ips,
-        assigned_ips=assigned_ips
+        lan_summary=lan_summary,
+        gateway_scan=gateway_scan,
+        assigned_ips=assigned_ips,
+        agent_status=agent_status
     )
 
 
@@ -576,7 +1236,7 @@ def view_bookings():
 @login_required
 def delete_booking(id):
     if not current_user.is_admin: return redirect(url_for('index'))
-    booking = Booking.query.get(id)
+    booking = db.session.get(Booking, id)
     if booking:
         db.session.delete(booking)
         db.session.commit()
@@ -598,12 +1258,12 @@ def auto_assign_ips():
     if not current_user.is_admin:
         return redirect(url_for('index'))
 
-    discovered_all = discover_lan_addresses()
-    discovered_ipv4 = [ip for ip in discovered_all if ":" not in ip]
-    cleared = clear_undetected_pc_ips(discovered_all) if discovered_all else []
+    discovered_ipv4 = get_assignable_pc_ipv4_addresses(online_only=True)
+    detected_for_sync = set(discovered_ipv4)
+    cleared = clear_undetected_pc_ips(detected_for_sync)
 
     if not discovered_ipv4 and not cleared:
-        flash('No LAN IPv4 devices discovered. Ensure clients are online and visible in ARP table.', 'error')
+        flash('No online LAN PCs detected from scan. Ensure client PCs are powered on and connected.', 'error')
         return redirect(url_for('index'))
 
     pcs = PC.query.order_by(PC.id.asc()).all()
@@ -621,10 +1281,10 @@ def auto_assign_ips():
 
     db.session.add(AdminLog(
         admin_name=current_user.username,
-        action=f"Auto-assign LAN sync: cleared {len(cleared)} stale IP(s), assigned {assigned_count} IP(s)"
+        action=f"Auto-assign LAN online sync: cleared {len(cleared)} offline/stale IP(s), assigned {assigned_count} online IP(s)"
     ))
     db.session.commit()
-    flash(f'LAN sync complete. Cleared {len(cleared)} stale IP(s), assigned {assigned_count} IP(s).', 'success')
+    flash(f'LAN online sync complete. Cleared {len(cleared)} offline/stale IP(s), assigned {assigned_count} online IP(s).', 'success')
     return redirect(url_for('index'))
 
 
@@ -634,7 +1294,7 @@ def set_pc_ip(pc_id):
     if not current_user.is_admin:
         return redirect(url_for('index'))
 
-    pc = PC.query.get(pc_id)
+    pc = db.session.get(PC, pc_id)
     if not pc:
         flash('PC not found.', 'error')
         return redirect(url_for('index'))
@@ -650,6 +1310,9 @@ def set_pc_ip(pc_id):
     ip = normalize_lan_ip(raw_ip)
     if not ip:
         flash('Invalid IP address.', 'error')
+        return redirect(url_for('index'))
+    if ":" not in ip and ip in get_gateway_ipv4_set():
+        flash('Gateway IP cannot be assigned to a PC.', 'error')
         return redirect(url_for('index'))
 
     in_use = PC.query.filter(PC.id != pc.id, PC.lan_ip == ip).first()
@@ -756,7 +1419,7 @@ def pc_command():
 
     pc_id = request.form.get('pc_id', type=int)
     command = (request.form.get('command') or '').strip().lower()
-    pc = PC.query.get(pc_id) if pc_id else None
+    pc = db.session.get(PC, pc_id) if pc_id else None
 
     if not pc:
         flash('Invalid PC selected.', 'error')
@@ -851,8 +1514,8 @@ def api_topup_confirm():
 @login_required
 def start_session(pc_id, user_id):
     if not current_user.is_admin: return redirect(url_for('index'))
-    user = User.query.get(user_id)
-    pc = PC.query.get(pc_id)
+    user = db.session.get(User, user_id)
+    pc = db.session.get(PC, pc_id)
     if not user or not pc:
         flash('Invalid user or PC.', 'error')
         return redirect(url_for('index'))
@@ -879,7 +1542,7 @@ def start_session(pc_id, user_id):
 @login_required
 def end_session(session_id):
     if not current_user.is_admin: return redirect(url_for('index'))
-    session = Session.query.get(session_id)
+    session = db.session.get(Session, session_id)
     if not session: return redirect(url_for('index'))
     cost = finalize_session(session)
     db.session.add(AdminLog(admin_name=current_user.username, action=f"Ended session #{session.id}. Cost: {cost:.2f}"))
@@ -894,7 +1557,7 @@ def force_stop_user(user_id):
     if not current_user.is_admin:
         return redirect(url_for('index'))
 
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         flash('User not found.', 'error')
         return redirect(url_for('index'))
@@ -930,7 +1593,7 @@ def api_force_stop_user():
     user = None
     if user_id is not None:
         try:
-            user = User.query.get(int(user_id))
+            user = db.session.get(User, int(user_id))
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "user_id must be an integer"}), 400
     elif username:
@@ -1000,12 +1663,29 @@ def api_admin_lan_discovery():
         return jsonify({"ok": False, "error": "admin-only endpoint"}), 403
 
     pcs = PC.query.order_by(PC.id.asc()).all()
+    pending_counts = {}
+    for cmd in LanCommand.query.filter(LanCommand.status.in_(["queued", "sent"])).all():
+        pending_counts[cmd.pc_name] = pending_counts.get(cmd.pc_name, 0) + 1
+    discovered_all = discover_lan_addresses()
+    gateway_ips = get_default_gateway_ips()
+    force_scan = str(request.args.get("force_scan", "")).strip().lower() in {"1", "true", "yes"}
+    fast_mode = str(request.args.get("fast", "")).strip().lower() in {"1", "true", "yes"}
     return jsonify({
         "ok": True,
         "local_ips": get_local_lan_addresses(),
-        "discovered_ips": discover_lan_addresses(),
-        "gateway_ips": get_default_gateway_ips(),
-        "pc_assignments": [{"pc_id": pc.id, "pc_name": pc.name, "lan_ip": pc.lan_ip} for pc in pcs]
+        "discovered_ips": discovered_all,
+        "gateway_ips": gateway_ips,
+        "discovered_pc_ips": [ip for ip in discovered_all if ip not in set(gateway_ips)],
+        "lan_summary": build_primary_ipv4_network_summary(),
+        "gateway_scan": get_gateway_client_scan(force=force_scan, non_blocking=(not force_scan and fast_mode)),
+        "pc_assignments": [{
+            "pc_id": pc.id,
+            "pc_name": pc.name,
+            "lan_ip": pc.lan_ip,
+            "lan_port": pc.lan_port,
+            "last_agent_seen_at": pc.last_agent_seen_at.isoformat() if pc.last_agent_seen_at else None,
+            "queued_count": pending_counts.get(pc.name, 0)
+        } for pc in pcs]
     }), 200
 
 
@@ -1015,12 +1695,12 @@ def api_admin_auto_assign_ips():
     if not current_user.is_admin:
         return jsonify({"ok": False, "error": "admin-only endpoint"}), 403
 
-    discovered_all = discover_lan_addresses()
-    discovered_ipv4 = [ip for ip in discovered_all if ":" not in ip]
-    cleared = clear_undetected_pc_ips(discovered_all) if discovered_all else []
+    discovered_ipv4 = get_assignable_pc_ipv4_addresses(online_only=True)
+    detected_for_sync = set(discovered_ipv4)
+    cleared = clear_undetected_pc_ips(detected_for_sync)
 
     if not discovered_ipv4 and not cleared:
-        return jsonify({"ok": False, "error": "no LAN IPv4 devices discovered"}), 404
+        return jsonify({"ok": False, "error": "no online LAN IPv4 PCs detected"}), 404
 
     pcs = PC.query.order_by(PC.id.asc()).all()
     already_used = {pc.lan_ip for pc in pcs if pc.lan_ip}
@@ -1036,7 +1716,7 @@ def api_admin_auto_assign_ips():
 
     db.session.add(AdminLog(
         admin_name=current_user.username,
-        action=f"API auto-assign LAN sync: cleared {len(cleared)} stale IP(s), assigned {len(assigned)} IP(s)"
+        action=f"API auto-assign LAN online sync: cleared {len(cleared)} offline/stale IP(s), assigned {len(assigned)} online IP(s)"
     ))
     db.session.commit()
     return jsonify({
@@ -1069,6 +1749,11 @@ def api_agent_register_lan():
     detected_ip = body_ip or get_client_ip_from_request()
     if not detected_ip:
         return jsonify({"ok": False, "error": "unable to determine LAN IP"}), 400
+    if ":" not in detected_ip and detected_ip in get_gateway_ipv4_set():
+        return jsonify({"ok": False, "error": "gateway IP cannot be assigned to a PC"}), 400
+    agent_port = normalize_agent_port(data.get("agent_port", os.getenv("LAN_AGENT_DEFAULT_PORT", "5001")))
+    if not agent_port:
+        return jsonify({"ok": False, "error": "invalid agent_port"}), 400
 
     in_use = PC.query.filter(PC.id != pc.id, PC.lan_ip == detected_ip).first()
     if in_use:
@@ -1079,9 +1764,124 @@ def api_agent_register_lan():
         }), 409
 
     pc.lan_ip = detected_ip
-    db.session.add(AdminLog(admin_name=f"agent:{pc_name}", action=f"Auto-registered LAN IP {detected_ip}"))
+    pc.lan_port = agent_port
+    pc.last_agent_seen_at = datetime.now()
+    db.session.add(AdminLog(admin_name=f"agent:{pc_name}", action=f"Auto-registered LAN target {detected_ip}:{agent_port}"))
     db.session.commit()
-    return jsonify({"ok": True, "pc_name": pc_name, "lan_ip": detected_ip}), 200
+    cmd = pick_next_lan_command_for_names([pc.name, pc_name])
+    pending_command = None
+    if cmd is not None:
+        try:
+            payload = json.loads(cmd.payload_json or "{}")
+        except Exception:
+            payload = {}
+        pending_command = {
+            "command_id": cmd.id,
+            "pc_name": cmd.pc_name,
+            "command": cmd.command,
+            "payload": payload
+        }
+
+    return jsonify({
+        "ok": True,
+        "pc_name": pc_name,
+        "lan_ip": detected_ip,
+        "lan_port": agent_port,
+        "pending_command": pending_command
+    }), 200
+
+
+@app.route('/api/agent/pull-command', methods=['POST'])
+def api_agent_pull_command():
+    shared_token = get_lan_agent_token()
+    provided_token = request.headers.get("X-Agent-Token", "").strip()
+    if provided_token != shared_token:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    pc_name = str(data.get("pc_name", "")).strip()
+    body_ip = normalize_lan_ip(str(data.get("lan_ip", "")).strip()) if data.get("lan_ip") else None
+    caller_ip = body_ip or get_client_ip_from_request()
+    matched_pc = PC.query.filter_by(lan_ip=caller_ip).first() if caller_ip and ":" not in caller_ip else None
+    candidate_names = []
+    if pc_name:
+        candidate_names.append(pc_name)
+    if matched_pc and matched_pc.name not in candidate_names:
+        candidate_names.append(matched_pc.name)
+    if not candidate_names:
+        return jsonify({"ok": False, "error": "pc_name or recognized lan_ip is required"}), 400
+
+    touched_pc = matched_pc or PC.query.filter(PC.name.in_(candidate_names)).first()
+    if touched_pc:
+        touched_pc.last_agent_seen_at = datetime.now()
+        db.session.commit()
+
+    cmd = pick_next_lan_command_for_names(candidate_names)
+    if cmd is None:
+        return jsonify({"ok": True, "no_command": True}), 200
+
+    try:
+        payload = json.loads(cmd.payload_json or "{}")
+    except Exception:
+        payload = {}
+
+    return jsonify({
+        "ok": True,
+        "no_command": False,
+        "command_id": cmd.id,
+        "pc_name": cmd.pc_name,
+        "command": cmd.command,
+        "payload": payload
+    }), 200
+
+
+@app.route('/api/agent/ack-command', methods=['POST'])
+def api_agent_ack_command():
+    shared_token = get_lan_agent_token()
+    provided_token = request.headers.get("X-Agent-Token", "").strip()
+    if provided_token != shared_token:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    pc_name = str(data.get("pc_name", "")).strip()
+    body_ip = normalize_lan_ip(str(data.get("lan_ip", "")).strip()) if data.get("lan_ip") else None
+    caller_ip = body_ip or get_client_ip_from_request()
+    command_id = data.get("command_id")
+    ok_flag = bool(data.get("ok", False))
+    message = str(data.get("message", "")).strip()[:500]
+
+    try:
+        command_id = int(command_id)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "command_id must be an integer"}), 400
+
+    cmd = db.session.get(LanCommand, command_id)
+    if not cmd:
+        return jsonify({"ok": False, "error": "command not found"}), 404
+
+    allowed = False
+    if pc_name and cmd.pc_name == pc_name:
+        allowed = True
+    if not allowed and caller_ip and ":" not in caller_ip:
+        mapped_pc = PC.query.filter_by(lan_ip=caller_ip).first()
+        if mapped_pc and mapped_pc.name == cmd.pc_name:
+            allowed = True
+    if not allowed:
+        return jsonify({"ok": False, "error": "pc identity mismatch"}), 403
+
+    touched_pc = PC.query.filter_by(name=cmd.pc_name).first()
+    if touched_pc:
+        touched_pc.last_agent_seen_at = datetime.now()
+
+    cmd.status = "done" if ok_flag else "failed"
+    cmd.completed_at = datetime.now()
+    cmd.result_message = message or ("ok" if ok_flag else "failed")
+    db.session.add(AdminLog(
+        admin_name=f"agent:{pc_name}",
+        action=f"Ack LAN command #{cmd.id} ({cmd.command}) -> {cmd.status}: {cmd.result_message}"
+    ))
+    db.session.commit()
+    return jsonify({"ok": True, "command_id": cmd.id, "status": cmd.status}), 200
 
 
 if __name__ == '__main__':
@@ -1097,4 +1897,7 @@ if __name__ == '__main__':
             db.session.add(admin)
             db.session.commit()
             print("DB Init: admin/admin123")
-    app.run(debug=True)
+    app_host = os.getenv("APP_HOST", "0.0.0.0").strip() or "0.0.0.0"
+    app_port = int(os.getenv("APP_PORT", "5000"))
+    app_debug = str(os.getenv("APP_DEBUG", "1")).strip().lower() in {"1", "true", "yes"}
+    app.run(host=app_host, port=app_port, debug=app_debug)
