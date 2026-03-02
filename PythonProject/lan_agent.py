@@ -40,12 +40,12 @@ def detect_local_lan_ip():
 
 
 def register_with_server():
-    if not REGISTER_URL or not PC_NAME or not AGENT_TOKEN:
-        return False, "Registration skipped (missing LAN_SERVER_REGISTER_URL, LAN_PC_NAME, or LAN_AGENT_TOKEN)"
+    if not REGISTER_URL or not AGENT_TOKEN:
+        return False, "Registration skipped (missing LAN_SERVER_REGISTER_URL or LAN_AGENT_TOKEN)"
 
     lan_ip = detect_local_lan_ip()
     body = json.dumps({
-        "pc_name": PC_NAME,
+        "pc_name": AGENT_IDENTITY,
         "lan_ip": lan_ip,
         "agent_port": PORT
     }).encode("utf-8")
@@ -236,8 +236,14 @@ def request_user_approval(command, payload=None):
 
 
 def execute_allowed_command(command, payload=None):
-    if REQUIRE_USER_APPROVAL and command in APPROVAL_COMMANDS:
-        approved, approval_message = request_user_approval(command, payload)
+    payload_data = payload if isinstance(payload, dict) else {}
+    skip_approval = str(payload_data.get("skip_user_approval", "")).strip().lower() in {"1", "true", "yes"}
+
+    if command == "connect_request":
+        return True, "Auto-connect active"
+
+    if REQUIRE_USER_APPROVAL and not skip_approval and command in APPROVAL_COMMANDS:
+        approved, approval_message = request_user_approval(command, payload_data)
         if not approved:
             return False, approval_message
     if command == "lock":
@@ -262,11 +268,26 @@ def agent_command():
 
     data = request.get_json(silent=True) or {}
     command = str(data.get("command", "")).strip().lower()
-    if command not in {"lock", "restart", "shutdown", "wake"}:
+    if command not in {"lock", "restart", "shutdown", "wake", "connect_request"}:
         return jsonify({"ok": False, "message": "Invalid command"}), 400
 
     ok, message = execute_allowed_command(command, data.get("payload", {}))
     return jsonify({"ok": ok, "message": message}), (200 if ok else 500)
+
+
+@app.post("/agent/connect-web-request")
+def agent_connect_web_request():
+    return jsonify({"ok": False, "message": "Connection request flow disabled. Admin now auto-connects directly."}), 410
+
+
+@app.get("/agent/connect-web-request/<int:command_id>")
+def agent_connect_web_request_page(command_id):
+    return "<h3>Connection request flow disabled. Admin now auto-connects directly.</h3>", 410
+
+
+@app.post("/agent/connect-web-request/<int:command_id>/respond")
+def agent_connect_web_request_respond(command_id):
+    return "<h3>Connection request flow disabled. Admin now auto-connects directly.</h3>", 410
 
 
 @app.get("/agent/info")
@@ -280,10 +301,10 @@ def agent_info():
 
 
 if __name__ == "__main__":
-    if REGISTER_URL and PC_NAME and AGENT_TOKEN:
+    if REGISTER_URL and AGENT_TOKEN:
         threading.Thread(target=registration_loop, daemon=True).start()
     else:
-        print("[LAN_AGENT] Auto-registration disabled. Set LAN_SERVER_REGISTER_URL, LAN_PC_NAME, and LAN_AGENT_TOKEN.")
+        print("[LAN_AGENT] Auto-registration disabled. Set LAN_SERVER_REGISTER_URL and LAN_AGENT_TOKEN.")
     if get_poll_url() and get_ack_url() and AGENT_TOKEN:
         threading.Thread(target=command_poll_loop, daemon=True).start()
         print(f"[LAN_AGENT] Command polling enabled for {AGENT_IDENTITY} every {max(1, POLL_INTERVAL_SECONDS)}s")

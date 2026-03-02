@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Booking Manager</title>
+    <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400&display=swap" rel="stylesheet">
     <style>
         body { background-color: #0b0c15; color: #e0e6ed; font-family: 'Roboto', sans-serif; padding: 30px; }
@@ -26,6 +27,7 @@
                 <th>Ticket ID</th>
                 <th>Customer</th>
                 <th>PC Station</th>
+                <th>Date</th>
                 <th>Requested Time</th>
                 <th>Action</th>
             </tr>
@@ -36,13 +38,15 @@
                 <td>#{{ booking.id }}</td>
                 <td style="font-weight: bold; color: white;">{{ booking.user.username }}</td>
                 <td style="color: #00f3ff;">{{ booking.pc.name }}</td>
+                <td>{{ booking.booking_date or 'N/A' }}</td>
                 <td>{{ booking.time_slot }}</td>
                 <td><a href="/delete_booking/{{ booking.id }}" class="del-btn">CANCEL TICKET</a></td>
             </tr>
             {% else %}
-            <tr><td colspan="5" style="text-align:center; color:#666;">No active bookings.</td></tr>
+            <tr><td colspan="6" style="text-align:center; color:#666;">No active bookings.</td></tr>
             {% endfor %}
         </tbody>
     </table>
 </body>
 </html>
+
