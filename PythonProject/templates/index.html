@@ -144,6 +144,8 @@
                                     <option value="shutdown">Shutdown</option>
                                     <option value="wake">Wake</option>
                                 </select>
+                                <input type="text" name="reason" maxlength="200" placeholder="Reason (required for restart/shutdown)">
+                                <input type="text" name="confirm_text" placeholder="Type {{ power_command_confirm_text }} for restart/shutdown">
                                 <button type="submit" style="width:100%">Send to {{ pc.name }}</button>
                             </form>
                         </div>

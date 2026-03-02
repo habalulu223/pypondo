@@ -837,7 +837,7 @@ def resolve_pc_targets(pc_name):
 
 
 def remote_windows_control_fallback(pc_name, command):
-    if command not in {"restart", "shutdown"}:
+    if command not in {"restart", "shutdown", "lock"}:
         return False, "No fallback path for this command"
 
     pc = PC.query.filter_by(name=pc_name).first()
@@ -845,62 +845,35 @@ def remote_windows_control_fallback(pc_name, command):
         return False, "Fallback requires PC IPv4 address"
 
     unc_host = f"\\\\{pc.lan_ip}"
-    target_ipc = f"{unc_host}\\IPC$"
-    shutdown_flag = "/r" if command == "restart" else "/s"
-    remote_user = os.getenv("LAN_REMOTE_USERNAME", "").strip()
-    remote_password = os.getenv("LAN_REMOTE_PASSWORD", "").strip()
+    if command == "lock":
+        cmd_line = "wmic /node:" + pc.lan_ip + " process call create \"rundll32.exe user32.dll,LockWorkStation\""
+    else:
+        shutdown_flag = "/r" if command == "restart" else "/s"
+        cmd_line = f"shutdown /m {unc_host} {shutdown_flag} /t 0 /f"
 
     try:
-        # First try with the current Windows session credentials.
         control = subprocess.run(
-            ["shutdown", "/m", unc_host, shutdown_flag, "/t", "0", "/f"],
+            ["cmd", "/c", cmd_line],
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="ignore"
         )
-        if control.returncode == 0:
-            return True, f"Fallback {command} sent via remote Windows control (current credentials)"
-
-        initial_detail = (control.stderr or control.stdout or "").strip()
-        if not remote_user or not remote_password:
-            return False, f"Fallback failed using current credentials: {initial_detail or 'access denied'}. Set LAN_REMOTE_USERNAME and LAN_REMOTE_PASSWORD."
-
-        login = subprocess.run(
-            ["net", "use", target_ipc, remote_password, f"/user:{remote_user}"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
-        if login.returncode != 0:
-            detail = (login.stderr or login.stdout or "").strip()
-            return False, f"Fallback auth failed: {detail or 'cannot authenticate to remote host'}"
-
-        control = subprocess.run(
-            ["shutdown", "/m", unc_host, shutdown_flag, "/t", "0", "/f"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
-        if control.returncode != 0:
-            detail = (control.stderr or control.stdout or "").strip()
-            return False, f"Fallback remote command failed after auth: {detail or 'unknown error'}"
-        return True, f"Fallback {command} sent via remote Windows control (explicit credentials)"
     except Exception as exc:
         return False, f"Fallback failed: {exc}"
-    finally:
-        try:
-            subprocess.run(
-                ["net", "use", target_ipc, "/delete", "/y"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="ignore"
-            )
-        except Exception:
-            pass
+
+    output = (control.stdout or "").strip()
+    error = (control.stderr or "").strip()
+    details = " | ".join(part for part in [output, error] if part).strip()
+
+    if command == "lock":
+        if control.returncode == 0 and "ReturnValue = 0" in (output + "\n" + error):
+            return True, f"Fallback lock sent via cmd using {pc.lan_ip}"
+        return False, f"Fallback lock failed via cmd for {pc.lan_ip}: {details or 'access denied or RPC unavailable'}"
+
+    if control.returncode == 0:
+        return True, f"Fallback {command} sent via cmd using {pc.lan_ip}"
+    return False, f"Fallback {command} failed via cmd for {pc.lan_ip}: {details or 'access denied or RPC unavailable'}"
 
 
 def get_agent_status_note(pc_name):
@@ -1167,6 +1140,7 @@ def index():
 
     agent_status = []
     if current_user.is_admin:
+        mapped_ips = set()
         for pc in pcs:
             last_seen = pc.last_agent_seen_at
             is_online = bool(last_seen and (now_dt - last_seen).total_seconds() <= online_window_seconds)
@@ -1184,6 +1158,19 @@ def index():
                 "online": is_online,
                 "seen_text": seen_text,
                 "queue_count": pending_counts.get(pc.name, 0)
+            })
+            if pc.lan_ip:
+                mapped_ips.add(pc.lan_ip)
+
+        for ip in discovered_ips:
+            if ip in mapped_ips:
+                continue
+            agent_status.append({
+                "pc_name": f"Unmapped-{ip}",
+                "lan_ip": ip,
+                "online": False,
+                "seen_text": "never",
+                "queue_count": 0
             })
 
     return render_template(

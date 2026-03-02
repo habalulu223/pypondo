@@ -35,6 +35,11 @@ python lan_agent.py
 
 Allow inbound TCP `5001` in Windows Firewall for your LAN.
 
+Optional agent approval prompt (recommended for shared PCs):
+- `LAN_REQUIRE_USER_APPROVAL=1` (default) shows a Yes/No popup on the client before `lock`, `restart`, or `shutdown`.
+- If the user clicks **No**, the command is rejected and this is reported back to server logs/status.
+- Set `LAN_REQUIRE_USER_APPROVAL=0` to execute immediately without popup.
+
 Auto-registration behavior:
 - Client detects its own LAN IPv4.
 - Client calls `POST /api/agent/register-lan` on server.
@@ -62,10 +67,18 @@ Allowed commands:
 - `shutdown`
 - `wake`
 
+For `restart` and `shutdown`, include:
+- `reason`: 8-200 characters
+- `confirm_text`: must match `LAN_POWER_COMMAND_CONFIRM_TEXT` (default: `CONFIRM`)
+
 ## Notes
 
 - Endpoint is `admin-only` and restricted to an allowlist (no arbitrary shell commands).
 - Every command attempt is saved in `AdminLog`.
+- Windows fallback is enabled by default. It uses:
+  - `shutdown /m` for `restart` and `shutdown`
+  - remote WMI process call for `lock`
+  Disable all fallback by setting `LAN_ALLOW_REMOTE_WINDOWS_FALLBACK=0`.
 - Admin dashboard now shows local server IPs (`ipconfig`) and discovered LAN devices (`arp -a`), and can auto-assign discovered IPs to PCs.
 
 ## Online Top-Up (Database Only)

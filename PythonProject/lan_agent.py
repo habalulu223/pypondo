@@ -3,6 +3,7 @@ import socket
 import subprocess
 import threading
 import time
+import ctypes
 from flask import Flask, request, jsonify
 from urllib import request as http_request
 from urllib import error as http_error
@@ -22,6 +23,8 @@ COMMAND_POLL_URL = os.getenv("LAN_SERVER_COMMAND_POLL_URL", "").strip()
 COMMAND_ACK_URL = os.getenv("LAN_SERVER_COMMAND_ACK_URL", "").strip()
 POLL_INTERVAL_SECONDS = int(os.getenv("LAN_POLL_INTERVAL_SECONDS", "3"))
 AGENT_IDENTITY = PC_NAME or socket.gethostname()
+REQUIRE_USER_APPROVAL = str(os.getenv("LAN_REQUIRE_USER_APPROVAL", "1")).strip().lower() in {"1", "true", "yes"}
+APPROVAL_COMMANDS = {"lock", "restart", "shutdown"}
 
 
 def detect_local_lan_ip():
@@ -66,7 +69,7 @@ def register_with_server():
                     command_id = pending.get("command_id")
                     command = str(pending.get("command", "")).strip().lower()
                     server_pc_name = str(pending.get("pc_name", "")).strip() or AGENT_IDENTITY
-                    exec_ok, exec_message = execute_allowed_command(command)
+                    exec_ok, exec_message = execute_allowed_command(command, pending.get("payload", {}))
                     ack_ok, ack_message = ack_command_to_server(command_id, exec_ok, exec_message, pc_identity=server_pc_name)
                     if not ack_ok:
                         return True, f"Registered {payload.get('pc_name')} -> {payload.get('lan_ip')} | executed queued #{command_id} ({'ok' if exec_ok else 'fail'}) but ack failed: {ack_message}"
@@ -185,7 +188,7 @@ def command_poll_loop():
         command_id = payload.get("command_id")
         server_pc_name = str(payload.get("pc_name", "")).strip() or AGENT_IDENTITY
         command = str(payload.get("command", "")).strip().lower()
-        exec_ok, exec_message = execute_allowed_command(command)
+        exec_ok, exec_message = execute_allowed_command(command, payload.get("payload", {}))
         print(f"[LAN_AGENT] polled command #{command_id}: {command} -> {'ok' if exec_ok else 'fail'} ({exec_message})")
 
         ack_ok, ack_message = ack_command_to_server(command_id, exec_ok, exec_message, pc_identity=server_pc_name)
@@ -204,7 +207,39 @@ def run_windows_command(command_args):
         return False, str(exc)
 
 
-def execute_allowed_command(command):
+def request_user_approval(command, payload=None):
+    payload_data = payload if isinstance(payload, dict) else {}
+    reason = str(payload_data.get("reason", "")).strip()
+    requested_by = str(payload_data.get("requested_by", "admin")).strip() or "admin"
+
+    lines = [
+        "Remote command request received.",
+        f"Command: {command.upper()}",
+        f"Requested by: {requested_by}"
+    ]
+    if reason:
+        lines.append(f"Reason: {reason}")
+    lines.append("")
+    lines.append("Allow this action?")
+    message = "\n".join(lines)
+
+    # YESNO + ICONQUESTION + SYSTEMMODAL + TOPMOST
+    flags = 0x00000004 | 0x00000020 | 0x00001000 | 0x00040000
+    try:
+        response = ctypes.windll.user32.MessageBoxW(0, message, "PyPondo Command Approval", flags)
+    except Exception as exc:
+        return False, f"Approval prompt failed: {exc}"
+
+    if response == 6:
+        return True, "User approved command"
+    return False, "User rejected command"
+
+
+def execute_allowed_command(command, payload=None):
+    if REQUIRE_USER_APPROVAL and command in APPROVAL_COMMANDS:
+        approved, approval_message = request_user_approval(command, payload)
+        if not approved:
+            return False, approval_message
     if command == "lock":
         return run_windows_command(["rundll32.exe", "user32.dll,LockWorkStation"])
     if command == "restart":
@@ -230,7 +265,7 @@ def agent_command():
     if command not in {"lock", "restart", "shutdown", "wake"}:
         return jsonify({"ok": False, "message": "Invalid command"}), 400
 
-    ok, message = execute_allowed_command(command)
+    ok, message = execute_allowed_command(command, data.get("payload", {}))
     return jsonify({"ok": ok, "message": message}), (200 if ok else 500)
 
 
