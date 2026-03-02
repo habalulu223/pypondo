@@ -26,6 +26,7 @@
                 <th>Ticket ID</th>
                 <th>Customer</th>
                 <th>PC Station</th>
+                <th>Date</th>
                 <th>Requested Time</th>
                 <th>Action</th>
             </tr>
@@ -36,11 +37,12 @@
                 <td>#{{ booking.id }}</td>
                 <td style="font-weight: bold; color: white;">{{ booking.user.username }}</td>
                 <td style="color: #00f3ff;">{{ booking.pc.name }}</td>
+                <td>{{ booking.booking_date or 'N/A' }}</td>
                 <td>{{ booking.time_slot }}</td>
                 <td><a href="/delete_booking/{{ booking.id }}" class="del-btn">CANCEL TICKET</a></td>
             </tr>
             {% else %}
-            <tr><td colspan="5" style="text-align:center; color:#666;">No active bookings.</td></tr>
+            <tr><td colspan="6" style="text-align:center; color:#666;">No active bookings.</td></tr>
             {% endfor %}
         </tbody>
     </table>

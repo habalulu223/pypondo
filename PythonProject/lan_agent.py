@@ -25,6 +25,7 @@ POLL_INTERVAL_SECONDS = int(os.getenv("LAN_POLL_INTERVAL_SECONDS", "3"))
 AGENT_IDENTITY = PC_NAME or socket.gethostname()
 REQUIRE_USER_APPROVAL = str(os.getenv("LAN_REQUIRE_USER_APPROVAL", "1")).strip().lower() in {"1", "true", "yes"}
 APPROVAL_COMMANDS = {"lock", "restart", "shutdown"}
+WEB_CONNECT_REQUESTS = {}
 
 
 def detect_local_lan_ip():
@@ -207,6 +208,14 @@ def run_windows_command(command_args):
         return False, str(exc)
 
 
+def open_local_tab(url):
+    try:
+        subprocess.Popen(["cmd", "/c", "start", "", url], shell=False)
+        return True
+    except Exception:
+        return False
+
+
 def request_user_approval(command, payload=None):
     payload_data = payload if isinstance(payload, dict) else {}
     reason = str(payload_data.get("reason", "")).strip()
@@ -236,8 +245,17 @@ def request_user_approval(command, payload=None):
 
 
 def execute_allowed_command(command, payload=None):
-    if REQUIRE_USER_APPROVAL and command in APPROVAL_COMMANDS:
-        approved, approval_message = request_user_approval(command, payload)
+    payload_data = payload if isinstance(payload, dict) else {}
+    skip_approval = str(payload_data.get("skip_user_approval", "")).strip().lower() in {"1", "true", "yes"}
+
+    if command == "connect_request":
+        approved, approval_message = request_user_approval("connection request", payload_data)
+        if approved:
+            return True, "User approved connection request"
+        return False, "User rejected connection request"
+
+    if REQUIRE_USER_APPROVAL and not skip_approval and command in APPROVAL_COMMANDS:
+        approved, approval_message = request_user_approval(command, payload_data)
         if not approved:
             return False, approval_message
     if command == "lock":
@@ -262,11 +280,85 @@ def agent_command():
 
     data = request.get_json(silent=True) or {}
     command = str(data.get("command", "")).strip().lower()
-    if command not in {"lock", "restart", "shutdown", "wake"}:
+    if command not in {"lock", "restart", "shutdown", "wake", "connect_request"}:
         return jsonify({"ok": False, "message": "Invalid command"}), 400
 
     ok, message = execute_allowed_command(command, data.get("payload", {}))
     return jsonify({"ok": ok, "message": message}), (200 if ok else 500)
+
+
+@app.post("/agent/connect-web-request")
+def agent_connect_web_request():
+    if not AGENT_TOKEN:
+        return jsonify({"ok": False, "message": "LAN_AGENT_TOKEN is not configured on agent"}), 500
+
+    received_token = request.headers.get("X-Agent-Token", "")
+    if received_token != AGENT_TOKEN:
+        return jsonify({"ok": False, "message": "Unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    try:
+        command_id = int(data.get("command_id"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "command_id is required"}), 400
+
+    payload = data.get("payload", {}) if isinstance(data.get("payload", {}), dict) else {}
+    request_page_url = str(data.get("request_page_url", "")).strip()
+    pc_name = str(data.get("pc_name", "")).strip() or AGENT_IDENTITY
+    requested_by = str(payload.get("requested_by", "admin")).strip() or "admin"
+    reason = str(payload.get("reason", "")).strip()
+
+    WEB_CONNECT_REQUESTS[command_id] = {
+        "pc_name": pc_name,
+        "requested_by": requested_by,
+        "reason": reason
+    }
+
+    page_url = request_page_url or f"http://127.0.0.1:{PORT}/agent/connect-web-request/{command_id}"
+    opened = open_local_tab(page_url)
+    if opened:
+        return jsonify({"ok": True, "message": f"Connection request tab opened for #{command_id} ({page_url})"}), 200
+    return jsonify({"ok": True, "message": f"Connection request stored for #{command_id}, failed to auto-open tab"}), 200
+
+
+@app.get("/agent/connect-web-request/<int:command_id>")
+def agent_connect_web_request_page(command_id):
+    req = WEB_CONNECT_REQUESTS.get(command_id)
+    if not req:
+        return "<h3>Request not found or already handled.</h3>", 404
+
+    requested_by = req.get("requested_by", "admin")
+    reason = req.get("reason", "")
+    reason_html = f"<p><b>Reason:</b> {reason}</p>" if reason else ""
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Connection Request</title></head>
+<body style="font-family:Segoe UI,Arial,sans-serif;padding:24px;background:#0f1720;color:#e6edf7;">
+<h2>Connection Request</h2>
+<p><b>Requested by:</b> {requested_by}</p>
+{reason_html}
+<p>Allow this connection request?</p>
+<form method="post" action="/agent/connect-web-request/{command_id}/respond">
+  <button type="submit" name="decision" value="accept" style="padding:10px 14px;margin-right:8px;">Accept</button>
+  <button type="submit" name="decision" value="decline" style="padding:10px 14px;">Decline</button>
+</form>
+</body></html>"""
+
+
+@app.post("/agent/connect-web-request/<int:command_id>/respond")
+def agent_connect_web_request_respond(command_id):
+    req = WEB_CONNECT_REQUESTS.get(command_id)
+    if not req:
+        return "<h3>Request not found or already handled.</h3>", 404
+
+    decision = str(request.form.get("decision", "")).strip().lower()
+    accepted = decision == "accept"
+    message = "User approved connection request (webpage)" if accepted else "User rejected connection request (webpage)"
+    ack_ok, ack_message = ack_command_to_server(command_id, accepted, message, pc_identity=req.get("pc_name", AGENT_IDENTITY))
+    WEB_CONNECT_REQUESTS.pop(command_id, None)
+
+    if not ack_ok:
+        return f"<h3>{message}</h3><p>Ack failed: {ack_message}</p>", 200
+    return f"<h3>{message}</h3><p>You can close this tab.</p>", 200
 
 
 @app.get("/agent/info")

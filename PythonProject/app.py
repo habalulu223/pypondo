@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -17,12 +17,24 @@ import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+import io
+import zipfile
 
 app = Flask(__name__)
 
 # --- Config ---
 basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'pccafe.db')
+db_path = os.getenv("PYPONDO_DB_PATH", "").strip()
+if not db_path:
+    data_dir = os.getenv("PYPONDO_DATA_DIR", "").strip()
+    if data_dir:
+        os.makedirs(data_dir, exist_ok=True)
+        db_path = os.path.join(data_dir, "pccafe.db")
+if not db_path:
+    db_path = os.path.join(basedir, "pccafe.db")
+APP_DB_PATH = db_path
+
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + APP_DB_PATH
 app.config['SECRET_KEY'] = 'super_secret_cyber_key'
 
 db = SQLAlchemy(app)
@@ -32,6 +44,7 @@ login_manager.login_view = 'login'
 
 HOURLY_RATE = 15.0
 ALLOWED_LAN_COMMANDS = {"lock", "restart", "shutdown", "wake"}
+POWER_COMMAND_CONFIRM_TEXT = os.getenv("LAN_POWER_COMMAND_CONFIRM_TEXT", "CONFIRM").strip() or "CONFIRM"
 MAX_TOPUP_AMOUNT = 10000.0
 TOPUP_CURRENCY = os.getenv("TOPUP_CURRENCY", "php").strip().lower() or "php"
 DEFAULT_LAN_AGENT_TOKEN = "pypondo-lan-token-change-me"
@@ -72,6 +85,7 @@ class Booking(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     pc_id = db.Column(db.Integer, db.ForeignKey('pc.id'), nullable=False)
+    booking_date = db.Column(db.String(10), nullable=False, default=lambda: datetime.now().strftime("%Y-%m-%d"))
     time_slot = db.Column(db.String(20), nullable=False)
     # Relationships for easy access in templates
     user = db.relationship('User', backref='bookings')
@@ -141,12 +155,32 @@ def ensure_pc_lan_ip_column():
         db.session.commit()
 
 
+def ensure_booking_date_column():
+    try:
+        cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(booking)")).fetchall()]
+    except Exception:
+        db.create_all()
+        cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(booking)")).fetchall()]
+
+    if "booking_date" not in cols:
+        db.session.execute(text("ALTER TABLE booking ADD COLUMN booking_date VARCHAR(10)"))
+        db.session.commit()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    db.session.execute(
+        text("UPDATE booking SET booking_date = :today WHERE booking_date IS NULL OR TRIM(booking_date) = ''"),
+        {"today": today}
+    )
+    db.session.commit()
+
+
 def normalize_agent_port(value):
     try:
         port = int(str(value).strip())
     except Exception:
         return None
-    if port < 1 or port > 65535:
+    # Reserve low/system ports; LAN agent is expected on an app port (default 5001).
+    if port < 1024 or port > 65535:
         return None
     return port
 
@@ -831,12 +865,91 @@ def resolve_pc_targets(pc_name):
             ports.append(fallback)
 
     host = pc.lan_ip
+    targets = []
+
+    local_ips = set(get_local_lan_addresses())
+    if host in local_ips or host.startswith("127.") or host in {"::1", "localhost"}:
+        # Same-machine target: prefer loopback first to avoid local LAN stack issues.
+        for port in ports:
+            for local_host in ("127.0.0.1", "localhost"):
+                url = f"http://{local_host}:{port}"
+                if url not in targets:
+                    targets.append(url)
+
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
-    return [f"http://{host}:{port}" for port in ports]
+    for port in ports:
+        url = f"http://{host}:{port}"
+        if url not in targets:
+            targets.append(url)
+    return targets
+
+
+def get_remote_windows_credentials():
+    username = os.getenv("LAN_REMOTE_USERNAME", "").strip()
+    password = os.getenv("LAN_REMOTE_PASSWORD", "")
+    domain = os.getenv("LAN_REMOTE_DOMAIN", "").strip()
+
+    if not username or password == "":
+        return None, None
+
+    if domain and ("\\" not in username) and ("@" not in username):
+        username = f"{domain}\\{username}"
+    return username, password
+
+
+def run_remote_windows_fallback(command_args, unc_host=None, username=None, password=None):
+    connected_with_net_use = False
+    try:
+        if unc_host and username and password is not None:
+            connect = subprocess.run(
+                ["net", "use", unc_host, f"/user:{username}", password],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore"
+            )
+            if connect.returncode != 0:
+                output = (connect.stdout or "").strip()
+                error = (connect.stderr or "").strip()
+                details = " | ".join(part for part in [output, error] if part).strip()
+                return False, details or "Could not authenticate remote admin share"
+            connected_with_net_use = True
+
+        control = subprocess.run(
+            command_args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore"
+        )
+        output = (control.stdout or "").strip()
+        error = (control.stderr or "").strip()
+        details = " | ".join(part for part in [output, error] if part).strip()
+        if control.returncode == 0:
+            return True, details or "ok"
+        return False, details or f"exit code {control.returncode}"
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        if connected_with_net_use:
+            try:
+                subprocess.run(
+                    ["net", "use", unc_host, "/delete", "/y"],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore"
+                )
+            except Exception:
+                pass
 
 
 def remote_windows_control_fallback(pc_name, command):
+    allow_fallback = str(os.getenv("LAN_ALLOW_REMOTE_WINDOWS_FALLBACK", "1")).strip().lower() in {"1", "true", "yes"}
+    if not allow_fallback:
+        return False, "Remote Windows fallback is disabled by policy"
+
     if command not in {"restart", "shutdown", "lock"}:
         return False, "No fallback path for this command"
 
@@ -845,35 +958,33 @@ def remote_windows_control_fallback(pc_name, command):
         return False, "Fallback requires PC IPv4 address"
 
     unc_host = f"\\\\{pc.lan_ip}"
-    if command == "lock":
-        cmd_line = "wmic /node:" + pc.lan_ip + " process call create \"rundll32.exe user32.dll,LockWorkStation\""
-    else:
-        shutdown_flag = "/r" if command == "restart" else "/s"
-        cmd_line = f"shutdown /m {unc_host} {shutdown_flag} /t 0 /f"
-
-    try:
-        control = subprocess.run(
-            ["cmd", "/c", cmd_line],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore"
-        )
-    except Exception as exc:
-        return False, f"Fallback failed: {exc}"
-
-    output = (control.stdout or "").strip()
-    error = (control.stderr or "").strip()
-    details = " | ".join(part for part in [output, error] if part).strip()
+    username, password = get_remote_windows_credentials()
+    using_explicit_credentials = bool(username and password is not None)
 
     if command == "lock":
-        if control.returncode == 0 and "ReturnValue = 0" in (output + "\n" + error):
-            return True, f"Fallback lock sent via cmd using {pc.lan_ip}"
-        return False, f"Fallback lock failed via cmd for {pc.lan_ip}: {details or 'access denied or RPC unavailable'}"
+        lock_cmd = ["wmic", f"/node:{pc.lan_ip}"]
+        if using_explicit_credentials:
+            lock_cmd.extend([f"/user:{username}", f"/password:{password}"])
+        lock_cmd.extend(["process", "call", "create", "rundll32.exe user32.dll,LockWorkStation"])
+        ok, details = run_remote_windows_fallback(lock_cmd, unc_host=unc_host, username=username, password=password)
+        if ok and "ReturnValue = 0" in details:
+            suffix = " using configured remote credentials" if using_explicit_credentials else " using current session credentials"
+            return True, f"Fallback lock sent via cmd for {pc.lan_ip}{suffix}"
+        guidance = ""
+        if not using_explicit_credentials:
+            guidance = " Set LAN_REMOTE_USERNAME and LAN_REMOTE_PASSWORD."
+        return False, f"Fallback lock failed via cmd for {pc.lan_ip}: {details or 'access denied or RPC unavailable'}{guidance}"
 
-    if control.returncode == 0:
-        return True, f"Fallback {command} sent via cmd using {pc.lan_ip}"
-    return False, f"Fallback {command} failed via cmd for {pc.lan_ip}: {details or 'access denied or RPC unavailable'}"
+    shutdown_flag = "/r" if command == "restart" else "/s"
+    power_cmd = ["shutdown", "/m", unc_host, shutdown_flag, "/t", "0", "/f"]
+    ok, details = run_remote_windows_fallback(power_cmd, unc_host=unc_host, username=username, password=password)
+    if ok:
+        suffix = " using configured remote credentials" if using_explicit_credentials else " using current session credentials"
+        return True, f"Fallback {command} sent via cmd for {pc.lan_ip}{suffix}"
+    guidance = ""
+    if not using_explicit_credentials:
+        guidance = " Set LAN_REMOTE_USERNAME and LAN_REMOTE_PASSWORD."
+    return False, f"Fallback {command} failed via cmd for {pc.lan_ip}: {details or 'access denied or RPC unavailable'}{guidance}"
 
 
 def get_agent_status_note(pc_name):
@@ -948,6 +1059,8 @@ def pick_next_lan_command_for_names(candidate_names):
 def send_lan_command(pc_name, command, payload=None):
     targets = resolve_pc_targets(pc_name)
     status_note = get_agent_status_note(pc_name)
+    requires_user_popup = command in {"lock", "restart", "shutdown", "connect_request"}
+    agent_only_for_popup = str(os.getenv("LAN_REQUIRE_AGENT_POPUP_PATH", "1")).strip().lower() in {"1", "true", "yes"}
     if not targets:
         queued, created = enqueue_lan_command(pc_name, command, payload, note="no direct target")
         if created:
@@ -988,6 +1101,13 @@ def send_lan_command(pc_name, command, payload=None):
         except Exception as exc:
             errors.append(f"{target}: {exc}")
 
+    if requires_user_popup and agent_only_for_popup:
+        queued, created = enqueue_lan_command(pc_name, command, payload, note="agent popup required")
+        details = " | ".join(errors[:3]) if errors else "no connection details"
+        if created:
+            return True, f"Queued command #{queued.id} for client popup approval ({status_note}). Details: {details}"
+        return True, f"Command already pending as #{queued.id} ({status_note}). Direct details: {details}"
+
     fallback_ok, fallback_message = remote_windows_control_fallback(pc_name, command)
     if fallback_ok:
         return True, fallback_message
@@ -997,6 +1117,66 @@ def send_lan_command(pc_name, command, payload=None):
     if created:
         return True, f"Queued command #{queued.id} for client pickup (direct path unavailable, {status_note}). Details: {details}. {fallback_message}"
     return True, f"Command already pending as #{queued.id} ({status_note}). Direct details: {details}. {fallback_message}"
+
+
+def send_connect_webpage_request(pc_name, payload=None, server_base_url=""):
+    payload_data = payload if isinstance(payload, dict) else {}
+    cmd, _ = enqueue_lan_command(pc_name, "connect_request", payload_data, note="webpage connect request")
+    try:
+        stored_payload = json.loads(cmd.payload_json or "{}")
+    except Exception:
+        stored_payload = {}
+    connect_token = str(stored_payload.get("connect_token", "")).strip() or uuid.uuid4().hex
+    stored_payload["connect_token"] = connect_token
+    if server_base_url:
+        stored_payload["request_page_url"] = f"{server_base_url}/api/connect-request/{cmd.id}?token={connect_token}"
+    cmd.payload_json = json.dumps(stored_payload)
+    db.session.commit()
+
+    targets = resolve_pc_targets(pc_name)
+    status_note = get_agent_status_note(pc_name)
+    if not targets:
+        return True, f"Queued connection request #{cmd.id}; no direct LAN target ({status_note})"
+
+    shared_token = get_lan_agent_token()
+    body = json.dumps({
+        "command_id": cmd.id,
+        "pc_name": pc_name,
+        "payload": stored_payload,
+        "request_page_url": stored_payload.get("request_page_url", "")
+    }).encode("utf-8")
+
+    errors = []
+    for target in targets:
+        req = http_request.Request(
+            f"{target}/agent/connect-web-request",
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "X-Agent-Token": shared_token
+            }
+        )
+        try:
+            with http_request.urlopen(req, timeout=6) as response:
+                response_text = response.read().decode("utf-8")
+                response_data = json.loads(response_text) if response_text else {}
+                if bool(response_data.get("ok", True)):
+                    cmd.status = "sent"
+                    cmd.sent_at = datetime.now()
+                    cmd.attempts = int(cmd.attempts or 0) + 1
+                    cmd.result_message = response_data.get("message", "connection request tab sent")
+                    db.session.commit()
+                    return True, f"Connection request tab sent to {pc_name}: {cmd.result_message}"
+                errors.append(f"{target}: {response_data.get('message', 'unknown error')}")
+        except http_error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            errors.append(f"{target}: HTTP {exc.code} {detail}")
+        except Exception as exc:
+            errors.append(f"{target}: {exc}")
+
+    details = " | ".join(errors[:3]) if errors else "no connection details"
+    return True, f"Command already pending as #{cmd.id} ({status_note}). Direct details: {details}"
 
 
 def get_client_ip_from_request():
@@ -1065,11 +1245,143 @@ def create_online_payment_request(user, amount, source="web"):
     return tx
 
 
+def get_server_public_base_url():
+    configured = os.getenv("LAN_SERVER_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+    try:
+        host_value = (request.host or "").strip()
+        host_name = host_value.split(":", 1)[0].strip().lower()
+        if host_name in {"127.0.0.1", "localhost", "::1"}:
+            local_ipv4s = get_local_ipv4_addresses()
+            if local_ipv4s:
+                scheme = "https" if request.is_secure else "http"
+                port = host_value.split(":", 1)[1].strip() if ":" in host_value else ("443" if request.is_secure else "80")
+                if (scheme == "http" and port == "80") or (scheme == "https" and port == "443"):
+                    return f"{scheme}://{local_ipv4s[0]}"
+                return f"{scheme}://{local_ipv4s[0]}:{port}"
+        return request.host_url.rstrip("/")
+    except Exception:
+        return ""
+
+
+def build_client_agent_bundle(pc):
+    server_base_url = get_server_public_base_url().rstrip("/")
+    register_url = f"{server_base_url}/api/agent/register-lan" if server_base_url else ""
+    token = get_lan_agent_token()
+    default_port = normalize_agent_port(os.getenv("LAN_AGENT_DEFAULT_PORT", "5001")) or 5001
+    agent_port = pc.lan_port or default_port
+
+    agent_source_path = os.path.join(basedir, "lan_agent.py")
+    with open(agent_source_path, "r", encoding="utf-8") as f:
+        agent_source = f.read()
+
+    client_app_py = (
+        "import os\n"
+        "import sys\n\n"
+        "REMOTE_URL = os.getenv('PYPONDO_REMOTE_URL', '').strip()\n"
+        "if not REMOTE_URL:\n"
+        "    print('Missing PYPONDO_REMOTE_URL. Set it in run_client_app.bat.')\n"
+        "    raise SystemExit(1)\n\n"
+        "try:\n"
+        "    import webview\n"
+        "except Exception as exc:\n"
+        "    print(f'pywebview is required: {exc}')\n"
+        "    raise SystemExit(1)\n\n"
+        "webview.create_window('PyPondo Client', url=REMOTE_URL, width=1280, height=820, min_size=(980, 700))\n"
+        "webview.start()\n"
+    )
+
+    run_client_app_bat = (
+        "@echo off\r\n"
+        "setlocal\r\n"
+        "cd /d \"%~dp0\"\r\n"
+        f"set \"PYPONDO_REMOTE_URL={server_base_url}\"\r\n"
+        "if \"%PYPONDO_REMOTE_URL%\"==\"\" (\r\n"
+        "  echo Missing server URL. Ask admin to set LAN_SERVER_PUBLIC_BASE_URL.\r\n"
+        "  pause\r\n"
+        "  exit /b 1\r\n"
+        ")\r\n"
+        "python client_app.py\r\n"
+        "endlocal\r\n"
+    )
+
+    run_bat = (
+        "@echo off\r\n"
+        "setlocal\r\n"
+        "cd /d \"%~dp0\"\r\n"
+        "\r\n"
+        f"set \"LAN_AGENT_TOKEN={token}\"\r\n"
+        f"set \"LAN_PC_NAME={pc.name}\"\r\n"
+        f"set \"LAN_SERVER_REGISTER_URL={register_url}\"\r\n"
+        f"set \"LAN_SERVER_BASE_URL={server_base_url}\"\r\n"
+        f"set \"LAN_AGENT_PORT={agent_port}\"\r\n"
+        "set \"LAN_REQUIRE_USER_APPROVAL=1\"\r\n"
+        "\r\n"
+        "if exist \".\\python\\python.exe\" (\r\n"
+        "  \".\\python\\python.exe\" lan_agent.py\r\n"
+        ") else (\r\n"
+        "  python lan_agent.py\r\n"
+        ")\r\n"
+        "endlocal\r\n"
+    )
+
+    install_bat = (
+        "@echo off\r\n"
+        "setlocal\r\n"
+        "python -m pip install flask pywebview\r\n"
+        "if errorlevel 1 (\r\n"
+        "  echo Failed to install dependencies. Install Python first.\r\n"
+        "  pause\r\n"
+        "  exit /b 1\r\n"
+        ")\r\n"
+        "echo Dependencies installed.\r\n"
+        "pause\r\n"
+        "endlocal\r\n"
+    )
+
+    readme = (
+        "PyPondo Client Agent Package\r\n"
+        "============================\r\n\r\n"
+        f"PC Name: {pc.name}\r\n"
+        f"Server URL: {server_base_url or '(not set)'}\r\n"
+        f"Register URL: {register_url or '(not set)'}\r\n"
+        f"Agent Port: {agent_port}\r\n\r\n"
+        "Setup:\r\n"
+        "1. Install Python 3.10+ on this client PC.\r\n"
+        "2. Run install_requirements.bat once.\r\n"
+        "3. Run run_client_app.bat to open the SAME admin system in app window mode.\r\n"
+        "4. Run run_client_agent.bat and keep it running for LAN command connection.\r\n"
+        "5. In admin dashboard, this PC should move to ONLINE once heartbeat is received.\r\n"
+    )
+
+    memory = io.BytesIO()
+    with zipfile.ZipFile(memory, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("client_app.py", client_app_py)
+        zf.writestr("run_client_app.bat", run_client_app_bat)
+        zf.writestr("lan_agent.py", agent_source)
+        zf.writestr("run_client_agent.bat", run_bat)
+        zf.writestr("install_requirements.bat", install_bat)
+        zf.writestr("README_CLIENT.txt", readme)
+    memory.seek(0)
+    return memory
+
+
+def get_user_active_pc():
+    if not current_user.is_authenticated:
+        return None
+    active_session = Session.query.filter_by(user_id=current_user.id, end_time=None).order_by(Session.start_time.desc()).first()
+    if not active_session:
+        return None
+    return db.session.get(PC, active_session.pc_id)
+
+
 @app.before_request
 def bootstrap_schema():
     if not getattr(app, "_schema_ready", False):
         db.create_all()
         ensure_pc_lan_ip_column()
+        ensure_booking_date_column()
         app._schema_ready = True
 
 
@@ -1184,7 +1496,9 @@ def index():
         lan_summary=lan_summary,
         gateway_scan=gateway_scan,
         assigned_ips=assigned_ips,
-        agent_status=agent_status
+        agent_status=agent_status,
+        power_command_confirm_text=POWER_COMMAND_CONFIRM_TEXT,
+        today_date=datetime.now().strftime("%Y-%m-%d")
     )
 
 
@@ -1215,7 +1529,7 @@ def add_pc():
 @login_required
 def view_bookings():
     if not current_user.is_admin: return redirect(url_for('index'))
-    bookings = Booking.query.all()
+    bookings = Booking.query.order_by(Booking.booking_date.asc(), Booking.time_slot.asc(), Booking.id.asc()).all()
     return render_template('bookings.html', bookings=bookings)
 
 
@@ -1314,6 +1628,126 @@ def set_pc_ip(pc_id):
     return redirect(url_for('index'))
 
 
+@app.route('/admin/download_client_app/<int:pc_id>')
+@login_required
+def download_client_app(pc_id):
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    pc = db.session.get(PC, pc_id)
+    if not pc:
+        flash('PC not found.', 'error')
+        return redirect(url_for('index'))
+
+    try:
+        bundle = build_client_agent_bundle(pc)
+    except Exception as exc:
+        flash(f'Failed to build client app package: {exc}', 'error')
+        return redirect(url_for('index'))
+
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action=f"Downloaded client app package for {pc.name}"
+    ))
+    db.session.commit()
+    return send_file(
+        bundle,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"pypondo-client-{pc.name}.zip"
+    )
+
+
+@app.route('/admin/request_connect', methods=['POST'])
+@login_required
+def admin_request_connect():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    pc_id = request.form.get('pc_id', type=int)
+    connect_ip_raw = (request.form.get('connect_ip') or '').strip()
+    reason = (request.form.get('reason') or '').strip()
+    connect_port_raw = (request.form.get('connect_port') or '').strip()
+
+    pc = db.session.get(PC, pc_id) if pc_id else None
+    if not pc:
+        flash('Invalid PC selected for connection request.', 'error')
+        return redirect(url_for('index'))
+
+    connect_ip = normalize_lan_ip(connect_ip_raw)
+    if not connect_ip:
+        flash('Invalid target IP for connection request.', 'error')
+        return redirect(url_for('index'))
+    if ":" not in connect_ip and connect_ip in get_gateway_ipv4_set():
+        flash('Gateway IP cannot be used as a client target.', 'error')
+        return redirect(url_for('index'))
+
+    requested_port = normalize_agent_port(connect_port_raw) if connect_port_raw else None
+    if connect_port_raw and not requested_port:
+        flash('Invalid agent port. Use 1024-65535 (recommended 5001).', 'error')
+        return redirect(url_for('index'))
+
+    # Keep the selected target for this PC so next actions use the same endpoint.
+    pc.lan_ip = connect_ip
+    if requested_port:
+        pc.lan_port = requested_port
+    else:
+        pc.lan_port = normalize_agent_port(os.getenv("LAN_AGENT_DEFAULT_PORT", "5001")) or 5001
+
+    payload = {
+        "requested_by": current_user.username,
+        "reason": reason or f"Connection request to {pc.name}"
+    }
+    ok, message = send_connect_webpage_request(pc.name, payload, server_base_url=get_server_public_base_url())
+
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action=f"Admin connection request to {pc.name} via {connect_ip}:{pc.lan_port or os.getenv('LAN_AGENT_DEFAULT_PORT', '5001')}: {message}"
+    ))
+    db.session.commit()
+
+    if not ok:
+        flash(f'Connection request failed: {message}', 'error')
+    else:
+        flash(f'Connection request sent to {pc.name} ({connect_ip}). {message}', 'success')
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/clear_pc_commands/<int:pc_id>', methods=['POST'])
+@login_required
+def admin_clear_pc_commands(pc_id):
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    pc = db.session.get(PC, pc_id)
+    if not pc:
+        flash('PC not found.', 'error')
+        return redirect(url_for('index'))
+
+    pending = LanCommand.query.filter(
+        LanCommand.pc_name == pc.name,
+        LanCommand.status.in_(["queued", "sent"])
+    ).all()
+
+    if not pending:
+        flash(f'No pending commands for {pc.name}.', 'info')
+        return redirect(url_for('index'))
+
+    now_dt = datetime.now()
+    for cmd in pending:
+        cmd.status = "failed"
+        cmd.completed_at = now_dt
+        cmd.result_message = "Cleared by admin"
+
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action=f"Cleared {len(pending)} pending LAN command(s) for {pc.name}"
+    ))
+    db.session.commit()
+    flash(f'Cleared {len(pending)} pending command(s) for {pc.name}.', 'success')
+    return redirect(url_for('index'))
+
+
 # --- SYSTEM FEATURES ---
 
 @app.route('/pondo', methods=['GET', 'POST'])
@@ -1343,17 +1777,45 @@ def manage_pondo():
 @app.route('/book', methods=['POST'])
 @login_required
 def book_pc():
-    pc_id = request.form['pc_id']
-    time_slot = request.form['time_slot']
+    pc_id = request.form.get('pc_id', type=int)
+    booking_date_raw = (request.form.get('booking_date') or '').strip()
+    time_slot_raw = (request.form.get('time_slot') or '').strip()
 
-    # Check if already booked for that slot (Optional logic improvement)
-    # existing = Booking.query.filter_by(pc_id=pc_id, time_slot=time_slot).first()
-    # if existing: flash('Slot taken', 'error'); return ...
+    if not pc_id:
+        flash('Invalid PC selected.', 'error')
+        return redirect(url_for('index'))
+    if not booking_date_raw:
+        flash('Booking date is required.', 'error')
+        return redirect(url_for('index'))
+    if not time_slot_raw:
+        flash('Booking time is required.', 'error')
+        return redirect(url_for('index'))
 
-    new_booking = Booking(user_id=current_user.id, pc_id=pc_id, time_slot=time_slot)
+    try:
+        booking_date_dt = datetime.strptime(booking_date_raw, "%Y-%m-%d").date()
+    except ValueError:
+        flash('Invalid booking date format.', 'error')
+        return redirect(url_for('index'))
+    if booking_date_dt < datetime.now().date():
+        flash('Booking date cannot be in the past.', 'error')
+        return redirect(url_for('index'))
+
+    try:
+        time_slot = datetime.strptime(time_slot_raw, "%H:%M").strftime("%H:%M")
+    except ValueError:
+        flash('Invalid booking time format. Use HH:MM.', 'error')
+        return redirect(url_for('index'))
+
+    booking_date = booking_date_dt.strftime("%Y-%m-%d")
+    existing = Booking.query.filter_by(pc_id=pc_id, booking_date=booking_date, time_slot=time_slot).first()
+    if existing:
+        flash(f'PC is already booked on {booking_date} at {time_slot}.', 'error')
+        return redirect(url_for('index'))
+
+    new_booking = Booking(user_id=current_user.id, pc_id=pc_id, booking_date=booking_date, time_slot=time_slot)
     db.session.add(new_booking)
     db.session.commit()
-    flash('Reservation confirmed!', 'success')
+    flash(f'Reservation confirmed for {booking_date} at {time_slot}.', 'success')
     return redirect(url_for('index'))
 
 
@@ -1416,7 +1878,34 @@ def pc_command():
         flash('Invalid command.', 'error')
         return redirect(url_for('index'))
 
-    ok, message = send_lan_command(pc.name, command, {})
+    reason = (request.form.get('reason') or '').strip()
+    confirm_text = (request.form.get('confirm_text') or '').strip()
+    if command in {"restart", "shutdown"}:
+        if len(reason) < 8 or len(reason) > 200:
+            flash('Reason is required for restart/shutdown (8-200 characters).', 'error')
+            return redirect(url_for('index'))
+        if confirm_text != POWER_COMMAND_CONFIRM_TEXT:
+            flash(f'Confirmation text must be {POWER_COMMAND_CONFIRM_TEXT}.', 'error')
+            return redirect(url_for('index'))
+
+    payload = {"requested_by": current_user.username}
+    if reason:
+        payload["reason"] = reason
+
+    connect_ok, connect_message = send_lan_command(pc.name, "connect_request", payload)
+    db.session.add(AdminLog(admin_name=current_user.username, action=f"LAN connection request to {pc.name}: {connect_message}"))
+    if not connect_ok:
+        db.session.commit()
+        flash(f'Connection request failed: {connect_message}', 'error')
+        return redirect(url_for('index'))
+
+    if "approved connection request" not in connect_message.lower():
+        db.session.commit()
+        flash(f'Connection request sent to {pc.name}. Waiting for user approval. Message: {connect_message}', 'info')
+        return redirect(url_for('index'))
+
+    payload["skip_user_approval"] = "1"
+    ok, message = send_lan_command(pc.name, command, payload)
     db.session.add(AdminLog(admin_name=current_user.username, action=f"LAN command '{command}' to {pc.name}: {message}"))
     db.session.commit()
 
@@ -1446,6 +1935,33 @@ def api_pc_command():
     if payload is not None and not isinstance(payload, dict):
         return jsonify({"ok": False, "error": "payload must be an object"}), 400
 
+    payload = dict(payload or {})
+    payload.setdefault("requested_by", current_user.username)
+
+    if command in {"restart", "shutdown"}:
+        reason = str(payload.get("reason", "")).strip()
+        if len(reason) < 8 or len(reason) > 200:
+            return jsonify({"ok": False, "error": "reason is required for restart/shutdown (8-200 characters)"}), 400
+        confirm_text = str(payload.get("confirm_text", "")).strip()
+        if confirm_text != POWER_COMMAND_CONFIRM_TEXT:
+            return jsonify({"ok": False, "error": f"confirm_text must be {POWER_COMMAND_CONFIRM_TEXT}"}), 400
+
+    connect_ok, connect_message = send_lan_command(pc_name, "connect_request", payload)
+    db.session.add(AdminLog(admin_name=current_user.username, action=f"API LAN connection request to {pc_name}: {connect_message}"))
+    if not connect_ok:
+        db.session.commit()
+        return jsonify({"ok": False, "error": f"connection request failed: {connect_message}"}), 502
+
+    if "approved connection request" not in connect_message.lower():
+        db.session.commit()
+        return jsonify({
+            "ok": True,
+            "pending_approval": True,
+            "message": connect_message,
+            "pc_name": pc_name
+        }), 202
+
+    payload["skip_user_approval"] = "1"
     ok, message = send_lan_command(pc_name, command, payload)
     db.session.add(AdminLog(admin_name=current_user.username, action=f"API LAN command '{command}' to {pc_name}: {message}"))
     db.session.commit()
@@ -1495,6 +2011,145 @@ def api_topup_confirm():
         "amount": tx.amount,
         "currency": tx.currency
     }), 200
+
+
+@app.route('/api/user/pending-connect-request', methods=['GET'])
+@login_required
+def api_user_pending_connect_request():
+    if current_user.is_admin:
+        return jsonify({"ok": True, "no_request": True}), 200
+
+    pc = get_user_active_pc()
+    if not pc:
+        return jsonify({"ok": True, "no_request": True}), 200
+
+    cmd = LanCommand.query.filter(
+        LanCommand.pc_name == pc.name,
+        LanCommand.command == "connect_request",
+        LanCommand.status.in_(["queued", "sent"])
+    ).order_by(LanCommand.created_at.asc()).first()
+
+    if not cmd:
+        return jsonify({"ok": True, "no_request": True}), 200
+
+    try:
+        payload = json.loads(cmd.payload_json or "{}")
+    except Exception:
+        payload = {}
+
+    return jsonify({
+        "ok": True,
+        "no_request": False,
+        "request": {
+            "command_id": cmd.id,
+            "pc_name": cmd.pc_name,
+            "requested_by": str(payload.get("requested_by", "admin")).strip() or "admin",
+            "reason": str(payload.get("reason", "")).strip(),
+            "created_at": cmd.created_at.isoformat() if cmd.created_at else None
+        }
+    }), 200
+
+
+@app.route('/api/user/respond-connect-request', methods=['POST'])
+@login_required
+def api_user_respond_connect_request():
+    if current_user.is_admin:
+        return jsonify({"ok": False, "error": "user-only endpoint"}), 403
+
+    data = request.get_json(silent=True) or {}
+    command_id = data.get("command_id")
+    accepted = bool(data.get("accepted", False))
+
+    try:
+        command_id = int(command_id)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "command_id must be an integer"}), 400
+
+    pc = get_user_active_pc()
+    if not pc:
+        return jsonify({"ok": False, "error": "no active pc session for current user"}), 400
+
+    cmd = db.session.get(LanCommand, command_id)
+    if not cmd:
+        return jsonify({"ok": False, "error": "request not found"}), 404
+    if cmd.command != "connect_request" or cmd.pc_name != pc.name:
+        return jsonify({"ok": False, "error": "request does not match your active PC"}), 403
+    if cmd.status not in {"queued", "sent"}:
+        return jsonify({"ok": True, "message": "request already handled", "status": cmd.status}), 200
+
+    cmd.status = "done" if accepted else "failed"
+    cmd.completed_at = datetime.now()
+    cmd.result_message = "User approved connection request (web tab)" if accepted else "User rejected connection request (web tab)"
+    db.session.add(AdminLog(
+        admin_name=f"user:{current_user.username}",
+        action=f"{pc.name} connection request #{cmd.id}: {'approved' if accepted else 'rejected'} via web tab"
+    ))
+    db.session.commit()
+    return jsonify({"ok": True, "status": cmd.status, "message": cmd.result_message}), 200
+
+
+@app.route('/api/connect-request/<int:command_id>', methods=['GET'])
+def api_connect_request_page(command_id):
+    token = str(request.args.get("token", "")).strip()
+    cmd = db.session.get(LanCommand, command_id)
+    if not cmd or cmd.command != "connect_request":
+        return "<h3>Request not found.</h3>", 404
+
+    try:
+        payload = json.loads(cmd.payload_json or "{}")
+    except Exception:
+        payload = {}
+    expected = str(payload.get("connect_token", "")).strip()
+    if not expected or token != expected:
+        return "<h3>Invalid request token.</h3>", 403
+
+    if cmd.status not in {"queued", "sent"}:
+        return f"<h3>Request already handled: {cmd.status}</h3>", 200
+
+    requested_by = str(payload.get("requested_by", "admin")).strip() or "admin"
+    reason = str(payload.get("reason", "")).strip()
+    reason_html = f"<p><b>Reason:</b> {reason}</p>" if reason else ""
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><title>Connection Request</title></head>
+<body style="font-family:Segoe UI,Arial,sans-serif;padding:24px;background:#0f1720;color:#e6edf7;">
+<h2>Connection Request</h2>
+<p><b>Target:</b> {cmd.pc_name}</p>
+<p><b>Requested by:</b> {requested_by}</p>
+{reason_html}
+<p>Allow this connection request?</p>
+<form method="post" action="/api/connect-request/{cmd.id}/respond?token={token}">
+  <button type="submit" name="decision" value="accept" style="padding:10px 14px;margin-right:8px;">Accept</button>
+  <button type="submit" name="decision" value="decline" style="padding:10px 14px;">Decline</button>
+</form>
+</body></html>"""
+
+
+@app.route('/api/connect-request/<int:command_id>/respond', methods=['POST'])
+def api_connect_request_respond(command_id):
+    token = str(request.args.get("token", "")).strip()
+    cmd = db.session.get(LanCommand, command_id)
+    if not cmd or cmd.command != "connect_request":
+        return "<h3>Request not found.</h3>", 404
+
+    try:
+        payload = json.loads(cmd.payload_json or "{}")
+    except Exception:
+        payload = {}
+    expected = str(payload.get("connect_token", "")).strip()
+    if not expected or token != expected:
+        return "<h3>Invalid request token.</h3>", 403
+
+    if cmd.status not in {"queued", "sent"}:
+        return f"<h3>Request already handled: {cmd.status}</h3>", 200
+
+    decision = str(request.form.get("decision", "")).strip().lower()
+    accepted = decision == "accept"
+    cmd.status = "done" if accepted else "failed"
+    cmd.completed_at = datetime.now()
+    cmd.result_message = "User approved connection request (webpage)" if accepted else "User rejected connection request (webpage)"
+    db.session.add(AdminLog(admin_name="system", action=f"{cmd.pc_name} connection request #{cmd.id}: {'approved' if accepted else 'rejected'} via webpage"))
+    db.session.commit()
+    return f"<h3>{cmd.result_message}</h3><p>You can close this tab.</p>", 200
 
 
 @app.route('/start_session/<int:pc_id>/<int:user_id>')
@@ -1872,7 +2527,7 @@ def api_agent_ack_command():
 
 
 if __name__ == '__main__':
-    if not os.path.exists(os.path.join(basedir, 'pccafe.db')):
+    if not os.path.exists(APP_DB_PATH):
         with app.app_context():
             db.create_all()
             # Default PCs

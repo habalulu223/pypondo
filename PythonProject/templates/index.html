@@ -29,9 +29,16 @@
         .free .status-badge { background: rgba(0, 243, 255, 0.2); color: var(--neon-blue); }
         .occupied .status-badge { background: rgba(255, 0, 85, 0.2); color: var(--neon-red); }
 
-        input[type="text"], input[type="number"] { width: 100%; padding: 10px; margin: 5px 0; background: #0b0c15; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
+        input[type="text"], input[type="number"], input[type="date"], input[type="time"] { width: 100%; padding: 10px; margin: 5px 0; background: #0b0c15; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
         select { width: 100%; padding: 10px; margin: 5px 0; background: #0b0c15; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
         input:focus { outline: none; border-color: var(--neon-blue); }
+        input[type="date"], input[type="time"] { color-scheme: dark; }
+        input[type="date"]::-webkit-calendar-picker-indicator,
+        input[type="time"]::-webkit-calendar-picker-indicator { filter: brightness(0) invert(1); opacity: 1; cursor: pointer; }
+        input[type="date"]::-webkit-clear-button,
+        input[type="date"]::-webkit-inner-spin-button,
+        input[type="time"]::-webkit-clear-button,
+        input[type="time"]::-webkit-inner-spin-button { display: none; }
 
         button, .btn { background: transparent; border: 1px solid var(--neon-blue); color: var(--neon-blue); padding: 10px 20px; cursor: pointer; text-transform: uppercase; font-family: 'Orbitron', sans-serif; font-size: 0.9em; transition: 0.3s; display: inline-block; text-decoration: none; margin-top: 10px; }
         button:hover, .btn:hover { background: var(--neon-blue); color: #000; box-shadow: 0 0 15px var(--neon-blue); }
@@ -102,6 +109,7 @@
                             <input type="text" name="lan_ip" placeholder="Set LAN IP (blank to clear)" value="{{ pc.lan_ip or '' }}">
                             <button type="submit" style="width:100%">Save LAN IP</button>
                         </form>
+                        <a href="/admin/download_client_app/{{ pc.id }}" class="btn" style="width:100%; box-sizing:border-box; text-align:center;">Download Client (Join This System)</a>
                     {% endif %}
 
                     {% if pc.is_occupied %}
@@ -119,7 +127,8 @@
                     {% else %}
                         <form action="/book" method="POST">
                             <input type="hidden" name="pc_id" value="{{ pc.id }}">
-                            <input type="text" name="time_slot" placeholder="Time (e.g. 2:00 PM)" required>
+                            <input type="date" name="booking_date" class="booking-date-input" min="{{ today_date }}" value="{{ today_date }}" required>
+                            <input type="time" name="time_slot" required>
                             <button type="submit" style="width:100%">Reserve for Me</button>
                         </form>
 
@@ -147,6 +156,34 @@
                                 <input type="text" name="reason" maxlength="200" placeholder="Reason (required for restart/shutdown)">
                                 <input type="text" name="confirm_text" placeholder="Type {{ power_command_confirm_text }} for restart/shutdown">
                                 <button type="submit" style="width:100%">Send to {{ pc.name }}</button>
+                            </form>
+                        </div>
+                        <div style="margin-top:12px;">
+                            <small style="color:#666; text-transform:uppercase;">Connection Request:</small>
+                            <form action="/admin/request_connect" method="POST">
+                                <input type="hidden" name="pc_id" value="{{ pc.id }}">
+                                {% if discovered_ips or pc.lan_ip %}
+                                    <select name="connect_ip" required>
+                                        {% if pc.lan_ip %}
+                                            <option value="{{ pc.lan_ip }}" selected>{{ pc.lan_ip }} (current)</option>
+                                        {% else %}
+                                            <option value="" disabled selected>Select detected IP</option>
+                                        {% endif %}
+                                        {% for ip in discovered_ips %}
+                                            {% if ip != pc.lan_ip %}
+                                                <option value="{{ ip }}">{{ ip }}</option>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </select>
+                                {% else %}
+                                    <input type="text" name="connect_ip" placeholder="Target LAN IP (e.g. 192.168.1.120)" required>
+                                {% endif %}
+                                <input type="number" name="connect_port" min="1024" max="65535" placeholder="Agent Port (default 5001)">
+                                <input type="text" name="reason" maxlength="200" placeholder="Reason shown to target user">
+                                <button type="submit" style="width:100%">Request Connect to {{ pc.name }}</button>
+                            </form>
+                            <form action="/admin/clear_pc_commands/{{ pc.id }}" method="POST" style="margin-top:8px;">
+                                <button type="submit" class="btn btn-red" style="width:100%">Clear Pending Commands</button>
                             </form>
                         </div>
                         {% endif %}
@@ -293,6 +330,56 @@
             var field = document.getElementById('topupAmount');
             if (field) field.value = amount;
         }
+
+        function wireBookingDatePicker() {
+            var dateInputs = document.querySelectorAll('input.booking-date-input');
+            dateInputs.forEach(function (input) {
+                function openNativeCalendar() {
+                    if (typeof input.showPicker === 'function') {
+                        try { input.showPicker(); } catch (e) {}
+                    }
+                }
+                input.addEventListener('focus', openNativeCalendar);
+                input.addEventListener('click', openNativeCalendar);
+            });
+        }
+
+        wireBookingDatePicker();
+
+        {% if not current_user.is_admin %}
+        async function checkPendingConnectionRequest() {
+            try {
+                const res = await fetch('/api/user/pending-connect-request', { credentials: 'same-origin' });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data.ok || data.no_request || !data.request) return;
+
+                const req = data.request;
+                const shownKey = 'shown_connect_request_' + req.command_id;
+                if (sessionStorage.getItem(shownKey) === '1') return;
+                sessionStorage.setItem(shownKey, '1');
+
+                const reasonLine = req.reason ? ('\nReason: ' + req.reason) : '';
+                const message = 'Connection request for ' + req.pc_name + '\nRequested by: ' + req.requested_by + reasonLine + '\n\nAccept connection?';
+                const accepted = window.confirm(message);
+
+                await fetch('/api/user/respond-connect-request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        command_id: req.command_id,
+                        accepted: accepted
+                    })
+                });
+            } catch (e) {
+                // Keep silent on polling errors.
+            }
+        }
+
+        checkPendingConnectionRequest();
+        setInterval(checkPendingConnectionRequest, 4000);
+        {% endif %}
     </script>
 </body>
 </html>
