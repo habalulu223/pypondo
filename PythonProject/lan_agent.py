@@ -4,9 +4,11 @@ import subprocess
 import threading
 import time
 import ctypes
+import re
 from flask import Flask, request, jsonify
 from urllib import request as http_request
 from urllib import error as http_error
+from urllib import parse as http_parse
 import json
 
 app = Flask(__name__)
@@ -21,10 +23,20 @@ REGISTER_INTERVAL_SECONDS = int(os.getenv("LAN_REGISTER_INTERVAL_SECONDS", "60")
 SERVER_BASE_URL = os.getenv("LAN_SERVER_BASE_URL", "").strip()
 COMMAND_POLL_URL = os.getenv("LAN_SERVER_COMMAND_POLL_URL", "").strip()
 COMMAND_ACK_URL = os.getenv("LAN_SERVER_COMMAND_ACK_URL", "").strip()
+SERVER_HOST = os.getenv("LAN_SERVER_HOST", "").strip()
+SERVER_SCHEME = os.getenv("LAN_SERVER_SCHEME", "http").strip() or "http"
+SERVER_HOST_CANDIDATES = os.getenv("LAN_SERVER_HOST_CANDIDATES", "").strip()
+SERVER_HOST_FILE = os.getenv("LAN_SERVER_HOST_FILE", "server_host.txt").strip() or "server_host.txt"
+try:
+    SERVER_PORT = int(os.getenv("LAN_SERVER_PORT", "5000"))
+except Exception:
+    SERVER_PORT = 5000
 POLL_INTERVAL_SECONDS = int(os.getenv("LAN_POLL_INTERVAL_SECONDS", "3"))
 AGENT_IDENTITY = PC_NAME or socket.gethostname()
 REQUIRE_USER_APPROVAL = str(os.getenv("LAN_REQUIRE_USER_APPROVAL", "1")).strip().lower() in {"1", "true", "yes"}
 APPROVAL_COMMANDS = {"lock", "restart", "shutdown"}
+ACTIVE_SERVER_BASE_URL = ""
+ACTIVE_REGISTER_URL = ""
 
 
 def detect_local_lan_ip():
@@ -39,9 +51,176 @@ def detect_local_lan_ip():
         sock.close()
 
 
+def split_host_candidates(raw_value):
+    values = []
+    for part in str(raw_value or "").replace(";", ",").split(","):
+        candidate = part.strip()
+        if candidate:
+            values.append(candidate)
+    return values
+
+
+def read_host_candidates_from_file():
+    runtime_dir = os.path.abspath(os.path.dirname(__file__))
+    file_path = os.path.join(runtime_dir, SERVER_HOST_FILE)
+    if not os.path.exists(file_path):
+        return []
+    values = []
+    try:
+        with open(file_path, "r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                values.extend(split_host_candidates(line))
+    except Exception:
+        return []
+    return values
+
+
+def discover_hosts_from_net_view():
+    if os.name != "nt":
+        return []
+    try:
+        output = subprocess.check_output(
+            ["net", "view"],
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=4
+        )
+    except Exception:
+        return []
+
+    hosts = []
+    for raw_line in output.splitlines():
+        match = re.match(r"^\s*\\\\([^\\\s]+)", raw_line)
+        if not match:
+            continue
+        value = match.group(1).strip()
+        if value:
+            hosts.append(value)
+    return hosts
+
+
+def extract_base_url(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    parsed = http_parse.urlparse(raw)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+
+def probe_server_base_url(base_url):
+    root = str(base_url or "").rstrip("/")
+    if not root:
+        return False
+    for path in ("/login", "/api/agent/register-lan"):
+        target = root + path
+        try:
+            with http_request.urlopen(target, timeout=1.5):
+                return True
+        except http_error.HTTPError as exc:
+            if 200 <= exc.code < 500:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def build_server_base_candidates():
+    explicit = []
+    for value in (SERVER_BASE_URL, REGISTER_URL):
+        base = extract_base_url(value)
+        if base:
+            explicit.append(base)
+
+    hosts = []
+    hosts.extend(split_host_candidates(SERVER_HOST))
+    hosts.extend(split_host_candidates(SERVER_HOST_CANDIDATES))
+    hosts.extend(read_host_candidates_from_file())
+    hosts.extend(discover_hosts_from_net_view())
+
+    seen = set()
+    unique_hosts = []
+    for host in hosts:
+        value = str(host).strip()
+        if not value:
+            continue
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_hosts.append(value)
+
+    candidates = []
+    for host in unique_hosts:
+        if "://" in host:
+            base = extract_base_url(host)
+            if base:
+                candidates.append(base)
+            continue
+        candidates.append(f"{SERVER_SCHEME}://{host}:{SERVER_PORT}")
+
+    ordered = []
+    seen_urls = set()
+    for candidate in explicit + candidates:
+        key = candidate.lower()
+        if key in seen_urls:
+            continue
+        seen_urls.add(key)
+        ordered.append(candidate.rstrip("/"))
+    return ordered
+
+
+def discover_server_base_url():
+    global ACTIVE_SERVER_BASE_URL
+
+    if ACTIVE_SERVER_BASE_URL and probe_server_base_url(ACTIVE_SERVER_BASE_URL):
+        return ACTIVE_SERVER_BASE_URL
+
+    for candidate in build_server_base_candidates():
+        if probe_server_base_url(candidate):
+            ACTIVE_SERVER_BASE_URL = candidate.rstrip("/")
+            return ACTIVE_SERVER_BASE_URL
+    return ""
+
+
+def get_register_url_candidates():
+    global ACTIVE_REGISTER_URL
+
+    candidates = []
+    if ACTIVE_REGISTER_URL:
+        candidates.append(ACTIVE_REGISTER_URL)
+
+    discovered_base = discover_server_base_url()
+    if discovered_base:
+        candidates.append(discovered_base + "/api/agent/register-lan")
+    if REGISTER_URL:
+        candidates.append(REGISTER_URL)
+
+    seen = set()
+    ordered = []
+    for value in candidates:
+        target = str(value or "").strip()
+        if not target:
+            continue
+        key = target.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(target)
+    return ordered
+
+
 def register_with_server():
-    if not REGISTER_URL or not AGENT_TOKEN:
-        return False, "Registration skipped (missing LAN_SERVER_REGISTER_URL or LAN_AGENT_TOKEN)"
+    global ACTIVE_REGISTER_URL, ACTIVE_SERVER_BASE_URL
+
+    register_targets = get_register_url_candidates()
+    if not register_targets or not AGENT_TOKEN:
+        return False, "Registration skipped (missing LAN server host/URL or LAN_AGENT_TOKEN)"
 
     lan_ip = detect_local_lan_ip()
     body = json.dumps({
@@ -49,47 +228,62 @@ def register_with_server():
         "lan_ip": lan_ip,
         "agent_port": PORT
     }).encode("utf-8")
+    errors = []
 
-    req = http_request.Request(
-        REGISTER_URL,
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "X-Agent-Token": AGENT_TOKEN
-        }
-    )
+    for register_url in register_targets:
+        req = http_request.Request(
+            register_url,
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "X-Agent-Token": AGENT_TOKEN
+            }
+        )
 
-    try:
-        with http_request.urlopen(req, timeout=8) as response:
-            payload = json.loads(response.read().decode("utf-8") or "{}")
-            if payload.get("ok"):
-                pending = payload.get("pending_command")
-                if isinstance(pending, dict) and pending.get("command"):
-                    command_id = pending.get("command_id")
-                    command = str(pending.get("command", "")).strip().lower()
-                    server_pc_name = str(pending.get("pc_name", "")).strip() or AGENT_IDENTITY
-                    exec_ok, exec_message = execute_allowed_command(command, pending.get("payload", {}))
-                    ack_ok, ack_message = ack_command_to_server(command_id, exec_ok, exec_message, pc_identity=server_pc_name)
-                    if not ack_ok:
-                        return True, f"Registered {payload.get('pc_name')} -> {payload.get('lan_ip')} | executed queued #{command_id} ({'ok' if exec_ok else 'fail'}) but ack failed: {ack_message}"
-                    return True, f"Registered {payload.get('pc_name')} -> {payload.get('lan_ip')} | executed queued #{command_id}: {'ok' if exec_ok else 'fail'}"
-                return True, f"Registered {payload.get('pc_name')} -> {payload.get('lan_ip')}"
-            return False, payload.get("error", "Registration failed")
-    except http_error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore")
-        return False, f"HTTP {exc.code}: {detail}"
-    except Exception as exc:
-        return False, str(exc)
+        try:
+            with http_request.urlopen(req, timeout=8) as response:
+                payload = json.loads(response.read().decode("utf-8") or "{}")
+                if payload.get("ok"):
+                    ACTIVE_REGISTER_URL = register_url
+                    discovered_base = extract_base_url(register_url)
+                    if discovered_base:
+                        ACTIVE_SERVER_BASE_URL = discovered_base
+                    pending = payload.get("pending_command")
+                    if isinstance(pending, dict) and pending.get("command"):
+                        command_id = pending.get("command_id")
+                        command = str(pending.get("command", "")).strip().lower()
+                        server_pc_name = str(pending.get("pc_name", "")).strip() or AGENT_IDENTITY
+                        exec_ok, exec_message = execute_allowed_command(command, pending.get("payload", {}))
+                        ack_ok, ack_message = ack_command_to_server(command_id, exec_ok, exec_message, pc_identity=server_pc_name)
+                        if not ack_ok:
+                            return True, f"Registered {payload.get('pc_name')} -> {payload.get('lan_ip')} | executed queued #{command_id} ({'ok' if exec_ok else 'fail'}) but ack failed: {ack_message}"
+                        return True, f"Registered {payload.get('pc_name')} -> {payload.get('lan_ip')} | executed queued #{command_id}: {'ok' if exec_ok else 'fail'}"
+                    return True, f"Registered {payload.get('pc_name')} -> {payload.get('lan_ip')}"
+                errors.append(f"{register_url}: {payload.get('error', 'registration failed')}")
+        except http_error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            errors.append(f"{register_url}: HTTP {exc.code}: {detail}")
+        except Exception as exc:
+            errors.append(f"{register_url}: {exc}")
+
+    if errors:
+        return False, " | ".join(errors[:3])
+    return False, "Registration failed"
 
 
 def resolve_server_url(path):
+    if ACTIVE_SERVER_BASE_URL:
+        return ACTIVE_SERVER_BASE_URL.rstrip("/") + path
     if SERVER_BASE_URL:
         return SERVER_BASE_URL.rstrip("/") + path
     if REGISTER_URL and "/api/agent/register-lan" in REGISTER_URL:
         return REGISTER_URL.split("/api/agent/register-lan", 1)[0] + path
     if REGISTER_URL and "/api/" in REGISTER_URL:
         return REGISTER_URL.split("/api/", 1)[0] + path
+    discovered = discover_server_base_url()
+    if discovered:
+        return discovered.rstrip("/") + path
     return ""
 
 
@@ -301,10 +495,10 @@ def agent_info():
 
 
 if __name__ == "__main__":
-    if REGISTER_URL and AGENT_TOKEN:
+    if AGENT_TOKEN and get_register_url_candidates():
         threading.Thread(target=registration_loop, daemon=True).start()
     else:
-        print("[LAN_AGENT] Auto-registration disabled. Set LAN_SERVER_REGISTER_URL and LAN_AGENT_TOKEN.")
+        print("[LAN_AGENT] Auto-registration disabled. Set LAN_SERVER_REGISTER_URL or LAN_SERVER_HOST plus LAN_AGENT_TOKEN.")
     if get_poll_url() and get_ack_url() and AGENT_TOKEN:
         threading.Thread(target=command_poll_loop, daemon=True).start()
         print(f"[LAN_AGENT] Command polling enabled for {AGENT_IDENTITY} every {max(1, POLL_INTERVAL_SECONDS)}s")

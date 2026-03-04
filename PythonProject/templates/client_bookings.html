@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client Bookings</title>
+    <link rel='icon' type='image/x-icon' href='/favicon.ico'>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #0b0c15; --card: #151922; --line: #00f3ff; --ok: #00ff9d; --warn: #ff0055; --text: #e0e6ed; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; padding: 16px; }
+        .top { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--line); padding-bottom: 10px; margin-bottom: 18px; }
+        .top h1 { margin: 0; font-family: 'Orbitron', sans-serif; font-size: 1.2rem; color: var(--line); letter-spacing: 1px; }
+        .btn { display: inline-block; text-decoration: none; border: 1px solid var(--line); color: var(--line); padding: 8px 12px; border-radius: 4px; font-size: 0.85rem; background: transparent; cursor: pointer; }
+        .btn:hover { background: var(--line); color: #000; }
+        .warn { border-color: var(--warn); color: var(--warn); }
+        .warn:hover { background: var(--warn); color: #fff; }
+        .ok { border-color: var(--ok); color: var(--ok); }
+        .ok:hover { background: var(--ok); color: #000; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .card { border: 1px solid #2d3650; border-radius: 8px; background: var(--card); padding: 14px; }
+        .card h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); font-size: 1rem; }
+        .flash { margin-bottom: 12px; padding: 10px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(0, 255, 157, 0.08); color: var(--ok); font-weight: 700; }
+        input, select { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 10px; border-radius: 4px; border: 1px solid #37415f; background: #0e1422; color: #fff; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { border-bottom: 1px solid #29324a; padding: 8px; font-size: 0.86rem; text-align: left; }
+        th { color: #9fbad6; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.6px; }
+        .balance-low { color: var(--warn); font-weight: 700; }
+        .balance-ok { color: var(--ok); font-weight: 700; }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="top">
+        <h1>Client Bookings</h1>
+        <div>
+            {% if current_user.pondo > 0 %}
+            <a class="btn ok" href="{{ url_for('client_desktop') }}">Go To Desktop</a>
+            {% endif %}
+            {% if not kiosk_mode %}
+            <a class="btn warn" href="{{ url_for('logout') }}">Logout</a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            {% for msg in messages %}
+                <div class="flash">{{ msg }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="card" style="margin-bottom:16px;">
+        Logged in as <strong>{{ current_user.username }}</strong> |
+        Balance:
+        <span class="{{ 'balance-ok' if current_user.pondo > 0 else 'balance-low' }}">
+            PHP {{ "%.2f"|format(current_user.pondo) }}
+        </span>
+        {% if current_user.pondo <= 0 %}
+            | Add credits to unlock desktop access.
+        {% endif %}
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>Create Booking</h2>
+            <form action="{{ url_for('book_pc') }}" method="POST">
+                <select name="pc_id" required>
+                    <option value="" disabled selected>Select Available PC</option>
+                    {% for pc in pcs %}
+                        {% if not pc.is_occupied %}
+                            <option value="{{ pc.id }}">{{ pc.name }}</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+                <input type="date" name="booking_date" min="{{ today_date }}" value="{{ today_date }}" required>
+                <input type="time" name="time_slot" required>
+                <button type="submit" class="btn" style="width:100%;">Reserve Slot</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>My Bookings</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>PC</th>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for booking in bookings %}
+                    <tr>
+                        <td>{{ booking.pc.name }}</td>
+                        <td>{{ booking.booking_date or 'N/A' }}</td>
+                        <td>{{ booking.time_slot }}</td>
+                        <td>
+                            <a class="btn warn" style="padding:5px 7px; font-size:0.72rem;" href="{{ url_for('client_delete_booking', id=booking.id) }}">Cancel</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" style="color:#6f7f97;">No bookings yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

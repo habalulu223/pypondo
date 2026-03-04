@@ -27,6 +27,7 @@ echo Packaging app (Python runtime will be bundled)...
   --name PyPondo ^
   --icon "assets\pypondo.ico" ^
   --collect-all webview ^
+  --hidden-import lan_agent ^
   --add-data "templates;templates" ^
   desktop_app.py
 

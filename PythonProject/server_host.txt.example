@@ -1,0 +1,5 @@
+# Copy this file as `server_host.txt` beside PyPondoClient.exe.
+# Put your admin/server computer host name here (not IP).
+# You can list one host per line or comma-separated hosts.
+
+MY-ADMIN-PC

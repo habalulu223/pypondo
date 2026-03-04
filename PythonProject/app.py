@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -43,6 +43,27 @@ HOSTNAME_CACHE = {}
 HOSTNAME_CACHE_LOCK = threading.Lock()
 
 
+def hidden_subprocess_kwargs():
+    if os.name != "nt":
+        return {}
+
+    kwargs = {}
+    create_no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if create_no_window:
+        kwargs["creationflags"] = create_no_window
+
+    startupinfo_type = getattr(subprocess, "STARTUPINFO", None)
+    startf_use_showwindow = getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+    sw_hide = getattr(subprocess, "SW_HIDE", 0)
+    if startupinfo_type and startf_use_showwindow:
+        startupinfo = startupinfo_type()
+        startupinfo.dwFlags |= startf_use_showwindow
+        startupinfo.wShowWindow = sw_hide
+        kwargs["startupinfo"] = startupinfo
+
+    return kwargs
+
+
 # --- Database Models ---
 
 class User(UserMixin, db.Model):
@@ -72,6 +93,7 @@ class Booking(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     pc_id = db.Column(db.Integer, db.ForeignKey('pc.id'), nullable=False)
+    booking_date = db.Column(db.String(20), nullable=True)
     time_slot = db.Column(db.String(20), nullable=False)
     # Relationships for easy access in templates
     user = db.relationship('User', backref='bookings')
@@ -141,6 +163,36 @@ def ensure_pc_lan_ip_column():
         db.session.commit()
 
 
+def ensure_booking_date_column():
+    try:
+        cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(booking)")).fetchall()]
+    except Exception:
+        db.create_all()
+        cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(booking)")).fetchall()]
+    if "booking_date" not in cols:
+        db.session.execute(text("ALTER TABLE booking ADD COLUMN booking_date VARCHAR(20)"))
+        db.session.commit()
+
+
+def ensure_core_seed_data():
+    seeded = False
+
+    if not PC.query.first():
+        for i in range(1, 6):
+            db.session.add(PC(name=f"PC-{i}"))
+        seeded = True
+
+    if not User.query.filter_by(username="admin").first():
+        admin = User(username="admin", is_admin=True)
+        admin.set_password("admin123")
+        db.session.add(admin)
+        seeded = True
+
+    if seeded:
+        db.session.commit()
+    return seeded
+
+
 def normalize_agent_port(value):
     try:
         port = int(str(value).strip())
@@ -208,7 +260,13 @@ def run_cached_network_command(cache_key, command_args, ttl_seconds):
             return cached["output"]
 
     try:
-        output = subprocess.check_output(command_args, text=True, encoding="utf-8", errors="ignore")
+        output = subprocess.check_output(
+            command_args,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            **hidden_subprocess_kwargs()
+        )
     except Exception:
         output = ""
 
@@ -403,7 +461,8 @@ def ping_ipv4_host(ip, timeout_ms=200):
         return subprocess.run(
             ["ping", "-n", "1", "-w", str(timeout_ms), ip],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            **hidden_subprocess_kwargs()
         ).returncode == 0
     except Exception:
         return False
@@ -436,7 +495,8 @@ def netbios_name(ip, timeout_seconds=0.5):
             text=True,
             encoding="utf-8",
             errors="ignore",
-            timeout=timeout_seconds
+            timeout=timeout_seconds,
+            **hidden_subprocess_kwargs()
         )
     except Exception:
         return None
@@ -857,7 +917,8 @@ def remote_windows_control_fallback(pc_name, command):
             capture_output=True,
             text=True,
             encoding="utf-8",
-            errors="ignore"
+            errors="ignore",
+            **hidden_subprocess_kwargs()
         )
     except Exception as exc:
         return False, f"Fallback failed: {exc}"
@@ -1065,11 +1126,59 @@ def create_online_payment_request(user, amount, source="web"):
     return tx
 
 
+def get_latest_bundle_path(prefix):
+    cache_dir = os.path.join(basedir, "package_cache")
+    if not os.path.isdir(cache_dir):
+        return None
+
+    candidates = []
+    for file_name in os.listdir(cache_dir):
+        if not file_name.startswith(prefix) or not file_name.endswith(".zip"):
+            continue
+        full_path = os.path.join(cache_dir, file_name)
+        try:
+            mtime = os.path.getmtime(full_path)
+        except OSError:
+            continue
+        candidates.append((mtime, full_path))
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda row: row[0])[1]
+
+
+def is_kiosk_mode_enabled():
+    return str(os.getenv("PYPONDO_KIOSK_MODE", "0")).strip().lower() in {"1", "true", "yes"}
+
+
+def user_has_positive_balance(user):
+    try:
+        return float(getattr(user, "pondo", 0.0)) > 0.0
+    except Exception:
+        return False
+
+
+def post_login_endpoint_for_user(user):
+    if getattr(user, "is_admin", False):
+        return "index"
+    if user_has_positive_balance(user):
+        return "client_desktop"
+    return "client_bookings"
+
+
+def resolve_safe_next_url():
+    next_url = (request.args.get("next") or "").strip()
+    if next_url.startswith("/") and not next_url.startswith("//"):
+        return next_url
+    return None
+
+
 @app.before_request
 def bootstrap_schema():
     if not getattr(app, "_schema_ready", False):
         db.create_all()
         ensure_pc_lan_ip_column()
+        ensure_booking_date_column()
         app._schema_ready = True
 
 
@@ -1095,22 +1204,31 @@ def register():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if current_user.is_authenticated: return redirect(url_for('index'))
+    if current_user.is_authenticated:
+        return redirect(url_for(post_login_endpoint_for_user(current_user)))
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
             login_user(user)
-            return redirect(url_for('index'))
+            safe_next = resolve_safe_next_url()
+            if safe_next:
+                return redirect(safe_next)
+            return redirect(url_for(post_login_endpoint_for_user(user)))
         else:
             flash('Invalid credentials', 'error')
-    return render_template('login.html')
+    return render_template('login.html', kiosk_mode=is_kiosk_mode_enabled())
 
 
 @app.route('/logout')
 @login_required
 def logout():
+    if is_kiosk_mode_enabled() and not current_user.is_admin:
+        flash('Logout is disabled while kiosk lock is active.', 'error')
+        if user_has_positive_balance(current_user):
+            return redirect(url_for('client_desktop'))
+        return redirect(url_for('client_bookings'))
     logout_user()
     flash('Logged out.', 'info')
     return redirect(url_for('login'))
@@ -1118,9 +1236,72 @@ def logout():
 
 # --- Main Routes ---
 
+@app.route('/client')
+@login_required
+def client_entry():
+    if current_user.is_admin:
+        return redirect(url_for('index'))
+    if user_has_positive_balance(current_user):
+        return redirect(url_for('client_desktop'))
+    return redirect(url_for('client_bookings'))
+
+
+@app.route('/client/desktop')
+@login_required
+def client_desktop():
+    if current_user.is_admin:
+        return redirect(url_for('index'))
+    if not user_has_positive_balance(current_user):
+        flash('Insufficient balance. Please reserve first or top up.', 'error')
+        return redirect(url_for('client_bookings'))
+
+    active_session = Session.query.filter_by(user_id=current_user.id, end_time=None).order_by(Session.start_time.desc()).first()
+    return render_template(
+        'client_desktop.html',
+        active_session=active_session,
+        kiosk_mode=is_kiosk_mode_enabled()
+    )
+
+
+@app.route('/client/bookings')
+@login_required
+def client_bookings():
+    if current_user.is_admin:
+        return redirect(url_for('view_bookings'))
+
+    pcs = PC.query.order_by(PC.id.asc()).all()
+    my_bookings = Booking.query.filter_by(user_id=current_user.id).order_by(Booking.id.desc()).all()
+    return render_template(
+        'client_bookings.html',
+        pcs=pcs,
+        bookings=my_bookings,
+        today_date=datetime.now().strftime("%Y-%m-%d"),
+        kiosk_mode=is_kiosk_mode_enabled()
+    )
+
+
+@app.route('/client/bookings/delete/<int:id>')
+@login_required
+def client_delete_booking(id):
+    if current_user.is_admin:
+        return redirect(url_for('view_bookings'))
+
+    booking = Booking.query.filter_by(id=id, user_id=current_user.id).first()
+    if booking:
+        db.session.delete(booking)
+        db.session.commit()
+        flash('Booking removed.', 'info')
+    return redirect(url_for('client_bookings'))
+
+
 @app.route('/')
 @login_required
 def index():
+    if not current_user.is_admin:
+        if user_has_positive_balance(current_user):
+            return redirect(url_for('client_desktop'))
+        return redirect(url_for('client_bookings'))
+
     pcs = PC.query.all()
     users = User.query.all() if current_user.is_admin else [current_user]
     active_sessions = Session.query.filter_by(end_time=None).all()
@@ -1184,11 +1365,43 @@ def index():
         lan_summary=lan_summary,
         gateway_scan=gateway_scan,
         assigned_ips=assigned_ips,
-        agent_status=agent_status
+        agent_status=agent_status,
+        today_date=datetime.now().strftime("%Y-%m-%d")
     )
 
 
 # --- ADMIN FEATURES ---
+
+@app.route('/admin/download_app')
+@login_required
+def admin_download_app():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    candidates = []
+    all_in_one_zip = get_latest_bundle_path("all_in_one_bundle-")
+    if all_in_one_zip:
+        candidates.append((all_in_one_zip, "pypondo-app-bundle.zip"))
+
+    dist_zip = os.path.join(basedir, "dist", "PyPondo-windows.zip")
+    if os.path.exists(dist_zip):
+        candidates.append((dist_zip, "PyPondo-windows.zip"))
+
+    dist_exe = os.path.join(basedir, "dist", "PyPondo.exe")
+    if os.path.exists(dist_exe):
+        candidates.append((dist_exe, "PyPondo.exe"))
+
+    if candidates:
+        latest_path, latest_name = max(candidates, key=lambda row: os.path.getmtime(row[0]))
+        return send_file(
+            latest_path,
+            as_attachment=True,
+            download_name=latest_name
+        )
+
+    flash("No app bundle found. Build first using build_desktop_exe.bat.", "error")
+    return redirect(url_for('index'))
+
 
 @app.route('/add_pc')
 @login_required
@@ -1344,17 +1557,37 @@ def manage_pondo():
 @login_required
 def book_pc():
     pc_id = request.form['pc_id']
+    booking_date = (request.form.get('booking_date') or '').strip()
+    if not booking_date:
+        booking_date = datetime.now().strftime("%Y-%m-%d")
+    else:
+        try:
+            booking_date = datetime.strptime(booking_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+        except ValueError:
+            flash('Invalid booking date.', 'error')
+            if current_user.is_admin:
+                return redirect(url_for('index'))
+            return redirect(url_for('client_bookings'))
     time_slot = request.form['time_slot']
 
     # Check if already booked for that slot (Optional logic improvement)
     # existing = Booking.query.filter_by(pc_id=pc_id, time_slot=time_slot).first()
     # if existing: flash('Slot taken', 'error'); return ...
 
-    new_booking = Booking(user_id=current_user.id, pc_id=pc_id, time_slot=time_slot)
+    new_booking = Booking(
+        user_id=current_user.id,
+        pc_id=pc_id,
+        booking_date=booking_date,
+        time_slot=time_slot
+    )
     db.session.add(new_booking)
     db.session.commit()
     flash('Reservation confirmed!', 'success')
-    return redirect(url_for('index'))
+    if current_user.is_admin:
+        return redirect(url_for('index'))
+    if user_has_positive_balance(current_user):
+        return redirect(url_for('client_desktop'))
+    return redirect(url_for('client_bookings'))
 
 
 @app.route('/topup', methods=['POST'])
@@ -1872,17 +2105,12 @@ def api_agent_ack_command():
 
 
 if __name__ == '__main__':
-    if not os.path.exists(os.path.join(basedir, 'pccafe.db')):
-        with app.app_context():
-            db.create_all()
-            # Default PCs
-            for i in range(1, 6):
-                db.session.add(PC(name=f'PC-{i}'))
-            # Admin
-            admin = User(username='admin', is_admin=True)
-            admin.set_password('admin123')
-            db.session.add(admin)
-            db.session.commit()
+    with app.app_context():
+        db.create_all()
+        ensure_pc_lan_ip_column()
+        ensure_booking_date_column()
+        seeded = ensure_core_seed_data()
+        if seeded:
             print("DB Init: admin/admin123")
     app_host = os.getenv("APP_HOST", "0.0.0.0").strip() or "0.0.0.0"
     app_port = int(os.getenv("APP_PORT", "5000"))
