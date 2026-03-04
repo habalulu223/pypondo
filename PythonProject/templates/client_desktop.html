@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client Desktop</title>
+    <link rel='icon' type='image/x-icon' href='/favicon.ico'>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #0b0c15; --card: #151922; --line: #00f3ff; --ok: #00ff9d; --warn: #ff0055; --text: #e0e6ed; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; padding: 16px; }
+        .top { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--line); padding-bottom: 10px; margin-bottom: 18px; }
+        .top h1 { margin: 0; font-family: 'Orbitron', sans-serif; font-size: 1.3rem; color: var(--line); letter-spacing: 1px; }
+        .btn { display: inline-block; text-decoration: none; border: 1px solid var(--line); color: var(--line); padding: 8px 12px; border-radius: 4px; font-size: 0.85rem; }
+        .btn:hover { background: var(--line); color: #000; }
+        .warn { border-color: var(--warn); color: var(--warn); }
+        .warn:hover { background: var(--warn); color: #fff; }
+        .flash { margin-bottom: 12px; padding: 10px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(0, 255, 157, 0.08); color: var(--ok); font-weight: 700; }
+        .status { margin-bottom: 14px; padding: 14px; border: 1px solid #2d3650; border-radius: 8px; background: #101725; }
+        .status strong { color: var(--ok); }
+        .desktop-tab {
+            width: min(900px, 92vw);
+            height: 420px;
+            min-width: 320px;
+            min-height: 240px;
+            resize: both;
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: linear-gradient(180deg, #121a2a, #0d121d);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.15);
+            padding: 16px;
+        }
+        .desktop-tab h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); }
+        .desktop-tab p { margin: 0 0 10px; color: #c2d0de; }
+        .actions { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+    </style>
+</head>
+<body>
+    <div class="top">
+        <h1>Client Desktop // Unlocked</h1>
+        <div>
+            <a class="btn" href="{{ url_for('client_bookings') }}">Bookings</a>
+            {% if not kiosk_mode %}
+            <a class="btn warn" href="{{ url_for('logout') }}">Logout</a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            {% for msg in messages %}
+                <div class="flash">{{ msg }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="status">
+        Logged in as <strong>{{ current_user.username }}</strong> |
+        Balance: <strong>PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
+        {% if active_session %}
+            | Active session started: <strong>{{ active_session.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</strong>
+        {% endif %}
+    </div>
+
+    <div class="desktop-tab">
+        <h2>Desktop Access Panel</h2>
+        <p>Desktop is unlocked because your balance is greater than zero.</p>
+        <p>Resize this tab from the lower-right corner based on client preference.</p>
+        <p>Keep this app open while the client is using the station.</p>
+        {% if kiosk_mode %}
+            <p style="color:#ffb36b;">Kiosk lock is enabled. Window close controls are disabled.</p>
+        {% endif %}
+    </div>
+
+    <div class="actions">
+        <a class="btn" href="{{ url_for('client_bookings') }}">Manage Bookings</a>
+    </div>
+</body>
+</html>
