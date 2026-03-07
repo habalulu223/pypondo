@@ -209,8 +209,9 @@ def build_server_base_candidates():
     hosts.extend(split_host_candidates(SERVER_HOST_CANDIDATES))
     hosts.extend(read_host_candidates_from_file())
     hosts.extend(discover_hosts_from_net_view())
-    hosts.extend(discover_default_gateway_ips())
-    hosts.extend(discover_local_network_ips())  # Add local network IPs
+    # DISABLED: Skip gateway IP discovery - prevents 192.168.x.x connection attempts
+    # hosts.extend(discover_default_gateway_ips())
+    hosts.extend(discover_local_network_ips())
 
     seen = set()
     unique_hosts = []
@@ -250,24 +251,12 @@ def discover_server_base_url():
     if ACTIVE_SERVER_BASE_URL and probe_server_base_url(ACTIVE_SERVER_BASE_URL):
         return ACTIVE_SERVER_BASE_URL
 
-    # Try all candidates to find server
-    for candidate in build_server_base_candidates():
-        if probe_server_base_url(candidate):
-            ACTIVE_SERVER_BASE_URL = candidate.rstrip("/")
-            
-            # Now request the actual admin IP from the server
-            try:
-                info_url = candidate.rstrip("/") + "/api/server-info"
-                with http_request.urlopen(info_url, timeout=2) as response:
-                    data = json.loads(response.read().decode("utf-8"))
-                    if data.get("ok") and data.get("server_ip"):
-                        server_ip = data.get("server_ip")
-                        # Replace hostname with actual IP in the active URL
-                        ACTIVE_SERVER_BASE_URL = f"http://{server_ip}:{SERVER_PORT}"
-            except Exception:
-                pass
-            
-            return ACTIVE_SERVER_BASE_URL
+    # CLIENT ONLY TRIES LOCALHOST - No network discovery
+    localhost_candidate = f"http://127.0.0.1:{SERVER_PORT}"
+    if probe_server_base_url(localhost_candidate):
+        ACTIVE_SERVER_BASE_URL = localhost_candidate.rstrip("/")
+        return ACTIVE_SERVER_BASE_URL
+
     return ""
 
 

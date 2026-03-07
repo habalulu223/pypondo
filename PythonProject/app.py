@@ -17,6 +17,7 @@ import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+import atexit
 
 app = Flask(__name__)
 
@@ -41,6 +42,22 @@ NETWORK_CMD_CACHE = {}
 NETWORK_CMD_CACHE_LOCK = threading.Lock()
 HOSTNAME_CACHE = {}
 HOSTNAME_CACHE_LOCK = threading.Lock()
+
+# Global tracking for ping processes to prevent orphaned pings on exit
+ACTIVE_PING_PROCESSES = set()
+PING_LOCK = threading.Lock()
+
+def terminate_all_ping_processes():
+    """Kill all active ping processes on exit to prevent spam."""
+    with PING_LOCK:
+        for proc in list(ACTIVE_PING_PROCESSES):
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        ACTIVE_PING_PROCESSES.clear()
+
+atexit.register(terminate_all_ping_processes)
 
 
 def hidden_subprocess_kwargs():
@@ -107,6 +124,7 @@ class Session(db.Model):
     start_time = db.Column(db.DateTime, default=datetime.now)
     end_time = db.Column(db.DateTime, nullable=True)
     cost = db.Column(db.Float, default=0.0)
+    last_charged_at = db.Column(db.DateTime, nullable=True)
 
 
 class AdminLog(db.Model):
@@ -171,6 +189,17 @@ def ensure_booking_date_column():
         cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(booking)")).fetchall()]
     if "booking_date" not in cols:
         db.session.execute(text("ALTER TABLE booking ADD COLUMN booking_date VARCHAR(20)"))
+        db.session.commit()
+
+
+def ensure_session_last_charged_at_column():
+    try:
+        cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(session)")).fetchall()]
+    except Exception:
+        db.create_all()
+        cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(session)")).fetchall()]
+    if "last_charged_at" not in cols:
+        db.session.execute(text("ALTER TABLE session ADD COLUMN last_charged_at DATETIME"))
         db.session.commit()
 
 
@@ -458,12 +487,20 @@ def build_primary_ipv4_network_summary():
 
 def ping_ipv4_host(ip, timeout_ms=200):
     try:
-        return subprocess.run(
+        # Use Popen to track the process for cleanup on exit
+        proc = subprocess.Popen(
             ["ping", "-n", "1", "-w", str(timeout_ms), ip],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             **hidden_subprocess_kwargs()
-        ).returncode == 0
+        )
+        with PING_LOCK:
+            ACTIVE_PING_PROCESSES.add(proc)
+        try:
+            return proc.wait() == 0
+        finally:
+            with PING_LOCK:
+                ACTIVE_PING_PROCESSES.discard(proc)
     except Exception:
         return False
 
@@ -1078,23 +1115,38 @@ def get_client_ip_from_request():
     return normalize_lan_ip(remote_addr)
 
 
+def charge_elapsed_for_session(session, now=None):
+    """Charge for elapsed time since last_charged_at (or start_time). Returns the charge amount."""
+    if now is None:
+        now = datetime.now()
+    if session.end_time is not None:
+        return 0.0
+    user = db.session.get(User, session.user_id)
+    if not user:
+        return 0.0
+
+    last_charged = session.last_charged_at or session.start_time
+    elapsed_seconds = (now - last_charged).total_seconds()
+    if elapsed_seconds < 60:  # minimum 1 minute to avoid tiny charges
+        return 0.0
+
+    hours_played = elapsed_seconds / 3600.0
+    charge = round(hours_played * HOURLY_RATE, 2)
+    user.pondo -= charge
+    session.cost = (session.cost or 0.0) + charge
+    session.last_charged_at = now
+    return charge
+
 def finalize_session(session):
     if not session or session.end_time is not None:
         return 0.0
-
+    now = datetime.now()
+    charge = charge_elapsed_for_session(session, now)
+    session.end_time = now
     pc = db.session.get(PC, session.pc_id)
-    user = db.session.get(User, session.user_id)
-    session.end_time = datetime.now()
-    duration = session.end_time - session.start_time
-    hours_played = duration.total_seconds() / 3600
-    cost = round(hours_played * HOURLY_RATE, 2)
-    session.cost = cost
-
-    if user:
-        user.pondo -= cost
     if pc:
         pc.is_occupied = False
-    return cost
+    return charge
 
 
 def parse_topup_amount(raw):
@@ -1179,6 +1231,7 @@ def bootstrap_schema():
         db.create_all()
         ensure_pc_lan_ip_column()
         ensure_booking_date_column()
+        ensure_session_last_charged_at_column()
         app._schema_ready = True
 
 
@@ -1248,11 +1301,11 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
-    if is_kiosk_mode_enabled() and not current_user.is_admin:
-        flash('Logout is disabled while kiosk lock is active.', 'error')
-        if user_has_positive_balance(current_user):
-            return redirect(url_for('client_desktop'))
-        return redirect(url_for('client_bookings'))
+    active_session = Session.query.filter_by(user_id=current_user.id, end_time=None).order_by(Session.start_time.desc()).first()
+    if active_session:
+        cost = finalize_session(active_session)
+        db.session.commit()
+        flash(f'Session ended. Cost: ₱{cost:.2f}.', 'info')
     logout_user()
     flash('Logged out.', 'info')
     return redirect(url_for('login'))
@@ -1774,6 +1827,7 @@ def start_session(pc_id, user_id):
         flash('PC is already occupied.', 'error')
         return redirect(url_for('index'))
     new_session = Session(user_id=user.id, pc_id=pc.id)
+    new_session.last_charged_at = datetime.now()
     db.session.add(new_session)
     pc.is_occupied = True
     db.session.add(AdminLog(admin_name=current_user.username, action=f"Started session for {user.username} on {pc.name}"))
@@ -2126,6 +2180,42 @@ def api_agent_ack_command():
     ))
     db.session.commit()
     return jsonify({"ok": True, "command_id": cmd.id, "status": cmd.status}), 200
+
+
+# --- Periodic Billing ---
+_billing_thread_started = False
+
+def start_periodic_billing():
+    global _billing_thread_started
+    if _billing_thread_started:
+        return
+    _billing_thread_started = True
+
+    def billing_loop():
+        with app.app_context():
+            while True:
+                time.sleep(600)  # 10 minutes
+                try:
+                    now = datetime.now()
+                    active_sessions = Session.query.filter_by(end_time=None).all()
+                    for sess in active_sessions:
+                        try:
+                            charge = charge_elapsed_for_session(sess, now)
+                            if charge > 0:
+                                db.session.commit()
+                            else:
+                                db.session.rollback()
+                        except Exception:
+                            db.session.rollback()
+                except Exception as e:
+                    print(f"Billing task error: {e}")
+
+    t = threading.Thread(target=billing_loop, daemon=True)
+    t.start()
+
+@app.before_first_request
+def ensure_billing_started():
+    start_periodic_billing()
 
 
 if __name__ == '__main__':

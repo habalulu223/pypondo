@@ -164,11 +164,8 @@ def discover_default_gateway_ips():
     for line in output.splitlines():
         if "Default Gateway" not in line:
             continue
-        # Extract IP addresses from the line
-        # Format: "Default Gateway . . . . . . . . . : 192.168.1.1"
         _, _, remainder = line.partition(":")
         for ip_str in remainder.split():
-            # Simple check for valid IPv4 format
             parts = ip_str.strip().split(".")
             if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
                 if ip_str not in gateways:
@@ -196,12 +193,11 @@ def discover_local_network_ips():
     
     local_ips = []
     for line in output.splitlines():
-        # Look for IPv4 Address lines (not gateway, not DHCP)
         if "IPv4 Address" not in line or "Gateway" in line:
             continue
         _, _, remainder = line.partition(":")
         ip_str = remainder.strip()
-        parts = ip_str.split(".")
+        parts = ip_str.strip().split(".")
         if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
             if ip_str not in local_ips and not ip_str.startswith("127."):
                 local_ips.append(ip_str)
@@ -248,9 +244,8 @@ def discover_server_ip_from_admin(base_url):
             data = json_module.loads(response.read().decode("utf-8"))
             if data.get("ok") and data.get("server_ip"):
                 return data.get("server_ip")
-    except Exception as e:
-        if is_verbose_logging_enabled():
-            print(f"[DEBUG] Failed to get server IP from admin: {e}")
+    except Exception:
+        return None
     
     return None
 
@@ -285,8 +280,13 @@ def build_server_base_url_candidates():
                 host_candidates.append(parsed.hostname)
 
     host_candidates.extend(discover_hosts_from_net_view())
-    host_candidates.extend(discover_default_gateway_ips())
-    host_candidates.extend(discover_local_network_ips())  # Add local network IPs
+    # DISABLED: Skip gateway IP discovery - prevents 192.168.x.x connection attempts
+    # host_candidates.extend(discover_default_gateway_ips())
+    host_candidates.extend(discover_local_network_ips())
+
+    # ALWAYS prioritize localhost first for same-machine admin
+    if "127.0.0.1" not in host_candidates and "localhost" not in host_candidates:
+        host_candidates.insert(0, "127.0.0.1")
 
     seen = set()
     unique_hosts = []
@@ -343,27 +343,14 @@ def build_server_base_url_candidates():
 
 
 def discover_remote_server_base_url():
-    candidates = build_server_base_url_candidates()
-    if is_verbose_logging_enabled():
-        print(f"[DEBUG] Searching {len(candidates)} server candidates...")
+    # CLIENT ONLY TRIES LOCALHOST - No network discovery
+    localhost_candidate = f"http://127.0.0.1:{APP_PORT}"
+    print(f"[CLIENT] Checking localhost: {localhost_candidate}")
+    if probe_server_base_url(localhost_candidate):
+        print(f"[CLIENT] Found admin on localhost!")
+        return localhost_candidate.rstrip("/")
     
-    admin_server_url = None
-    admin_server_ip = None
-    
-    # First pass: find any working server (could be via hostname or indirect route)
-    for idx, candidate in enumerate(candidates, 1):
-        if is_verbose_logging_enabled():
-            print(f"[DEBUG] Try #{idx}: {candidate}")
-        if probe_server_base_url(candidate):
-            if is_verbose_logging_enabled():
-                print(f"[DEBUG] Found server: {candidate}")
-            admin_server_url = candidate.rstrip("/")
-            # Now request the actual admin IP from the server
-            admin_server_ip = discover_server_ip_from_admin(admin_server_url)
-            if admin_server_ip and is_verbose_logging_enabled():
-                print(f"[DEBUG] Admin server IP: {admin_server_ip}")
-            return admin_server_url
-    
+    print(f"[CLIENT] No admin on localhost (127.0.0.1:{APP_PORT})")
     return None
 
 
@@ -495,7 +482,6 @@ def wait_for_server(url, timeout_seconds=20):
 
 
 def run_flask(host, port):
-    # Desktop mode should stay quiet; avoid request-per-line spam in CMD.
     try:
         import flask.cli
         flask.cli.show_server_banner = lambda *args, **kwargs: None
@@ -615,36 +601,12 @@ def main():
                     return 1
             return 0
 
-        # Could not find remote server
+        # Could not find remote server - ALWAYS allow local fallback for App Independence
         if is_verbose_logging_enabled():
-            print("[WARNING] Could not locate admin server")
-        allow_local_fallback = env_flag("PYPONDO_FALLBACK_LOCAL_SERVER", default=(not is_frozen_bundle()))
-        if not allow_local_fallback:
-            error_msg = (
-                "ERROR: Unable to locate admin app host.\n\n"
-                "SOLUTION:\n"
-                "1. Create a file named 'server_host.txt' in this directory\n"
-                "2. Write your admin PC's hostname or IP address in it\n\n"
-                "EXAMPLES:\n"
-                "- MY-ADMIN-PC\n"
-                "- 192.168.1.100\n\n"
-                "Then run this app again."
-            )
-            print(error_msg)
-            if not headless_mode:
-                try:
-                    import tkinter as tk
-                    from tkinter import messagebox
-                    root = tk.Tk()
-                    root.withdraw()
-                    messagebox.showerror("PyPondo - Configuration Needed", error_msg)
-                    root.destroy()
-                except Exception:
-                    pass
-            return 1
-        if is_verbose_logging_enabled():
-            print("Remote host discovery failed; falling back to local server mode.")
+            print("[WARNING] Could not locate admin server, starting local server")
+        # Continue to local server mode (below)
 
+    # Local server mode (standalone or fallback)
     ensure_seed_data()
     chosen_port = pick_port(APP_PORT)
     os.environ["APP_HOST"] = APP_HOST

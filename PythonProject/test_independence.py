@@ -96,15 +96,20 @@ def test_app_independence():
         "lan_agent.py"
     ]
     
-    pycharm_keywords = ["pycharm", "ide", "jetbrains", "intellij"]
+    # Only check for actual PyCharm/JetBrains keywords, not generic substrings like "ide"
+    pycharm_keywords = ["pycharm", "jetbrains", "intellij"]
     issues = []
     
+    import re
     for filename in files_to_check:
         try:
             with open(filename, 'r', encoding='utf-8') as f:
-                content = f.read().lower()
+                content = f.read()
+                content_lower = content.lower()
                 for keyword in pycharm_keywords:
-                    if keyword in content:
+                    # Use regex to match whole word only
+                    pattern = r'\b' + re.escape(keyword) + r'\b'
+                    if re.search(pattern, content_lower):
                         issues.append(f"{filename}: contains '{keyword}'")
         except FileNotFoundError:
             print(f"⚠ {filename} not found")
