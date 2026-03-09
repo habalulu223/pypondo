@@ -25,6 +25,8 @@ if os.name == 'nt':
     from ctypes import wintypes
 
     _win_hook_id = None
+    # handle returned when we use the optional "keyboard" package
+    _keyboard_hook_handle = None
 
     class _KBDLLHOOKSTRUCT(ctypes.Structure):
         # dwExtraInfo may be defined as ULONG_PTR; some Python versions do not
@@ -44,10 +46,23 @@ if os.name == 'nt':
         if nCode == 0:
             kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
             vk = kb.vkCode
+            alt_down = bool(kb.flags & 0x20)  # LLKHF_ALTDOWN
             # VK_LWIN (0x5B) and VK_RWIN (0x5C) are the left/right Windows keys
-            # simply swallowing them prevents the start menu from appearing.
             if vk in (0x5B, 0x5C):
+                if is_verbose_logging_enabled():
+                    print(f"[HOOK] blocking win key vk={vk}")
                 return 1  # non‑zero to suppress the key
+            # block highlights when alt is held
+            if alt_down and vk in (0x09, 0x1B, 0x73):  # tab, esc, F4
+                if is_verbose_logging_enabled():
+                    print(f"[HOOK] blocking alt+vk={vk}")
+                return 1
+            # ctrl+alt combinations
+            if alt_down and ctypes.windll.user32.GetAsyncKeyState(0x11) & 0x8000:
+                if vk in (0x2E, 0x57):  # Delete, W
+                    if is_verbose_logging_enabled():
+                        print(f"[HOOK] blocking ctrl+alt+vk={vk}")
+                    return 1
         # pass through everything else
         return ctypes.windll.user32.CallNextHookEx(_win_hook_id, nCode, wParam, lParam)
 
@@ -59,37 +74,46 @@ if os.name == 'nt':
             user32.DispatchMessageW(ctypes.byref(msg))
 
     def install_windows_key_blocker():
-        """Ensure the most common desktop shortcuts are suppressed.
+        """Set up suppression of sensitive key combinations.
 
-        If the optional ``keyboard`` library is present we delegate to it since
-        it already handles the tricky DLL injection details that prevent a pure
-        ctypes hook from working system-wide (see issue where SetWindowsHookEx
-        returns 0 / error 126).  Otherwise we fall back to the original
-        low-level keyboard hook implementation.  The function is idempotent.
+        When possible we use the ``keyboard`` package to install a global hook
+        with a small filtering callback.  If that package is missing or fails we
+        fall back to the older ctypes-based low-level hook.  The function is
+        safe to call multiple times; only one hook will be active.
         """
         if os.name != 'nt':
             return
+        global _win_hook_id, _keyboard_hook_handle
 
-        # first, try using the external library which is known to be reliable
+        # attempt high-level library first
         try:
             import keyboard as _kb
             if is_verbose_logging_enabled():
-                print("[INFO] installing keyboard library blocker")
-            # block the usual combos; ``keyboard`` accepts keys in different
-            # formats but ``windows`` covers both left/right Win key.
-            for combo in ('windows', 'alt+tab', 'alt+esc', 'alt+f4', 'ctrl+alt+delete'):
-                try:
-                    _kb.block_key(combo)
-                except Exception:
-                    # some combos may not be recognised; ignore
-                    pass
+                print("[INFO] installing keyboard library hook")
+
+            def _filter_event(e):
+                # only consider key-down events; up events are harmless
+                if e.event_type != 'down':
+                    return True
+                name = e.name
+                # suppress any Windows/meta key press
+                if name in ('left windows', 'right windows', 'windows'):
+                    return False
+                # commonly abused combos while Alt is held
+                if e.alt and name in ('tab', 'esc', 'f4'):
+                    return False
+                # Ctrl+Alt+Delete
+                if e.alt and e.ctrl and name == 'delete':
+                    return False
+                return True
+
+            _keyboard_hook_handle = _kb.hook(_filter_event)
             return
         except Exception as exc:
             if is_verbose_logging_enabled():
-                print("[WARN] keyboard library unavailable or failed: ", exc)
-            pass
+                print("[WARN] keyboard library hook failed:", exc)
+            # fall back to manual hook
 
-        global _win_hook_id
         if _win_hook_id is not None:
             return
         user32 = ctypes.windll.user32
@@ -101,27 +125,16 @@ if os.name == 'nt':
         thread.start()
 
     def uninstall_windows_key_blocker():
-        """Remove any key suppression previously installed.
-
-        This will unhook the lowlevel hook and/or unblock keys via the
-        ``keyboard`` library.  Calling repeatedly is safe.
-        """
-        if os.name == 'nt':
+        """Remove any active suppression hook."""
+        global _win_hook_id, _keyboard_hook_handle
+        # first remove keyboard library hook if present
+        if _keyboard_hook_handle:
             try:
-                import keyboard as _kb
-                if is_verbose_logging_enabled():
-                    print("[INFO] uninstalling keyboard library blocker")
-                for combo in ('windows', 'alt+tab', 'alt+esc', 'alt+f4', 'ctrl+alt+delete'):
-                    try:
-                        _kb.unblock_key(combo)
-                    except Exception:
-                        pass
+                _keyboard_hook_handle()
             except Exception:
-                if is_verbose_logging_enabled():
-                    print("[WARN] keyboard library unavailable during uninstall")
                 pass
-
-        global _win_hook_id
+            _keyboard_hook_handle = None
+        # then remove raw win32 hook
         if _win_hook_id:
             ctypes.windll.user32.UnhookWindowsHookEx(_win_hook_id)
             _win_hook_id = None
