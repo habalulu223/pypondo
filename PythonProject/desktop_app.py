@@ -17,6 +17,8 @@ APP_HOST = os.getenv("APP_HOST", "127.0.0.1").strip() or "127.0.0.1"
 APP_PORT = int(os.getenv("APP_PORT", "5000"))
 APP_DATA_DIR_NAME = "CyberCore"
 APP_MODE = (os.getenv("PYPONDO_APP_MODE", "client").strip().lower() or "client")
+SERVER_HOST_FILE = os.getenv("PYPONDO_SERVER_HOST_FILE", "server_host.txt").strip() or "server_host.txt"
+STARTUP_VALUE_NAME = os.getenv("PYPONDO_STARTUP_VALUE_NAME", "CyberCoreClient").strip() or "CyberCoreClient"
 
 
 def hidden_subprocess_kwargs():
@@ -82,6 +84,18 @@ def split_host_candidates(raw_value):
     return values
 
 
+def get_preferred_server_ports():
+    ports = []
+    for value in (os.getenv("PYPONDO_SERVER_PORT", "").strip(), os.getenv("APP_PORT", "").strip(), "5000"):
+        try:
+            parsed_port = int(value)
+        except Exception:
+            continue
+        if parsed_port not in ports:
+            ports.append(parsed_port)
+    return ports
+
+
 def looks_like_ip_literal(host_value):
     raw = str(host_value or "").strip()
     if not raw:
@@ -99,8 +113,7 @@ def looks_like_ip_literal(host_value):
 
 
 def read_host_candidates_from_file():
-    file_name = os.getenv("PYPONDO_SERVER_HOST_FILE", "server_host.txt").strip() or "server_host.txt"
-    file_path = os.path.join(get_runtime_base_dir(), file_name)
+    file_path = os.path.join(get_runtime_base_dir(), SERVER_HOST_FILE)
     if not os.path.exists(file_path):
         return []
 
@@ -115,6 +128,50 @@ def read_host_candidates_from_file():
     except Exception:
         return []
     return values
+
+
+def save_manual_admin_host(host_value):
+    host = str(host_value or "").strip()
+    if not host:
+        return False
+    file_path = os.path.join(get_runtime_base_dir(), SERVER_HOST_FILE)
+    try:
+        with open(file_path, "w", encoding="utf-8") as handle:
+            handle.write("# Admin server host or IP\n")
+            handle.write(host + "\n")
+        return True
+    except Exception:
+        return False
+
+
+def prompt_manual_admin_host(headless_mode=False):
+    preset = os.getenv("PYPONDO_ADMIN_IP", "").strip() or os.getenv("PYPONDO_SERVER_HOST", "").strip()
+    if headless_mode:
+        if preset:
+            return preset
+        try:
+            value = input("Enter admin server IP/host: ").strip()
+            return value or None
+        except Exception:
+            return None
+
+    try:
+        import tkinter as tk
+        from tkinter import simpledialog
+
+        root = tk.Tk()
+        root.withdraw()
+        value = simpledialog.askstring(
+            "Admin Server",
+            "Enter admin server IP or hostname:",
+            initialvalue=preset or ""
+        )
+        root.destroy()
+        if value and value.strip():
+            return value.strip()
+    except Exception:
+        pass
+    return None
 
 
 def discover_hosts_from_net_view():
@@ -213,6 +270,47 @@ def extract_base_url(value):
     if not parsed.scheme or not parsed.netloc:
         return None
     return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+
+def build_base_urls_from_host_value(host_value):
+    raw = str(host_value or "").strip()
+    if not raw:
+        return []
+
+    direct_url = extract_base_url(raw)
+    if direct_url:
+        parsed = http_parse.urlparse(direct_url)
+        if parsed.port:
+            return [direct_url]
+        # If user enters scheme without port, still probe configured server ports.
+        host_name = parsed.hostname or ""
+        if not host_name:
+            return [direct_url]
+        scheme = parsed.scheme or (os.getenv("PYPONDO_SERVER_SCHEME", "http").strip() or "http")
+        return [f"{scheme}://{host_name}:{port}" for port in get_preferred_server_ports()]
+
+    scheme = os.getenv("PYPONDO_SERVER_SCHEME", "http").strip() or "http"
+    return [f"{scheme}://{raw}:{port}" for port in get_preferred_server_ports()]
+
+
+def get_manual_host_candidates():
+    values = []
+    for env_name in ("PYPONDO_ADMIN_IP", "PYPONDO_SERVER_HOST"):
+        values.extend(split_host_candidates(os.getenv(env_name, "")))
+
+    file_values = read_host_candidates_from_file()
+    if file_values:
+        values.extend(file_values)
+
+    seen = set()
+    ordered = []
+    for value in values:
+        key = str(value).strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        ordered.append(str(value).strip())
+    return ordered
 
 
 def probe_server_base_url(base_url):
@@ -343,14 +441,35 @@ def build_server_base_url_candidates():
 
 
 def discover_remote_server_base_url():
-    # CLIENT ONLY TRIES LOCALHOST - No network discovery
-    localhost_candidate = f"http://127.0.0.1:{APP_PORT}"
-    print(f"[CLIENT] Checking localhost: {localhost_candidate}")
-    if probe_server_base_url(localhost_candidate):
-        print(f"[CLIENT] Found admin on localhost!")
-        return localhost_candidate.rstrip("/")
-    
-    print(f"[CLIENT] No admin on localhost (127.0.0.1:{APP_PORT})")
+    candidates = []
+
+    manual_host = os.getenv("PYPONDO_ADMIN_IP", "").strip()
+    if manual_host:
+        os.environ["PYPONDO_SERVER_HOST"] = manual_host
+
+    # Always probe manually configured host(s) first so client obeys explicit admin IP.
+    manual_candidates = []
+    for manual_value in get_manual_host_candidates():
+        for candidate in build_base_urls_from_host_value(manual_value):
+            if candidate not in manual_candidates:
+                manual_candidates.append(candidate)
+
+    for candidate in manual_candidates:
+        if probe_server_base_url(candidate):
+            return candidate.rstrip("/")
+
+    # When manual host is configured but unreachable, do not auto-switch to random LAN hosts.
+    if manual_candidates:
+        return None
+
+    for candidate in build_server_base_url_candidates():
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    for candidate in candidates:
+        if probe_server_base_url(candidate):
+            return candidate.rstrip("/")
+
     return None
 
 
@@ -405,6 +524,73 @@ def get_runtime_base_dir():
     if is_frozen_bundle():
         return os.path.abspath(os.path.dirname(sys.executable))
     return os.path.abspath(os.path.dirname(__file__))
+
+
+def get_windows_startup_command():
+    if is_frozen_bundle():
+        return f'"{sys.executable}"'
+
+    pythonw_path = sys.executable
+    lower_exec = pythonw_path.lower()
+    if lower_exec.endswith("python.exe"):
+        pythonw_candidate = pythonw_path[:-10] + "pythonw.exe"
+        if os.path.exists(pythonw_candidate):
+            pythonw_path = pythonw_candidate
+
+    script_path = os.path.abspath(__file__)
+    return f'"{pythonw_path}" "{script_path}"'
+
+
+def ensure_windows_startup_registration():
+    if os.name != "nt" or not is_client_mode():
+        return
+    if env_flag("PYPONDO_DISABLE_AUTO_STARTUP", default=False):
+        return
+
+    try:
+        command = get_windows_startup_command()
+        reg_query = subprocess.run(
+            [
+                "reg",
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
+                STARTUP_VALUE_NAME,
+            ],
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            capture_output=True,
+            check=False,
+            **hidden_subprocess_kwargs(),
+        )
+
+        already_set = reg_query.returncode == 0 and command in (reg_query.stdout or "")
+        if already_set:
+            return
+
+        subprocess.run(
+            [
+                "reg",
+                "add",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
+                STARTUP_VALUE_NAME,
+                "/t",
+                "REG_SZ",
+                "/d",
+                command,
+                "/f",
+            ],
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            capture_output=True,
+            check=False,
+            **hidden_subprocess_kwargs(),
+        )
+    except Exception:
+        return
 
 
 def get_default_data_dir():
@@ -500,8 +686,19 @@ def launch_browser_control_window(url):
 
     root = tk.Tk()
     root.title(APP_TITLE)
-    root.geometry("520x220")
-    root.minsize(460, 200)
+
+    # Remove close/minimize/maximize controls for locked client windows.
+    if is_client_mode():
+        root.overrideredirect(True)
+        try:
+            root.attributes("-fullscreen", True)
+        except Exception:
+            screen_w = root.winfo_screenwidth()
+            screen_h = root.winfo_screenheight()
+            root.geometry(f"{screen_w}x{screen_h}+0+0")
+    else:
+        root.geometry("520x220")
+        root.minsize(460, 200)
 
     if kiosk_lock_enabled():
         root.protocol("WM_DELETE_WINDOW", lambda: None)
@@ -542,7 +739,10 @@ def launch_ui(url):
                 width=1280,
                 height=820,
                 min_size=(980, 700),
-                resizable=True
+                resizable=not is_client_mode(),
+                frameless=is_client_mode(),
+                fullscreen=is_client_mode(),
+                easy_drag=False
             )
             if kiosk_lock_enabled():
                 def prevent_close():
@@ -578,10 +778,19 @@ def launch_ui(url):
 def main():
     headless_mode = str(os.getenv("PYPONDO_HEADLESS", "")).strip().lower() in {"1", "true", "yes"}
 
+    ensure_windows_startup_registration()
+
     if is_client_mode() and not env_flag("PYPONDO_FORCE_LOCAL_SERVER", default=False):
         if is_verbose_logging_enabled():
             print("[INFO] Client mode: searching for remote admin server...")
         remote_base_url = discover_remote_server_base_url()
+        if not remote_base_url:
+            manual_host = prompt_manual_admin_host(headless_mode=headless_mode)
+            if manual_host:
+                os.environ["PYPONDO_SERVER_HOST"] = manual_host
+                os.environ["PYPONDO_ADMIN_IP"] = manual_host
+                save_manual_admin_host(manual_host)
+                remote_base_url = discover_remote_server_base_url()
         if remote_base_url:
             launch_url = f"{remote_base_url}{get_start_path()}"
             if is_verbose_logging_enabled():

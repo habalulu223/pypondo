@@ -7,6 +7,16 @@ if exist "..\.venv\Scripts\python.exe" (
   set "PYTHON_CMD=..\.venv\Scripts\python.exe"
 )
 
+if "%PYTHON_CMD%"=="python" (
+  python --version >nul 2>&1
+  if errorlevel 1 (
+    py -3 --version >nul 2>&1
+    if not errorlevel 1 (
+      set "PYTHON_CMD=py -3"
+    )
+  )
+)
+
 echo.
 echo ============================================================
 echo PyPondo Standalone Executable Builder

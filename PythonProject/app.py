@@ -2213,7 +2213,7 @@ def start_periodic_billing():
     t = threading.Thread(target=billing_loop, daemon=True)
     t.start()
 
-@app.before_first_request
+@app.before_request
 def ensure_billing_started():
     start_periodic_billing()
 

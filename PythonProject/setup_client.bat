@@ -77,6 +77,25 @@ if not exist "server_host.txt" (
     pause
 )
 
+REM Register client app for current-user Windows startup
+echo Registering client startup entry...
+set "PYTHONW_CMD=%PYTHON_CMD%"
+if /i "%PYTHON_CMD:~-10%"=="python.exe" (
+    if exist "%PYTHON_CMD:~0,-10%pythonw.exe" (
+        set "PYTHONW_CMD=%PYTHON_CMD:~0,-10%pythonw.exe"
+    )
+)
+
+set "STARTUP_CMD=\"%PYTHONW_CMD%\" \"%CD%\desktop_app.py\""
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "CyberCoreClient" /t REG_SZ /d "%STARTUP_CMD%" /f >nul 2>&1
+if errorlevel 1 (
+    echo [WARNING] Could not register startup automatically
+    echo          You can still run the client manually
+) else (
+    echo [OK] Startup enabled: client will launch when this user signs in
+)
+echo.
+
 REM Run the app
 echo.
 echo Starting PyPondo Client...
