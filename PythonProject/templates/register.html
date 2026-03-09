@@ -95,12 +95,16 @@
     <script>
         // Block Windows shortcuts and dangerous key combinations when not logged in
         document.addEventListener('keydown', function(event) {
-            // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows key, Alt+F4, Ctrl+W
+            // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows/meta key, Alt+F4, Ctrl+W
             if (
                 (event.altKey && event.key === 'Tab') ||
                 (event.altKey && event.key === 'Escape') ||
                 (event.ctrlKey && event.altKey && event.key === 'Delete') ||
                 event.key === 'Meta' ||
+                event.key === 'Win' ||
+                event.key === 'OS' ||
+                event.keyCode === 91 || event.keyCode === 92 ||
+                (event.code && event.code.toLowerCase().includes('meta')) ||
                 (event.altKey && event.key === 'F4') ||
                 (event.ctrlKey && event.key === 'w') ||
                 (event.ctrlKey && event.key === 'W') ||

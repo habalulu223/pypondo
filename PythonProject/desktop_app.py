@@ -11,6 +11,133 @@ from urllib import request as http_request
 from urllib import error as http_error
 from urllib import parse as http_parse
 
+# ---------------------------------------------------------------------------
+# low‑level keyboard hook for blocking Windows key combos on Windows machines
+# ---------------------------------------------------------------------------
+# The web-based client attempts to prevent dangerous shortcuts using JavaScript,
+# but the Win key is handled by the operating system and the browser often
+# never dispatches the event.  When the desktop UI is running in kiosk mode we
+# install a global keyboard hook so that pressing the Windows key (or related
+# combinations) never reaches the shell.  The hook runs in a background thread
+# and is automatically started when the UI launches.
+if os.name == 'nt':
+    import ctypes
+    from ctypes import wintypes
+
+    _win_hook_id = None
+
+    class _KBDLLHOOKSTRUCT(ctypes.Structure):
+        # dwExtraInfo may be defined as ULONG_PTR; some Python versions do not
+        # expose this attribute in wintypes, so fall back to a generic
+        # pointer-sized integer.
+        ULONG_PTR_TYPE = getattr(wintypes, 'ULONG_PTR', wintypes.WPARAM)
+        _fields_ = [
+            ("vkCode", wintypes.DWORD),
+            ("scanCode", wintypes.DWORD),
+            ("flags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ULONG_PTR_TYPE),
+        ]
+
+    def _keyboard_proc(nCode, wParam, lParam):
+        # nCode == 0 means HC_ACTION
+        if nCode == 0:
+            kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
+            vk = kb.vkCode
+            # VK_LWIN (0x5B) and VK_RWIN (0x5C) are the left/right Windows keys
+            # simply swallowing them prevents the start menu from appearing.
+            if vk in (0x5B, 0x5C):
+                return 1  # non‑zero to suppress the key
+        # pass through everything else
+        return ctypes.windll.user32.CallNextHookEx(_win_hook_id, nCode, wParam, lParam)
+
+    def _run_hook_loop():
+        msg = wintypes.MSG()
+        user32 = ctypes.windll.user32
+        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+            user32.TranslateMessage(ctypes.byref(msg))
+            user32.DispatchMessageW(ctypes.byref(msg))
+
+    def install_windows_key_blocker():
+        """Ensure the most common desktop shortcuts are suppressed.
+
+        If the optional ``keyboard`` library is present we delegate to it since
+        it already handles the tricky DLL injection details that prevent a pure
+        ctypes hook from working system-wide (see issue where SetWindowsHookEx
+        returns 0 / error 126).  Otherwise we fall back to the original
+        low-level keyboard hook implementation.  The function is idempotent.
+        """
+        if os.name != 'nt':
+            return
+
+        # first, try using the external library which is known to be reliable
+        try:
+            import keyboard as _kb
+            if is_verbose_logging_enabled():
+                print("[INFO] installing keyboard library blocker")
+            # block the usual combos; ``keyboard`` accepts keys in different
+            # formats but ``windows`` covers both left/right Win key.
+            for combo in ('windows', 'alt+tab', 'alt+esc', 'alt+f4', 'ctrl+alt+delete'):
+                try:
+                    _kb.block_key(combo)
+                except Exception:
+                    # some combos may not be recognised; ignore
+                    pass
+            return
+        except Exception as exc:
+            if is_verbose_logging_enabled():
+                print("[WARN] keyboard library unavailable or failed: ", exc)
+            pass
+
+        global _win_hook_id
+        if _win_hook_id is not None:
+            return
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        WH_KEYBOARD_LL = 13
+        proc = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)(_keyboard_proc)
+        _win_hook_id = user32.SetWindowsHookExA(WH_KEYBOARD_LL, proc, kernel32.GetModuleHandleW(None), 0)
+        thread = threading.Thread(target=_run_hook_loop, daemon=True)
+        thread.start()
+
+    def uninstall_windows_key_blocker():
+        """Remove any key suppression previously installed.
+
+        This will unhook the lowlevel hook and/or unblock keys via the
+        ``keyboard`` library.  Calling repeatedly is safe.
+        """
+        if os.name == 'nt':
+            try:
+                import keyboard as _kb
+                if is_verbose_logging_enabled():
+                    print("[INFO] uninstalling keyboard library blocker")
+                for combo in ('windows', 'alt+tab', 'alt+esc', 'alt+f4', 'ctrl+alt+delete'):
+                    try:
+                        _kb.unblock_key(combo)
+                    except Exception:
+                        pass
+            except Exception:
+                if is_verbose_logging_enabled():
+                    print("[WARN] keyboard library unavailable during uninstall")
+                pass
+
+        global _win_hook_id
+        if _win_hook_id:
+            ctypes.windll.user32.UnhookWindowsHookEx(_win_hook_id)
+            _win_hook_id = None
+
+else:
+    def install_windows_key_blocker():
+        pass
+    def uninstall_windows_key_blocker():
+        pass
+
+# make sure hook is removed on process exit if it was installed
+import atexit
+atexit.register(uninstall_windows_key_blocker)
+
+# ---------------------------------------------------------------------------
+
 
 APP_TITLE = "CyberCore"
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0").strip() or "0.0.0.0"
@@ -752,6 +879,13 @@ def launch_ui(url):
     try:
         import webview  # type: ignore
 
+        # install hook again just before creating the pywebview window.  the
+        # hook is already activated at startup when kiosk lock is enabled, but
+        # calling a second time is harmless and ensures it's in place if main()
+        # was bypassed.  this prevents the Start menu from appearing and blocks
+        # other combinations too (alt+tab/alt+esc/alt+f4, ctrl+alt+delete, etc.).
+        install_windows_key_blocker()
+
         try:
             class Api:
                 def minimize(self):
@@ -763,6 +897,11 @@ def launch_ui(url):
                 def terminate(self, secret_key):
                     # Secret key to terminate the client app
                     if secret_key == "PYPONDO_TERMINATE_2026":
+                        try:
+                            # remove the keyboard hook so it doesn't linger after exit
+                            uninstall_windows_key_blocker()
+                        except Exception:
+                            pass
                         try:
                             webview.windows[0].destroy()
                             return True
@@ -815,6 +954,13 @@ def launch_ui(url):
 
 def main():
     headless_mode = str(os.getenv("PYPONDO_HEADLESS", "")).strip().lower() in {"1", "true", "yes"}
+
+    # if kiosk lock is enabled we block keys immediately regardless of UI method
+    if kiosk_lock_enabled():
+        try:
+            install_windows_key_blocker()
+        except Exception:
+            pass
 
     # Special handling for kiosk mode: launch client app
     if APP_MODE == "kiosk":

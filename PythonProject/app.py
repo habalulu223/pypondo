@@ -1624,24 +1624,35 @@ def set_pc_ip(pc_id):
 @app.route('/pondo', methods=['GET', 'POST'])
 @login_required
 def manage_pondo():
-    if not current_user.is_admin: return redirect(url_for('index'))
+    # allow admins to credit any account, regular users only their own
     if request.method == 'POST':
-        username = request.form['username']
+        if current_user.is_admin:
+            username = request.form.get('username', '').strip()
+            user = User.query.filter_by(username=username).first()
+            if not user:
+                flash('User not found.', 'error')
+                return redirect(url_for('manage_pondo'))
+        else:
+            user = current_user
+
         try:
             amount = float(request.form['amount'])
-        except:
+        except Exception:
+            flash('Invalid amount.', 'error')
             return redirect(url_for('manage_pondo'))
 
-        user = User.query.filter_by(username=username).first()
-        if user:
-            user.pondo += amount
-            log = AdminLog(admin_name=current_user.username, action=f"Added ₱{amount} to '{username}'")
-            db.session.add(log)
-            db.session.commit()
-            flash(f'Credits added to {username}!', 'success')
+        user.pondo += amount
+        if current_user.is_admin:
+            log = AdminLog(admin_name=current_user.username, action=f"Added ₱{amount} to '{user.username}'")
+            flash(f'Credits added to {user.username}!', 'success')
         else:
-            flash('User not found.', 'error')
+            log = AdminLog(admin_name=current_user.username, action=f"User {user.username} topped up ₱{amount}")
+            flash('Your balance has been updated.', 'success')
+
+        db.session.add(log)
+        db.session.commit()
         return redirect(url_for('index'))
+
     return render_template('pondo.html')
 
 

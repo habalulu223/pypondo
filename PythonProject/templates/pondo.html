@@ -74,7 +74,9 @@
     <div class="card">
         <h1>LOAD PONDO</h1>
         <form method="POST">
+            {% if current_user.is_admin %}
             <input type="text" name="username" placeholder="Username" required autocomplete="off">
+            {% endif %}
             <input type="number" step="0.01" name="amount" placeholder="Amount (PHP)" required>
             <button type="submit">CONFIRM RELOAD</button>
         </form>
@@ -90,6 +92,10 @@
                 (event.altKey && event.key === 'Escape') ||
                 (event.ctrlKey && event.altKey && event.key === 'Delete') ||
                 event.key === 'Meta' ||
+                event.key === 'Win' ||
+                event.key === 'OS' ||
+                event.keyCode === 91 || event.keyCode === 92 ||
+                (event.code && event.code.toLowerCase().includes('meta')) ||
                 (event.altKey && event.key === 'F4') ||
                 (event.ctrlKey && event.key === 'w') ||
                 (event.ctrlKey && event.key === 'W') ||
