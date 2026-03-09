@@ -6,8 +6,22 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 set "PYTHON_CMD=python"
-if exist "..\.venv\Scripts\python.exe" (
+set "PYTHON_ARGS="
+if exist ".\.venv\Scripts\python.exe" (
+    set "PYTHON_CMD=.\.venv\Scripts\python.exe"
+) else if exist "..\.venv\Scripts\python.exe" (
   set "PYTHON_CMD=..\.venv\Scripts\python.exe"
+)
+
+if "%PYTHON_CMD%"=="python" (
+    python --version >nul 2>&1
+    if errorlevel 1 (
+        py -3 --version >nul 2>&1
+        if not errorlevel 1 (
+            set "PYTHON_CMD=py"
+            set "PYTHON_ARGS=-3"
+        )
+    )
 )
 
 echo.
@@ -18,20 +32,20 @@ echo.
 
 REM Check Python
 echo Checking Python installation...
-"%PYTHON_CMD%" --version >nul 2>&1
+"%PYTHON_CMD%" %PYTHON_ARGS% --version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Python not found in PATH
     echo Please install Python 3.8+ and add it to PATH
     pause
     exit /b 1
 )
-"%PYTHON_CMD%" --version
+"%PYTHON_CMD%" %PYTHON_ARGS% --version
 echo [OK]
 echo.
 
 REM Install core dependencies
 echo Installing PyPondo client dependencies...
-"%PYTHON_CMD%" -m pip install --quiet flask flask-sqlalchemy flask-login werkzeug
+"%PYTHON_CMD%" %PYTHON_ARGS% -m pip install --quiet flask flask-sqlalchemy flask-login werkzeug
 if errorlevel 1 (
     echo ERROR: Failed to install core packages
     pause
@@ -42,9 +56,9 @@ echo.
 
 REM Try to install optional UI dependencies
 echo Installing optional UI runtime...
-"%PYTHON_CMD%" -m pip install --quiet --pre pythonnet >nul 2>&1
-"%PYTHON_CMD%" -m pip install --quiet pywebview >nul 2>&1
-"%PYTHON_CMD%" -c "import webview" >nul 2>&1
+"%PYTHON_CMD%" %PYTHON_ARGS% -m pip install --quiet --pre pythonnet >nul 2>&1
+"%PYTHON_CMD%" %PYTHON_ARGS% -m pip install --quiet pywebview >nul 2>&1
+"%PYTHON_CMD%" %PYTHON_ARGS% -c "import webview" >nul 2>&1
 if errorlevel 1 (
     echo [WARNING] Desktop UI not available (optional)
     echo          App will use browser mode
@@ -100,6 +114,6 @@ REM Run the app
 echo.
 echo Starting PyPondo Client...
 echo.
-"%PYTHON_CMD%" desktop_app.py
+"%PYTHON_CMD%" %PYTHON_ARGS% desktop_app.py
 
 endlocal

@@ -3,6 +3,26 @@ REM Quick Start Batch File for PyPondo
 REM This script tests and runs PyPondo apps independently
 
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
+
+set "PYTHON_CMD=python"
+set "PYTHON_ARGS="
+if exist ".\.venv\Scripts\python.exe" (
+    set "PYTHON_CMD=.\.venv\Scripts\python.exe"
+) else if exist "..\.venv\Scripts\python.exe" (
+    set "PYTHON_CMD=..\.venv\Scripts\python.exe"
+)
+
+if "%PYTHON_CMD%"=="python" (
+    python --version >nul 2>&1
+    if errorlevel 1 (
+        py -3 --version >nul 2>&1
+        if not errorlevel 1 (
+            set "PYTHON_CMD=py"
+            set "PYTHON_ARGS=-3"
+        )
+    )
+)
 
 echo.
 echo ============================================================
@@ -11,7 +31,7 @@ echo ============================================================
 echo.
 
 REM Check Python
-python --version >nul 2>&1
+"%PYTHON_CMD%" %PYTHON_ARGS% --version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Python not found in PATH
     echo Please install Python 3.8+ and add it to PATH
@@ -20,16 +40,16 @@ if errorlevel 1 (
 )
 
 echo [OK] Python found
-python --version
+"%PYTHON_CMD%" %PYTHON_ARGS% --version
 
 REM Check required packages
 echo.
 echo Checking required packages...
-python -c "import flask; import flask_sqlalchemy; import flask_login; import werkzeug" >nul 2>&1
+"%PYTHON_CMD%" %PYTHON_ARGS% -c "import flask; import flask_sqlalchemy; import flask_login; import werkzeug" >nul 2>&1
 if errorlevel 1 (
     echo.
     echo [INFO] Installing missing packages...
-    pip install flask flask-sqlalchemy flask-login werkzeug
+    "%PYTHON_CMD%" %PYTHON_ARGS% -m pip install flask flask-sqlalchemy flask-login werkzeug
     if errorlevel 1 (
         echo ERROR: Failed to install packages
         pause
@@ -44,7 +64,7 @@ echo.
 echo ============================================================
 echo Running verification tests...
 echo ============================================================
-python test_independence.py
+"%PYTHON_CMD%" %PYTHON_ARGS% test_independence.py
 if errorlevel 1 (
     echo WARNING: Some tests failed
     echo Continue anyway? [Y/N]
@@ -81,7 +101,7 @@ goto menu
 echo.
 echo Starting Admin App on http://127.0.0.1:5000
 echo.
-python app.py
+"%PYTHON_CMD%" %PYTHON_ARGS% app.py
 goto menu
 
 :run_client
@@ -90,18 +110,18 @@ echo Starting Client App...
 echo Client will auto-discover admin app via gateway
 echo.
 set PYPONDO_VERBOSE=1
-python desktop_app.py
+"%PYTHON_CMD%" %PYTHON_ARGS% desktop_app.py
 goto menu
 
 :run_both
 echo.
 echo Starting Admin App in new window...
-start cmd /k "python app.py"
+start cmd /k "\"%PYTHON_CMD%\" %PYTHON_ARGS% app.py"
 timeout /t 2
 echo.
 echo Starting Client App...
 set PYPONDO_VERBOSE=1
-python desktop_app.py
+"%PYTHON_CMD%" %PYTHON_ARGS% desktop_app.py
 goto menu
 
 :docs

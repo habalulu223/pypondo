@@ -3,7 +3,10 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 set "PYTHON_CMD=python"
-if exist "..\.venv\Scripts\python.exe" (
+set "PYTHON_ARGS="
+if exist ".\.venv\Scripts\python.exe" (
+  set "PYTHON_CMD=.\.venv\Scripts\python.exe"
+) else if exist "..\.venv\Scripts\python.exe" (
   set "PYTHON_CMD=..\.venv\Scripts\python.exe"
 )
 
@@ -12,7 +15,8 @@ if "%PYTHON_CMD%"=="python" (
   if errorlevel 1 (
     py -3 --version >nul 2>&1
     if not errorlevel 1 (
-      set "PYTHON_CMD=py -3"
+      set "PYTHON_CMD=py"
+      set "PYTHON_ARGS=-3"
     )
   )
 )
@@ -24,7 +28,7 @@ echo ============================================================
 echo.
 
 echo [1/3] Installing build tools...
-"%PYTHON_CMD%" -m pip install --upgrade pyinstaller >nul 2>&1
+"%PYTHON_CMD%" %PYTHON_ARGS% -m pip install --upgrade pyinstaller >nul 2>&1
 if errorlevel 1 (
   echo ERROR: Failed to install PyInstaller
   pause
@@ -34,11 +38,11 @@ echo [OK] PyInstaller installed
 
 echo.
 echo [2/3] Installing optional UI runtime dependencies...
-"%PYTHON_CMD%" -m pip install --pre pythonnet >nul 2>&1
+"%PYTHON_CMD%" %PYTHON_ARGS% -m pip install --pre pythonnet >nul 2>&1
 if errorlevel 1 (
   echo [WARNING] pythonnet installation failed, continuing...
 )
-"%PYTHON_CMD%" -m pip install pywebview >nul 2>&1
+"%PYTHON_CMD%" %PYTHON_ARGS% -m pip install pywebview >nul 2>&1
 if errorlevel 1 (
   echo [WARNING] pywebview installation failed, app will use browser mode
 ) else (
@@ -47,7 +51,7 @@ if errorlevel 1 (
 
 echo.
 echo [3/3] Packaging application (this may take 1-2 minutes)...
-"%PYTHON_CMD%" -m PyInstaller ^
+"%PYTHON_CMD%" %PYTHON_ARGS% -m PyInstaller ^
   --noconfirm ^
   --clean ^
   --onefile ^
