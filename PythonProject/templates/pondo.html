@@ -81,5 +81,25 @@
         <a href="/">← Return to Dashboard</a>
     </div>
 
+    <script>
+        // Block Windows shortcuts and dangerous key combinations
+        document.addEventListener('keydown', function(event) {
+            // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows key, Alt+F4, Ctrl+W
+            if (
+                (event.altKey && event.key === 'Tab') ||
+                (event.altKey && event.key === 'Escape') ||
+                (event.ctrlKey && event.altKey && event.key === 'Delete') ||
+                event.key === 'Meta' ||
+                (event.altKey && event.key === 'F4') ||
+                (event.ctrlKey && event.key === 'w') ||
+                (event.ctrlKey && event.key === 'W') ||
+                (event.ctrlKey && event.key === 'Escape') ||
+                (event.ctrlKey && event.altKey && event.key === 'Escape')
+            ) {
+                event.preventDefault();
+                return false;
+            }
+        });
+    </script>
 </body>
 </html>

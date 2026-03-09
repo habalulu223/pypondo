@@ -1529,6 +1529,21 @@ def view_logs():
     return render_template('logs.html', logs=logs)
 
 
+@app.route('/admin/terminate-system', methods=['POST'])
+@login_required
+def terminate_system():
+    if not current_user.is_admin:
+        return {'ok': False, 'error': 'Unauthorized'}, 403
+    
+    try:
+        log = AdminLog(admin_name=current_user.username, action="Terminated client app")
+        db.session.add(log)
+        db.session.commit()
+        return {'ok': True, 'message': 'Client app will terminate'}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}, 500
+
+
 @app.route('/admin/auto_assign_ips')
 @login_required
 def auto_assign_ips():

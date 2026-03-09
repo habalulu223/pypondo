@@ -1,12 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('templates', 'templates')]
+datas = [('templates', 'templates'), ('server_host.txt', '.')]
 binaries = []
-hiddenimports = []
+hiddenimports = ['lan_agent']
 tmp_ret = collect_all('webview')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-hiddenimports += ['lan_agent']
 
 
 a = Analysis(

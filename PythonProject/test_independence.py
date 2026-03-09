@@ -40,16 +40,16 @@ def test_gateway_discovery():
                         gateways.append(ip_str)
         
         if gateways:
-            print(f"✓ Found {len(gateways)} gateway IP(s):")
+            print(f"[OK] Found {len(gateways)} gateway IP(s):")
             for gw in gateways:
                 print(f"  - {gw}")
             return True
         else:
-            print("✗ No gateway IPs found in ipconfig output")
+            print("[FAIL] No gateway IPs found in ipconfig output")
             return False
             
     except Exception as e:
-        print(f"✗ Error running ipconfig: {e}")
+        print(f"[ERROR] Error running ipconfig: {e}")
         return False
 
 
@@ -71,9 +71,9 @@ def test_imports():
     for module in modules:
         try:
             __import__(module)
-            print(f"✓ {module}")
+            print(f"[OK] {module}")
         except ImportError as e:
-            print(f"✗ {module}: {e}")
+            print(f"[FAIL] {module}: {e}")
             missing.append(module)
     
     if missing:
@@ -112,16 +112,16 @@ def test_app_independence():
                     if re.search(pattern, content_lower):
                         issues.append(f"{filename}: contains '{keyword}'")
         except FileNotFoundError:
-            print(f"⚠ {filename} not found")
+            print(f"[WARN] {filename} not found")
     
     if issues:
-        print("✗ Found PyCharm dependencies:")
+        print("[FAIL] Found PyCharm dependencies:")
         for issue in issues:
             print(f"  - {issue}")
         return False
     else:
-        print("✓ No PyCharm dependencies found")
-        print("✓ Apps can run independently from PyCharm")
+        print("[OK] No PyCharm dependencies found")
+        print("[OK] Apps can run independently from PyCharm")
         return True
 
 
@@ -142,12 +142,12 @@ def test_gateway_discovery_code():
             with open(filename, 'r', encoding='utf-8') as f:
                 content = f.read()
                 if function_name in content:
-                    print(f"✓ {filename}: contains {function_name}()")
+                    print(f"[OK] {filename}: contains {function_name}()")
                 else:
-                    print(f"✗ {filename}: missing {function_name}()")
+                    print(f"[FAIL] {filename}: missing {function_name}()")
                     all_ok = False
         except FileNotFoundError:
-            print(f"✗ {filename} not found")
+            print(f"[FAIL] {filename} not found")
             all_ok = False
     
     return all_ok
@@ -171,20 +171,20 @@ def main():
     print("=" * 60)
     
     for test_name, result in results.items():
-        status = "✓ PASS" if result else "✗ FAIL"
+        status = "[PASS]" if result else "[FAIL]"
         print(f"{test_name}: {status}")
     
     all_passed = all(results.values())
     
     print("\n" + "=" * 60)
     if all_passed:
-        print("✓ All tests passed!")
+        print("[OK] All tests passed!")
         print("\nYou can now run:")
         print("  python app.py          # Admin app")
         print("  python desktop_app.py  # Client app (auto-discovers admin)")
         return 0
     else:
-        print("✗ Some tests failed. See above for details.")
+        print("[FAIL] Some tests failed. See above for details.")
         return 1
 
 

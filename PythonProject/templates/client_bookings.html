@@ -108,5 +108,101 @@
             </table>
         </div>
     </div>
+
+    <!-- Hidden termination dialog -->
+    <div id="terminate-dialog" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
+        <div style="background: var(--card); padding: 20px; border-radius: 8px; border: 2px solid var(--warn); max-width: 400px; width: 90%;">
+            <h3 style="color: var(--warn); margin-top: 0;">Terminate Client App</h3>
+            <p style="margin-bottom: 15px; color: var(--text);">Enter the secret key to terminate the application:</p>
+            <input type="password" id="secret-key" style="width: 100%; padding: 10px; margin-bottom: 15px; background: #0e1422; border: 1px solid #37415f; color: #fff; border-radius: 4px;" placeholder="Enter secret key">
+            <div style="display: flex; gap: 10px;">
+                <button id="terminate-btn" style="flex: 1; background: var(--warn); color: #fff; border: none; padding: 10px; border-radius: 4px; cursor: pointer;">Terminate</button>
+                <button id="cancel-btn" style="flex: 1; background: transparent; color: var(--text); border: 1px solid #37415f; padding: 10px; border-radius: 4px; cursor: pointer;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Block Windows shortcuts and dangerous key combinations
+        document.addEventListener('keydown', function(event) {
+            // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows key, Alt+F4, Ctrl+W
+            if (
+                (event.altKey && event.key === 'Tab') ||
+                (event.altKey && event.key === 'Escape') ||
+                (event.ctrlKey && event.altKey && event.key === 'Delete') ||
+                event.key === 'Meta' ||
+                (event.altKey && event.key === 'F4') ||
+                (event.ctrlKey && event.key === 'w') ||
+                (event.ctrlKey && event.key === 'W') ||
+                (event.ctrlKey && event.key === 'Escape') ||
+                (event.ctrlKey && event.altKey && event.key === 'Escape')
+            ) {
+                event.preventDefault();
+                return false;
+            }
+        });
+
+        // Minimize the window after login
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                if (window.pywebview && window.pywebview.api && window.pywebview.api.minimize) {
+                    window.pywebview.api.minimize();
+                }
+            }, 1000); // Wait 1 second for the page to fully load
+        });
+
+        // Termination dialog functionality
+        let terminateDialog = document.getElementById('terminate-dialog');
+        let secretKeyInput = document.getElementById('secret-key');
+        let terminateBtn = document.getElementById('terminate-btn');
+        let cancelBtn = document.getElementById('cancel-btn');
+
+        // Listen for Ctrl+Shift+T to show termination dialog
+        document.addEventListener('keydown', function(event) {
+            if (event.ctrlKey && event.shiftKey && event.key === 'T') {
+                event.preventDefault();
+                terminateDialog.style.display = 'flex';
+                secretKeyInput.focus();
+            }
+        });
+
+        // Handle terminate button click
+        terminateBtn.addEventListener('click', function() {
+            let secretKey = secretKeyInput.value.trim();
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.terminate) {
+                let result = window.pywebview.api.terminate(secretKey);
+                if (result) {
+                    terminateDialog.style.display = 'none';
+                    alert('Application will terminate.');
+                } else {
+                    alert('Invalid secret key!');
+                    secretKeyInput.value = '';
+                    secretKeyInput.focus();
+                }
+            }
+        });
+
+        // Handle cancel button click
+        cancelBtn.addEventListener('click', function() {
+            terminateDialog.style.display = 'none';
+            secretKeyInput.value = '';
+        });
+
+        // Handle Enter key in input
+        secretKeyInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                terminateBtn.click();
+            } else if (event.key === 'Escape') {
+                cancelBtn.click();
+            }
+        });
+
+        // Close dialog when clicking outside
+        terminateDialog.addEventListener('click', function(event) {
+            if (event.target === terminateDialog) {
+                cancelBtn.click();
+            }
+        });
+    </script>
 </body>
 </html>

@@ -13,7 +13,7 @@ from urllib import parse as http_parse
 
 
 APP_TITLE = "CyberCore"
-APP_HOST = os.getenv("APP_HOST", "127.0.0.1").strip() or "127.0.0.1"
+APP_HOST = os.getenv("APP_HOST", "0.0.0.0").strip() or "0.0.0.0"
 APP_PORT = int(os.getenv("APP_PORT", "5000"))
 APP_DATA_DIR_NAME = "CyberCore"
 APP_MODE = (os.getenv("PYPONDO_APP_MODE", "client").strip().lower() or "client")
@@ -526,13 +526,25 @@ def is_frozen_bundle():
 
 def get_runtime_base_dir():
     if is_frozen_bundle():
+        # For PyInstaller bundles, check if we're in a temp extraction directory
+        if hasattr(sys, '_MEIPASS'):
+            return sys._MEIPASS
+        # Otherwise, use the exe directory
         return os.path.abspath(os.path.dirname(sys.executable))
     return os.path.abspath(os.path.dirname(__file__))
 
 
-def get_windows_startup_command():
+def get_windows_startup_command(app_mode=None):
+    if app_mode is None:
+        app_mode = APP_MODE
+    
+    env_part = ""
+    if app_mode != APP_MODE:
+        env_part = f'set "PYPONDO_APP_MODE={app_mode}" && '
+    
     if is_frozen_bundle():
-        return f'"{sys.executable}"'
+        exe_dir = os.path.dirname(sys.executable)
+        return f'cmd /c "cd /d "{exe_dir}" && {env_part}"{sys.executable}""'
 
     pythonw_path = sys.executable
     lower_exec = pythonw_path.lower()
@@ -542,7 +554,8 @@ def get_windows_startup_command():
             pythonw_path = pythonw_candidate
 
     script_path = os.path.abspath(__file__)
-    return f'"{pythonw_path}" "{script_path}"'
+    script_dir = os.path.dirname(script_path)
+    return f'cmd /c "cd /d "{script_dir}" && {env_part}"{pythonw_path}" "{script_path}""'
 
 
 def ensure_windows_startup_registration():
@@ -551,8 +564,11 @@ def ensure_windows_startup_registration():
     if env_flag("PYPONDO_DISABLE_AUTO_STARTUP", default=False):
         return
 
+    # For kiosk mode, set startup to run in client mode
+    startup_mode = "client" if APP_MODE == "kiosk" else APP_MODE
+
     try:
-        command = get_windows_startup_command()
+        command = get_windows_startup_command(startup_mode)
         reg_query = subprocess.run(
             [
                 "reg",
@@ -737,6 +753,23 @@ def launch_ui(url):
         import webview  # type: ignore
 
         try:
+            class Api:
+                def minimize(self):
+                    try:
+                        webview.windows[0].minimize()
+                    except Exception:
+                        pass
+                
+                def terminate(self, secret_key):
+                    # Secret key to terminate the client app
+                    if secret_key == "PYPONDO_TERMINATE_2026":
+                        try:
+                            webview.windows[0].destroy()
+                            return True
+                        except Exception:
+                            pass
+                    return False
+
             window = webview.create_window(
                 APP_TITLE,
                 url=url,
@@ -746,7 +779,8 @@ def launch_ui(url):
                 resizable=not is_client_mode(),
                 frameless=is_client_app_mode(),
                 fullscreen=is_client_app_mode(),
-                easy_drag=False
+                easy_drag=False,
+                js_api=Api()
             )
             if kiosk_lock_enabled():
                 def prevent_close():
@@ -781,6 +815,31 @@ def launch_ui(url):
 
 def main():
     headless_mode = str(os.getenv("PYPONDO_HEADLESS", "")).strip().lower() in {"1", "true", "yes"}
+
+    # Special handling for kiosk mode: launch client app
+    if APP_MODE == "kiosk":
+        if is_verbose_logging_enabled():
+            print("[INFO] Kiosk mode: launching client app...")
+        try:
+            if is_frozen_bundle():
+                exe_dir = os.path.dirname(sys.executable)
+                cmd = f'cmd /c "cd /d "{exe_dir}" && set "PYPONDO_APP_MODE=client" && "{sys.executable}""'
+            else:
+                pythonw_path = sys.executable
+                lower_exec = pythonw_path.lower()
+                if lower_exec.endswith("python.exe"):
+                    pythonw_candidate = pythonw_path[:-10] + "pythonw.exe"
+                    if os.path.exists(pythonw_candidate):
+                        pythonw_path = pythonw_candidate
+                script_path = os.path.abspath(__file__)
+                script_dir = os.path.dirname(script_path)
+                cmd = f'cmd /c "cd /d "{script_dir}" && set "PYPONDO_APP_MODE=client" && "{pythonw_path}" "{script_path}""'
+            
+            subprocess.run(cmd, shell=True, **hidden_subprocess_kwargs())
+        except Exception as exc:
+            if is_verbose_logging_enabled():
+                print(f"[ERROR] Failed to launch client app: {exc}")
+        return 0
 
     ensure_windows_startup_registration()
 

@@ -92,7 +92,8 @@
                 <h2>Station Status</h2>
                 {% if current_user.is_admin %}
                     <a href="/admin/download_app" class="btn add-pc-btn" style="margin-right: 10px;">DOWNLOAD APP (ADMIN+CLIENT)</a>
-                    <a href="/add_pc" class="btn add-pc-btn">+ ADD NEW PC</a>
+                    <a href="/add_pc" class="btn add-pc-btn" style="margin-right: 10px;">+ ADD NEW PC</a>
+                    <button id="terminate-sys-btn" class="btn add-pc-btn" style="border-color: #ff6b6b; color: #ff6b6b; margin-right: 10px;">TERMINATE SYSTEM</button>
                 {% endif %}
             </div>
 
@@ -345,6 +346,66 @@
         }
 
         wireBookingDatePicker();
+
+        // Handle system terminate button
+        let terminateSysBtn = document.getElementById('terminate-sys-btn');
+        if (terminateSysBtn) {
+            terminateSysBtn.addEventListener('click', function() {
+                if (confirm('WARNING: This will close the client app!\n\nContinue?')) {
+                    if (confirm('Are you ABSOLUTELY SURE? The client app will close!')) {
+                        fetch('/admin/terminate-system', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.ok) {
+                                alert(data.message);
+                                // Close the app by calling the JavaScript API if available
+                                if (typeof window.pywebview !== 'undefined' && window.pywebview.api) {
+                                    window.pywebview.api.terminate('PYPONDO_TERMINATE_2026').then(result => {
+                                        if (!result) {
+                                            console.log('Terminating app...');
+                                            window.close();
+                                        }
+                                    });
+                                } else {
+                                    // Fallback for non-pywebview mode
+                                    window.close();
+                                }
+                            } else {
+                                alert('Error: ' + (data.error || 'Failed to terminate app'));
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            alert('Error: Failed to send terminate command');
+                        });
+                    }
+                }
+            });
+        }
+
+        // Block Windows shortcuts and dangerous key combinations
+        document.addEventListener('keydown', function(event) {
+            // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows key, Alt+F4, Ctrl+W
+            if (
+                (event.altKey && event.key === 'Tab') ||
+                (event.altKey && event.key === 'Escape') ||
+                (event.ctrlKey && event.altKey && event.key === 'Delete') ||
+                event.key === 'Meta' ||
+                (event.altKey && event.key === 'F4') ||
+                (event.ctrlKey && event.key === 'w') ||
+                (event.ctrlKey && event.key === 'W') ||
+                (event.ctrlKey && event.key === 'Escape') ||
+                (event.ctrlKey && event.altKey && event.key === 'Escape')
+            ) {
+                event.preventDefault();
+                return false;
+            }
+        });
     </script>
 </body>
 </html>

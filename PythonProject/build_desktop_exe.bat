@@ -61,6 +61,7 @@ echo [3/3] Packaging application (this may take 1-2 minutes)...
   --collect-all webview ^
   --hidden-import lan_agent ^
   --add-data "templates;templates" ^
+  --add-data "server_host.txt;." ^
   desktop_app.py
 
 if errorlevel 1 (
