@@ -58,6 +58,10 @@ def is_client_mode():
     return APP_MODE in {"client", "kiosk"}
 
 
+def is_client_app_mode():
+    return APP_MODE == "client"
+
+
 def kiosk_lock_enabled():
     if env_flag("PYPONDO_ALLOW_EXIT", default=False):
         return False
@@ -687,8 +691,8 @@ def launch_browser_control_window(url):
     root = tk.Tk()
     root.title(APP_TITLE)
 
-    # Remove close/minimize/maximize controls for locked client windows.
-    if is_client_mode():
+    # Only the standard client app is forced fullscreen and borderless.
+    if is_client_app_mode():
         root.overrideredirect(True)
         try:
             root.attributes("-fullscreen", True)
@@ -740,8 +744,8 @@ def launch_ui(url):
                 height=820,
                 min_size=(980, 700),
                 resizable=not is_client_mode(),
-                frameless=is_client_mode(),
-                fullscreen=is_client_mode(),
+                frameless=is_client_app_mode(),
+                fullscreen=is_client_app_mode(),
                 easy_drag=False
             )
             if kiosk_lock_enabled():
