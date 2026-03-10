@@ -25,8 +25,8 @@ try:
     from kivy.uix.button import Button
     from kivy.uix.textinput import TextInput
     from kivy.uix.scrollview import ScrollView
-    from kivy.uix.popup import Popup
-    from kivy.uix.screenmanager import ScreenManager, Screen
+    from kivy.uix.spinner import Spinner
+    from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelHeader, TabbedPanelItem
     from kivy.core.window import Window
     from kivy.clock import Clock
     from kivy.properties import StringProperty, NumericProperty
@@ -179,88 +179,19 @@ class MainScreen(Screen):
         self.balance_label = Label(text='Balance: Loading...', size_hint_y=None, height=dp(40))
         self.layout.add_widget(self.balance_label)
 
-        # Menu buttons
-        button_layout = GridLayout(cols=2, spacing=dp(10), padding=dp(10))
+        # Tabbed panel for main content
+        self.tab_panel = TabbedPanel(do_default_tab=False, tab_height=dp(40))
 
-        self.bookings_button = Button(text='My Bookings', on_press=self.show_bookings)
-        button_layout.add_widget(self.bookings_button)
-
-        self.topup_button = Button(text='Top Up Balance', on_press=self.show_topup)
-        button_layout.add_widget(self.topup_button)
-
-        self.logout_button = Button(text='Logout', on_press=self.do_logout)
-        button_layout.add_widget(self.logout_button)
-
-        self.refresh_button = Button(text='Refresh', on_press=self.refresh_data)
-        button_layout.add_widget(self.refresh_button)
-
-        self.layout.add_widget(button_layout)
-
-        # Status
-        self.status_label = Label(text='', size_hint_y=None, height=dp(30))
-        self.layout.add_widget(self.status_label)
-
-        self.add_widget(self.layout)
-
-        # Start data refresh
-        Clock.schedule_once(lambda dt: self.refresh_data(None), 1)
-
-    def refresh_data(self, instance):
-        app = App.get_running_app()
-        if hasattr(app, 'username') and app.username:
-            self.header.text = f'PyPondo Mobile - {app.username}'
-            threading.Thread(target=self._fetch_balance, daemon=True).start()
-
-    def _fetch_balance(self):
-        app = App.get_running_app()
-        try:
-            # Use balance from login for now (in real app, fetch updated balance)
-            balance = getattr(app, 'balance', 0.0)
-            Clock.schedule_once(lambda dt: self._update_balance(f"Balance: PHP {balance:.2f}"), 0)
-        except Exception as e:
-            Clock.schedule_once(lambda dt: self._update_balance(f"Error loading balance: {str(e)}"), 0)
-
-    def _update_balance(self, text):
-        self.balance_label.text = text
-
-    def show_bookings(self, instance):
-        # Switch to bookings screen
-        app = App.get_running_app()
-        if not hasattr(app, 'bookings_screen'):
-            app.bookings_screen = BookingsScreen(name='bookings')
-            app.root.add_widget(app.bookings_screen)
-        app.root.current = 'bookings'
-        app.bookings_screen.refresh_bookings()
-
-    def show_topup(self, instance):
-        # TODO: Implement topup view
-        self.status_label.text = "Top-up feature coming soon!"
-
-    def do_logout(self, instance):
-        app = App.get_running_app()
-        app.root.current = 'login'
-        self.status_label.text = ""
-
-
-class BookingsScreen(Screen):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.layout = BoxLayout(orientation='vertical')
-
-        # Header
-        header_layout = BoxLayout(size_hint_y=None, height=dp(50))
-        back_button = Button(text='← Back', size_hint_x=None, width=dp(80), on_press=self.go_back)
-        self.header = Label(text='My Bookings', font_size=dp(18))
-        header_layout.add_widget(back_button)
-        header_layout.add_widget(self.header)
-        self.layout.add_widget(header_layout)
-
+        # Bookings tab
+        bookings_tab = TabbedPanelHeader(text='Bookings')
+        bookings_content = BoxLayout(orientation='vertical')
+        
         # Bookings list
-        self.scroll_view = ScrollView()
+        self.bookings_scroll = ScrollView()
         self.bookings_layout = BoxLayout(orientation='vertical', size_hint_y=None)
         self.bookings_layout.bind(minimum_height=self.bookings_layout.setter('height'))
-        self.scroll_view.add_widget(self.bookings_layout)
-        self.layout.add_widget(self.scroll_view)
+        self.bookings_scroll.add_widget(self.bookings_layout)
+        bookings_content.add_widget(self.bookings_scroll)
 
         # New booking section
         new_booking_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(200), padding=dp(10))
@@ -287,29 +218,85 @@ class BookingsScreen(Screen):
         self.book_button = Button(text='Book Now', size_hint_y=None, height=dp(40), on_press=self.make_booking)
         new_booking_layout.add_widget(self.book_button)
 
-        self.layout.add_widget(new_booking_layout)
+        bookings_content.add_widget(new_booking_layout)
+        bookings_tab.content = bookings_content
+        self.tab_panel.add_widget(bookings_tab)
+
+        # Updates tab
+        updates_tab = TabbedPanelHeader(text='Updates')
+        updates_content = BoxLayout(orientation='vertical')
+        
+        # Updates list
+        self.updates_scroll = ScrollView()
+        self.updates_layout = BoxLayout(orientation='vertical', size_hint_y=None)
+        self.updates_layout.bind(minimum_height=self.updates_layout.setter('height'))
+        self.updates_scroll.add_widget(self.updates_layout)
+        updates_content.add_widget(self.updates_scroll)
+        
+        updates_tab.content = updates_content
+        self.tab_panel.add_widget(updates_tab)
+
+        # AI Assistant tab
+        ai_tab = TabbedPanelHeader(text='AI Assistant')
+        ai_content = BoxLayout(orientation='vertical')
+        
+        # Chat history
+        self.chat_scroll = ScrollView()
+        self.chat_layout = BoxLayout(orientation='vertical', size_hint_y=None)
+        self.chat_layout.bind(minimum_height=self.chat_layout.setter('height'))
+        self.chat_scroll.add_widget(self.chat_layout)
+        ai_content.add_widget(self.chat_scroll)
+        
+        # Message input area
+        input_layout = BoxLayout(size_hint_y=None, height=dp(60), spacing=dp(10), padding=dp(10))
+        self.message_input = TextInput(hint_text='Ask me anything about PyPondo...', multiline=False)
+        input_layout.add_widget(self.message_input)
+        self.send_button = Button(text='Send', size_hint_x=None, width=dp(80), on_press=self.send_message)
+        input_layout.add_widget(self.send_button)
+        ai_content.add_widget(input_layout)
+        
+        ai_tab.content = ai_content
+        self.tab_panel.add_widget(ai_tab)
+
+        self.layout.add_widget(self.tab_panel)
+
+        # Bottom buttons
+        button_layout = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10), padding=dp(10))
+        self.topup_button = Button(text='Top Up', on_press=self.show_topup)
+        button_layout.add_widget(self.topup_button)
+        self.logout_button = Button(text='Logout', on_press=self.do_logout)
+        button_layout.add_widget(self.logout_button)
+        self.layout.add_widget(button_layout)
 
         # Status
-        self.status_label = Label(text='', size_hint_y=None, height=dp(30), color=(1, 0, 0, 1))
+        self.status_label = Label(text='', size_hint_y=None, height=dp(30))
         self.layout.add_widget(self.status_label)
 
         self.add_widget(self.layout)
 
-    def go_back(self, instance):
+        # Start data refresh
+        Clock.schedule_once(lambda dt: self.refresh_data(None), 1)
+
+    def refresh_data(self, instance):
         app = App.get_running_app()
-        app.root.current = 'main'
+        if hasattr(app, 'username') and app.username:
+            self.header.text = f'PyPondo Mobile - {app.username}'
+            threading.Thread(target=self._fetch_balance, daemon=True).start()
+            threading.Thread(target=self._fetch_bookings, daemon=True).start()
+            threading.Thread(target=self._fetch_pcs, daemon=True).start()
+            threading.Thread(target=self._fetch_updates, daemon=True).start()
 
-    def refresh_bookings(self):
-        # Clear existing bookings
-        self.bookings_layout.clear_widgets()
-
+    def _fetch_balance(self):
         app = App.get_running_app()
-        if not hasattr(app, 'user_id'):
-            return
+        try:
+            # Use balance from login for now (in real app, fetch updated balance)
+            balance = getattr(app, 'balance', 0.0)
+            Clock.schedule_once(lambda dt: self._update_balance(f"Balance: PHP {balance:.2f}"), 0)
+        except Exception as e:
+            Clock.schedule_once(lambda dt: self._update_balance(f"Error loading balance: {str(e)}"), 0)
 
-        # Fetch bookings and PCs from server
-        threading.Thread(target=self._fetch_bookings, daemon=True).start()
-        threading.Thread(target=self._fetch_pcs, daemon=True).start()
+    def _update_balance(self, text):
+        self.balance_label.text = text
 
     def _fetch_bookings(self):
         app = App.get_running_app()
@@ -370,6 +357,135 @@ class BookingsScreen(Screen):
         else:
             self.pc_spinner.values = []
             self.pc_spinner.text = 'No PCs available'
+
+    def _fetch_updates(self):
+        app = App.get_running_app()
+        try:
+            base_url = f"http://{app.server_host}:{app.server_port}"
+            url = f"{base_url}/api/mobile/updates"
+            
+            with http_request.urlopen(url, timeout=10) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                
+                if result.get("ok"):
+                    updates = result.get("updates", [])
+                    Clock.schedule_once(lambda dt: self._update_updates(updates), 0)
+                else:
+                    Clock.schedule_once(lambda dt: self._update_updates([]), 0)
+        except Exception as e:
+            print(f"Error fetching updates: {e}")
+            Clock.schedule_once(lambda dt: self._update_updates([]), 0)
+
+    def _update_updates(self, updates):
+        # Clear existing updates
+        self.updates_layout.clear_widgets()
+
+        if not updates:
+            self.updates_layout.add_widget(Label(text="No updates available", size_hint_y=None, height=dp(40)))
+            return
+
+        for update in updates:
+            # Determine color based on update type
+            # major: orange, feature: green, bugfix: red, minor: blue
+            type_color = {
+                'major': (1, 0.5, 0, 1),      # Orange for major updates
+                'feature': (0, 0.8, 0, 1),    # Green for features
+                'bugfix': (0.8, 0, 0, 1),     # Red for bug fixes
+                'minor': (0, 0.5, 1, 1)       # Blue for minor updates
+            }.get(update.get('update_type', 'minor'), (0.5, 0.5, 0.5, 1))
+            
+            update_card = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(120), padding=dp(10))
+            
+            # Header with version and type
+            header_text = f"v{update['version']} - {update['update_type'].upper()}"
+            header_label = Label(text=header_text, font_size=dp(14), color=type_color, bold=True, halign='left')
+            update_card.add_widget(header_label)
+            
+            # Title
+            title_label = Label(text=update['title'], font_size=dp(16), bold=True, halign='left', valign='top')
+            title_label.text_size = (self.updates_layout.width - dp(20), None)
+            title_label.bind(size=title_label.setter('text_size'))
+            update_card.add_widget(title_label)
+            
+            # Description
+            desc_label = Label(text=update['description'], font_size=dp(12), halign='left', valign='top')
+            desc_label.text_size = (self.updates_layout.width - dp(20), None)
+            desc_label.bind(size=desc_label.setter('text_size'))
+            update_card.add_widget(desc_label)
+            
+            # Timestamp
+            if update.get('timestamp'):
+                timestamp_str = update['timestamp'].replace('T', ' ').split('.')[0] if 'T' in update['timestamp'] else update['timestamp']
+                time_label = Label(text=timestamp_str, font_size=dp(10), color=(0.5, 0.5, 0.5, 1), halign='right')
+                update_card.add_widget(time_label)
+            
+            self.updates_layout.add_widget(update_card)
+
+    def send_message(self, instance):
+        message = self.message_input.text.strip()
+        if not message:
+            return
+
+        app = App.get_running_app()
+        if not hasattr(app, 'user_id'):
+            self._add_chat_message("AI", "Please login first to use the assistant.")
+            return
+
+        # Add user message to chat
+        self._add_chat_message("You", message)
+        self.message_input.text = ""
+        self.send_button.disabled = True
+
+        # Send message to AI
+        threading.Thread(target=self._send_to_ai, args=(message,), daemon=True).start()
+
+    def _send_to_ai(self, message):
+        app = App.get_running_app()
+        try:
+            base_url = f"http://{app.server_host}:{app.server_port}"
+            chat_data = {
+                "message": message,
+                "user_id": app.user_id
+            }
+            
+            data = http_parse.urlencode(chat_data).encode('utf-8')
+            req = http_request.Request(f"{base_url}/api/mobile/ai-chat", data=data, method='POST')
+            req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+
+            with http_request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                
+                if result.get("ok"):
+                    ai_response = result.get("response", "Sorry, I couldn't understand that.")
+                    Clock.schedule_once(lambda dt: self._add_chat_message("AI Assistant", ai_response), 0)
+                else:
+                    Clock.schedule_once(lambda dt: self._add_chat_message("AI", "Sorry, I'm having trouble responding right now."), 0)
+
+        except Exception as e:
+            Clock.schedule_once(lambda dt: self._add_chat_message("AI", f"Sorry, there was an error: {str(e)}"), 0)
+        finally:
+            Clock.schedule_once(lambda dt: self._enable_send_button(), 0)
+
+    def _add_chat_message(self, sender, message):
+        chat_card = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(80), padding=dp(10))
+        
+        # Sender label
+        sender_color = (0, 0.8, 0, 1) if sender == "AI Assistant" else (0, 0.5, 1, 1)
+        sender_label = Label(text=f"{sender}:", font_size=dp(12), color=sender_color, bold=True, halign='left', size_hint_y=None, height=dp(20))
+        chat_card.add_widget(sender_label)
+        
+        # Message
+        message_label = Label(text=message, font_size=dp(14), halign='left', valign='top')
+        message_label.text_size = (self.chat_layout.width - dp(20), None)
+        message_label.bind(size=message_label.setter('text_size'))
+        chat_card.add_widget(message_label)
+        
+        self.chat_layout.add_widget(chat_card)
+        # Scroll to bottom
+        Clock.schedule_once(lambda dt: self.chat_scroll.scroll_to(self.chat_layout.children[-1]), 0.1)
+
+    def _enable_send_button(self):
+        self.send_button.disabled = False
 
     def make_booking(self, instance):
         pc = self.pc_spinner.text
@@ -439,12 +555,21 @@ class BookingsScreen(Screen):
         self.status_label.text = "Booking successful!"
         self.status_label.color = (0, 1, 0, 1)
         self.book_button.disabled = False
-        self.refresh_bookings()
+        self.refresh_data(None)
 
     def _booking_failed(self, message):
         self.status_label.text = message
         self.status_label.color = (1, 0, 0, 1)
         self.book_button.disabled = False
+
+    def show_topup(self, instance):
+        # TODO: Implement topup view
+        self.status_label.text = "Top-up feature coming soon!"
+
+    def do_logout(self, instance):
+        app = App.get_running_app()
+        app.root.current = 'login'
+        self.status_label.text = ""
 
 
 class PyPondoMobileApp(App):

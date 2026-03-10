@@ -134,6 +134,15 @@ class AdminLog(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.now)
 
 
+class SystemUpdate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    version = db.Column(db.String(20), nullable=False)
+    update_type = db.Column(db.String(20), nullable=False)  # 'major', 'minor', 'bugfix', 'feature'
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.now)
+
+
 class PaymentTransaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -215,6 +224,57 @@ def ensure_core_seed_data():
         admin = User(username="admin", is_admin=True)
         admin.set_password("admin123")
         db.session.add(admin)
+        seeded = True
+
+    # Seed system updates if none exist
+    if not SystemUpdate.query.first():
+        system_updates = [
+            SystemUpdate(
+                version="1.0.0",
+                update_type="major",
+                title="Initial Release",
+                description="Complete PyPondo PC Cafe management system with admin interface, client kiosk mode, and mobile app."
+            ),
+            SystemUpdate(
+                version="1.1.0",
+                update_type="feature",
+                title="Mobile App Integration",
+                description="Added Android mobile app with login, booking system, and real-time communication with admin server."
+            ),
+            SystemUpdate(
+                version="1.1.1",
+                update_type="bugfix",
+                title="Windows Key Blocking Fix",
+                description="Fixed Windows key blocking to properly prevent Alt+Tab, Win+D, and other window switching combinations in kiosk mode."
+            ),
+            SystemUpdate(
+                version="1.1.2",
+                update_type="feature",
+                title="PC Online Status",
+                description="Added real-time PC online/offline status display in admin interface with visual indicators."
+            ),
+            SystemUpdate(
+                version="1.1.3",
+                update_type="feature",
+                title="Update Logs System",
+                description="Added system update logs tab in mobile app to show bug fixes, features, and major updates."
+            ),
+            SystemUpdate(
+                version="1.1.4",
+                update_type="bugfix",
+                title="Session Billing Enhancement",
+                description="Improved session billing to automatically charge users when admin stops sessions, ensuring accurate billing."
+            ),
+            SystemUpdate(
+                version="1.2.0",
+                update_type="major",
+                title="Gateway Discovery",
+                description="Implemented automatic network gateway discovery for seamless client-admin connection without manual IP configuration."
+            )
+        ]
+        
+        for update in system_updates:
+            db.session.add(update)
         seeded = True
 
     if seeded:
@@ -1218,11 +1278,70 @@ def post_login_endpoint_for_user(user):
     return "client_bookings"
 
 
-def resolve_safe_next_url():
-    next_url = (request.args.get("next") or "").strip()
-    if next_url.startswith("/") and not next_url.startswith("//"):
-        return next_url
-    return None
+def get_ai_response(message, user_id=None):
+    """Simple AI response system for PyPondo assistance."""
+    message_lower = message.lower().strip()
+
+    # Common greetings
+    if any(word in message_lower for word in ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening']):
+        return "Hello! I'm your PyPondo assistant. I can help you with questions about booking PCs, checking your balance, understanding the system, and more. What would you like to know?"
+
+    # Balance and account questions
+    if any(word in message_lower for word in ['balance', 'money', 'pondo', 'credit', 'funds']):
+        if 'how' in message_lower and 'check' in message_lower:
+            return "You can check your balance in the app after logging in. Your current balance is displayed at the top of the screen. You need positive balance to access PCs."
+        elif 'add' in message_lower or 'top' in message_lower or 'load' in message_lower:
+            return "To add funds to your account, please contact the admin or use the top-up feature if available. The admin can credit your account directly."
+        else:
+            return "Your account balance determines how long you can use PCs. Each minute costs a small amount. Make sure you have sufficient balance before starting a session."
+
+    # Booking questions
+    if any(word in message_lower for word in ['book', 'reserve', 'schedule', 'time slot']):
+        if 'how' in message_lower:
+            return "To book a PC: 1) Login to the app, 2) Go to the Bookings tab, 3) Select an available PC, 4) Choose your preferred date and time, 5) Tap 'Book Now'. You'll need sufficient balance."
+        elif 'cancel' in message_lower:
+            return "To cancel a booking, please contact the admin directly. The admin can manage all bookings from their dashboard."
+        else:
+            return "You can book PCs for future time slots through the mobile app. Check the Bookings tab to see available PCs and make reservations. Bookings help ensure your preferred PC is available when you need it."
+
+    # PC availability questions
+    if any(word in message_lower for word in ['available', 'free', 'pc', 'computer', 'station']):
+        if 'check' in message_lower or 'see' in message_lower:
+            return "You can see available PCs in the Bookings tab of the mobile app. Green status usually indicates available PCs. The admin dashboard also shows real-time PC status."
+        else:
+            return "PCs become available when other users finish their sessions. You can check availability in the mobile app or ask the admin. Some PCs may be reserved for maintenance."
+
+    # Session questions
+    if any(word in message_lower for word in ['session', 'start', 'end', 'time', 'duration']):
+        if 'start' in message_lower:
+            return "Sessions start automatically when you sit at a PC with sufficient balance. The system tracks your usage and deducts from your balance per minute."
+        elif 'end' in message_lower or 'stop' in message_lower:
+            return "Sessions end when you leave the PC or when the admin stops them. You'll be charged for the time used. Make sure to save your work before leaving!"
+        else:
+            return "Each session is timed and you're charged based on actual usage. The rate is typically per minute. You can see your active session status in the desktop client."
+
+    # Update/system questions
+    if any(word in message_lower for word in ['update', 'version', 'changelog', 'new', 'feature']):
+        return "You can see system updates and new features in the Updates tab. This shows bug fixes, new features, and major changes. Check regularly to stay informed about improvements!"
+
+    # Help and general questions
+    if any(word in message_lower for word in ['help', 'support', 'problem', 'issue', 'error']):
+        return "If you're having issues: 1) Check your balance, 2) Ensure you're logged in, 3) Try restarting the app, 4) Contact the admin for assistance. You can also ask me specific questions about the system!"
+
+    # Admin contact
+    if any(word in message_lower for word in ['admin', 'administrator', 'contact', 'support']):
+        return "For account issues, technical problems, or special requests, please contact the admin directly. They manage all accounts, PCs, and can help with any issues you encounter."
+
+    # Pricing questions
+    if any(word in message_lower for word in ['cost', 'price', 'rate', 'fee', 'charge']):
+        return "PC usage is charged per minute. The exact rate may vary - check with the admin for current pricing. You need sufficient balance before starting a session."
+
+    # App navigation
+    if any(word in message_lower for word in ['how', 'navigate', 'use', 'app']):
+        return "The app has tabs: Bookings (for reserving PCs), Updates (for system news). Use the Logout button when done. The desktop client shows your session status and balance."
+
+    # Default response
+    return "I'm here to help with questions about the PyPondo PC Cafe system! You can ask me about booking PCs, checking your balance, system features, or general navigation. What specific question do you have?"
 
 
 @app.before_request
@@ -1418,6 +1537,51 @@ def api_mobile_book():
         "booking_id": booking.id,
         "message": f"Booked {pc.name} for {booking_date} at {time_slot}"
     }), 201
+
+
+@app.route('/api/mobile/updates', methods=['GET'])
+def api_mobile_updates():
+    """Get system update logs for mobile app."""
+    limit = request.args.get('limit', 20, type=int)
+    if limit > 100:
+        limit = 100
+
+    updates = SystemUpdate.query.order_by(SystemUpdate.timestamp.desc()).limit(limit).all()
+    updates_data = []
+    for update in updates:
+        updates_data.append({
+            "id": update.id,
+            "version": update.version,
+            "update_type": update.update_type,
+            "title": update.title,
+            "description": update.description,
+            "timestamp": update.timestamp.isoformat() if update.timestamp else None
+        })
+
+    return jsonify({
+        "ok": True,
+        "updates": updates_data
+    }), 200
+
+
+@app.route('/api/mobile/ai-chat', methods=['POST'])
+def api_mobile_ai_chat():
+    """AI chat endpoint for mobile and desktop clients."""
+    data = request.get_json(silent=True) or {}
+    message = str(data.get('message', '')).strip()
+    user_id = data.get('user_id')
+
+    if not message:
+        return jsonify({"ok": False, "error": "Message required"}), 400
+
+    # Get AI response
+    ai_response = get_ai_response(message, user_id)
+
+    return jsonify({
+        "ok": True,
+        "response": ai_response,
+        "timestamp": datetime.now().isoformat()
+    }), 200
 
 
 @app.route('/login', methods=['GET', 'POST'])

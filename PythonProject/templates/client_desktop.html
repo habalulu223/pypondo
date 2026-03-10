@@ -71,6 +71,29 @@
         {% endif %}
     </div>
 
+    <div class="desktop-tab" style="margin-top: 20px;">
+        <h2>System Updates</h2>
+        <div id="updates-container">
+            <p>Loading updates...</p>
+        </div>
+    </div>
+
+    <div class="desktop-tab" style="margin-top: 20px;">
+        <h2>AI Assistant</h2>
+        <div id="chat-container" style="height: 300px; overflow-y: auto; border: 1px solid #37415f; padding: 10px; margin-bottom: 10px; background: rgba(29, 37, 58, 0.5);">
+            <div id="chat-messages">
+                <div style="color: #00ff9d; margin-bottom: 10px;">
+                    <strong>AI Assistant:</strong> Hello! I'm here to help you with questions about the PyPondo system. What would you like to know?
+                </div>
+            </div>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <input type="text" id="message-input" placeholder="Ask me anything about PyPondo..." 
+                   style="flex: 1; padding: 10px; background: #0e1422; border: 1px solid #37415f; color: #fff; border-radius: 4px;">
+            <button id="send-button" style="padding: 10px 20px; background: var(--line); color: #000; border: none; border-radius: 4px; cursor: pointer;">Send</button>
+        </div>
+    </div>
+
     <div class="actions">
         <a class="btn" href="{{ url_for('client_bookings') }}">Manage Bookings</a>
     </div>
@@ -173,6 +196,120 @@
                 cancelBtn.click();
             }
         });
+
+        // Load system updates
+        loadSystemUpdates();
+
+        async function loadSystemUpdates() {
+            try {
+                const response = await fetch('/api/mobile/updates');
+                const data = await response.json();
+                
+                const container = document.getElementById('updates-container');
+                
+                if (!data.ok || !data.updates || data.updates.length === 0) {
+                    container.innerHTML = '<p style="color: #888;">No updates available</p>';
+                    return;
+                }
+                
+                let html = '';
+                data.updates.forEach(update => {
+                    const typeColor = getUpdateTypeColor(update.update_type);
+                    const timestamp = update.timestamp ? 
+                        new Date(update.timestamp).toLocaleString() : 'Unknown';
+                    
+                    html += `
+                        <div style="border: 1px solid #37415f; border-radius: 8px; padding: 15px; margin-bottom: 15px; background: rgba(29, 37, 58, 0.5);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span style="color: ${typeColor}; font-weight: bold; font-size: 0.9rem;">
+                                    v${update.version} - ${update.update_type.toUpperCase()}
+                                </span>
+                                <span style="color: #888; font-size: 0.8rem;">${timestamp}</span>
+                            </div>
+                            <h4 style="margin: 0 0 8px 0; color: #e0e6ed; font-size: 1rem;">${update.title}</h4>
+                            <p style="margin: 0; color: #c2d0de; line-height: 1.4;">${update.description}</p>
+                        </div>
+                    `;
+                });
+                
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Failed to load updates:', error);
+                document.getElementById('updates-container').innerHTML = 
+                    '<p style="color: #ff6b6b;">Failed to load updates</p>';
+            }
+        }
+
+        function getUpdateTypeColor(updateType) {
+            const colors = {
+                'major': '#ff6b35',    // Orange for major updates
+                'feature': '#00ff9d',  // Green for features
+                'bugfix': '#ff0055',   // Red for bug fixes
+                'minor': '#00a8ff'     // Blue for minor updates
+            };
+            return colors[updateType] || '#888';
+        }
+
+        // AI Chat functionality
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const chatMessages = document.getElementById('chat-messages');
+
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            // Add user message
+            addChatMessage('You', message, '#00a8ff');
+            messageInput.value = '';
+            sendButton.disabled = true;
+            sendButton.textContent = 'Sending...';
+
+            try {
+                const response = await fetch('/api/mobile/ai-chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        user_id: {{ current_user.id if current_user else 'null' }}
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.ok) {
+                    addChatMessage('AI Assistant', data.response, '#00ff9d');
+                } else {
+                    addChatMessage('AI Assistant', 'Sorry, I\'m having trouble responding right now.', '#ff6b35');
+                }
+            } catch (error) {
+                console.error('AI chat error:', error);
+                addChatMessage('AI Assistant', 'Sorry, there was an error connecting to the AI assistant.', '#ff6b35');
+            } finally {
+                sendButton.disabled = false;
+                sendButton.textContent = 'Send';
+            }
+        }
+
+        function addChatMessage(sender, message, color) {
+            const messageDiv = document.createElement('div');
+            messageDiv.style.marginBottom = '10px';
+            messageDiv.style.lineHeight = '1.4';
+            messageDiv.innerHTML = `<strong style="color: ${color};">${sender}:</strong> ${message.replace(/\n/g, '<br>')}`;
+            chatMessages.appendChild(messageDiv);
+            
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
     </script>
 </body>
 </html>
