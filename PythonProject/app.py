@@ -1279,6 +1279,147 @@ def api_server_info():
     }), 200
 
 
+# --- Mobile API Endpoints ---
+
+@app.route('/api/mobile/login', methods=['POST'])
+def api_mobile_login():
+    """Mobile login endpoint."""
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username', '')).strip()
+    password = str(data.get('password', '')).strip()
+
+    if not username or not password:
+        return jsonify({"ok": False, "error": "Username and password required"}), 400
+
+    user = User.query.filter_by(username=username).first()
+    if not user or not user.check_password(password):
+        return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+
+    # Create a simple session token (in production, use proper JWT)
+    session_token = f"{user.id}:{username}:{hash(str(datetime.now()))}"
+
+    return jsonify({
+        "ok": True,
+        "user_id": user.id,
+        "username": user.username,
+        "balance": user.pondo,
+        "is_admin": user.is_admin,
+        "session_token": session_token
+    }), 200
+
+
+@app.route('/api/mobile/bookings', methods=['GET'])
+def api_mobile_get_bookings():
+    """Get user's bookings for mobile app."""
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return jsonify({"ok": False, "error": "user_id required"}), 400
+
+    try:
+        user_id = int(user_id)
+    except:
+        return jsonify({"ok": False, "error": "Invalid user_id"}), 400
+
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"ok": False, "error": "User not found"}), 404
+
+    bookings = Booking.query.filter_by(user_id=user_id).order_by(Booking.id.desc()).all()
+    bookings_data = []
+    for booking in bookings:
+        bookings_data.append({
+            "id": booking.id,
+            "pc_name": booking.pc.name,
+            "date": booking.booking_date,
+            "time": booking.time_slot,
+            "status": "confirmed"  # In real app, add status field to Booking model
+        })
+
+    return jsonify({
+        "ok": True,
+        "bookings": bookings_data,
+        "balance": user.pondo
+    }), 200
+
+
+@app.route('/api/mobile/pcs', methods=['GET'])
+def api_mobile_get_pcs():
+    """Get available PCs for booking."""
+    pcs = PC.query.all()
+    pcs_data = []
+    for pc in pcs:
+        pcs_data.append({
+            "id": pc.id,
+            "name": pc.name,
+            "is_occupied": pc.is_occupied,
+            "is_online": pc.last_agent_seen_at and (datetime.now() - pc.last_agent_seen_at).total_seconds() < 300
+        })
+
+    return jsonify({
+        "ok": True,
+        "pcs": pcs_data
+    }), 200
+
+
+@app.route('/api/mobile/book', methods=['POST'])
+def api_mobile_book():
+    """Create a new booking from mobile app."""
+    data = request.get_json(silent=True) or {}
+    user_id = data.get('user_id')
+    pc_id = data.get('pc_id')
+    booking_date = data.get('date')
+    time_slot = data.get('time')
+
+    if not all([user_id, pc_id, booking_date, time_slot]):
+        return jsonify({"ok": False, "error": "All fields required"}), 400
+
+    try:
+        user_id = int(user_id)
+        pc_id = int(pc_id)
+    except:
+        return jsonify({"ok": False, "error": "Invalid user_id or pc_id"}), 400
+
+    user = db.session.get(User, user_id)
+    pc = db.session.get(PC, pc_id)
+
+    if not user or not pc:
+        return jsonify({"ok": False, "error": "User or PC not found"}), 404
+
+    if user.pondo <= 0:
+        return jsonify({"ok": False, "error": "Insufficient balance"}), 400
+
+    # Check for existing booking at same time
+    existing = Booking.query.filter_by(
+        pc_id=pc_id,
+        booking_date=booking_date,
+        time_slot=time_slot
+    ).first()
+
+    if existing:
+        return jsonify({"ok": False, "error": "Time slot already booked"}), 409
+
+    # Create booking
+    booking = Booking(
+        user_id=user_id,
+        pc_id=pc_id,
+        booking_date=booking_date,
+        time_slot=time_slot
+    )
+
+    db.session.add(booking)
+    db.session.add(AdminLog(
+        admin_name=user.username,
+        action=f"Mobile booking created: {pc.name} on {booking_date} at {time_slot}"
+    ))
+    db.session.commit()
+
+    return jsonify({
+        "ok": True,
+        "booking_id": booking.id,
+        "message": f"Booked {pc.name} for {booking_date} at {time_slot}"
+    }), 201
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -1443,7 +1584,8 @@ def index():
         gateway_scan=gateway_scan,
         assigned_ips=assigned_ips,
         agent_status=agent_status,
-        today_date=datetime.now().strftime("%Y-%m-%d")
+        today_date=datetime.now().strftime("%Y-%m-%d"),
+        current_time=datetime.now()
     )
 
 

@@ -25,6 +25,8 @@
 
         .free { border-color: var(--neon-blue); box-shadow: 0 0 10px rgba(0, 243, 255, 0.1); }
         .occupied { border-color: var(--neon-red); box-shadow: 0 0 10px rgba(255, 0, 85, 0.1); }
+        .online { border-left: 4px solid var(--neon-green); }
+        .offline { border-left: 4px solid #666; }
 
         .status-badge { display: inline-block; padding: 5px 10px; border-radius: 4px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; }
         .free .status-badge { background: rgba(0, 243, 255, 0.2); color: var(--neon-blue); }
@@ -99,10 +101,17 @@
 
             <div class="pc-grid">
                 {% for pc in pcs %}
-                <div class="card {{ 'occupied' if pc.is_occupied else 'free' }}">
+                <div class="card {{ 'occupied' if pc.is_occupied else 'free' }} {{ 'online' if pc.last_agent_seen_at and (current_time - pc.last_agent_seen_at).total_seconds() < 300 else 'offline' }}">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <h3>{{ pc.name }}</h3>
-                        <span class="status-badge">{{ 'In Use' if pc.is_occupied else 'Ready' }}</span>
+                        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+                            <span class="status-badge">{{ 'In Use' if pc.is_occupied else 'Ready' }}</span>
+                            {% if pc.last_agent_seen_at %}
+                                <span class="status-badge" style="font-size:0.7em; padding:2px 6px; background: {% if (current_time - pc.last_agent_seen_at).total_seconds() < 300 %}rgba(0, 255, 157, 0.2); color: var(--neon-green){% else %}rgba(128, 128, 128, 0.2); color: #888{% endif %}">
+                                    {{ 'ONLINE' if (current_time - pc.last_agent_seen_at).total_seconds() < 300 else 'OFFLINE' }}
+                                </span>
+                            {% endif %}
+                        </div>
                     </div>
                     {% if current_user.is_admin %}
                         <p style="color:#bbb; font-size:0.85em; margin: 4px 0 8px;">

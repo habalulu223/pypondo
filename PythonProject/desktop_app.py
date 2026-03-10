@@ -47,6 +47,7 @@ if os.name == 'nt':
             kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
             vk = kb.vkCode
             alt_down = bool(kb.flags & 0x20)  # LLKHF_ALTDOWN
+            win_down = ctypes.windll.user32.GetAsyncKeyState(0x5B) & 0x8000 or ctypes.windll.user32.GetAsyncKeyState(0x5C) & 0x8000
             # VK_LWIN (0x5B) and VK_RWIN (0x5C) are the left/right Windows keys
             if vk in (0x5B, 0x5C):
                 if is_verbose_logging_enabled():
@@ -62,6 +63,13 @@ if os.name == 'nt':
                 if vk in (0x2E, 0x57):  # Delete, W
                     if is_verbose_logging_enabled():
                         print(f"[HOOK] blocking ctrl+alt+vk={vk}")
+                    return 1
+            # block Windows key combinations
+            if win_down:
+                # Block Tab (task view), D (desktop), M (minimize), L (lock), X (menu), arrows (snap)
+                if vk in (0x09, 0x44, 0x4D, 0x4C, 0x58, 0x25, 0x26, 0x27, 0x28):  # Tab, D, M, L, X, Left, Up, Right, Down
+                    if is_verbose_logging_enabled():
+                        print(f"[HOOK] blocking win+vk={vk}")
                     return 1
         # pass through everything else
         return ctypes.windll.user32.CallNextHookEx(_win_hook_id, nCode, wParam, lParam)
@@ -105,6 +113,14 @@ if os.name == 'nt':
                 # Ctrl+Alt+Delete
                 if e.alt and e.ctrl and name == 'delete':
                     return False
+                # Block Windows key combinations for window switching
+                try:
+                    if _kb.is_pressed('left windows') or _kb.is_pressed('right windows') or _kb.is_pressed('windows'):
+                        # Block common Windows shortcuts that allow window switching or desktop access
+                        if name in ('tab', 'd', 'm', 'l', 'x', 'up', 'down', 'left', 'right', 'shift', 'ctrl', 'alt'):
+                            return False
+                except:
+                    pass
                 return True
 
             _keyboard_hook_handle = _kb.hook(_filter_event)

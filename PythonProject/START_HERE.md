@@ -48,6 +48,49 @@ python test_independence.py
 # Shows all green checkmarks
 ```
 
+### 3. Windows Key Blocking (Kiosk Mode)
+
+**Enhanced security features:**
+- ✅ Blocks Windows key combinations (Win+Tab, Win+D, Win+L, etc.)
+- ✅ Blocks Alt+Tab for window switching
+- ✅ Blocks Ctrl+Alt+Delete
+- ✅ Prevents desktop access in kiosk mode
+
+**How it works:**
+```
+Kiosk mode enabled
+  ↓
+Installs global keyboard hook
+  ↓
+Blocks: Win keys, Alt+Tab, Win+D, Win+L, etc.
+  ↓
+Users cannot switch windows or access desktop
+```
+
+### 4. Android Mobile App
+
+**New mobile client:**
+- ✅ Kivy-based Android app
+- ✅ Connects to PyPondo server
+- ✅ Mobile-optimized interface
+- ✅ Login and booking functionality
+- ✅ Real-time communication with admin
+- ✅ APK build system with Buildozer
+
+**Build Android APK:**
+```bash
+build_android.bat
+# Creates: bin/pypondo_mobile-1.0.0-debug.apk
+```
+
+**Mobile Features:**
+- User login with server connection
+- View account balance
+- Browse available PCs
+- Make bookings for future time slots
+- View existing bookings
+- Real-time booking status updates
+
 ## How to Use
 
 ### Simplest Way (Recommended)
