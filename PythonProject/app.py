@@ -260,6 +260,23 @@ def normalize_ipv6(value):
     return str(ip)
 
 
+def build_unique_agent_pc_name(raw_name):
+    base = re.sub(r"[^A-Za-z0-9_-]", "", str(raw_name or "").strip()) or "PC-AUTO"
+    base = base[:20] or "PC-AUTO"
+
+    if not PC.query.filter_by(name=base).first():
+        return base
+
+    # Reserve room for a short numeric suffix within the 20-char name limit.
+    stem = base[:16] or "PC-AUTO"
+    for idx in range(1, 1000):
+        candidate = f"{stem}-{idx}"
+        if not PC.query.filter_by(name=candidate).first():
+            return candidate
+
+    return f"PC-{uuid.uuid4().hex[:8]}"[:20]
+
+
 def normalize_lan_ip(value):
     if value is None:
         return None
@@ -1199,6 +1216,27 @@ def get_latest_bundle_path(prefix):
     return max(candidates, key=lambda row: row[0])[1]
 
 
+def get_latest_apk_path():
+    candidates = []
+
+    for folder in (os.path.join(basedir, "bin"), os.path.join(basedir, "package_cache")):
+        if not os.path.isdir(folder):
+            continue
+        for file_name in os.listdir(folder):
+            if not file_name.lower().endswith(".apk"):
+                continue
+            full_path = os.path.join(folder, file_name)
+            try:
+                mtime = os.path.getmtime(full_path)
+            except OSError:
+                continue
+            candidates.append((mtime, full_path))
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda row: row[0])[1]
+
+
 def is_kiosk_mode_enabled():
     return str(os.getenv("PYPONDO_KIOSK_MODE", "0")).strip().lower() in {"1", "true", "yes"}
 
@@ -1455,6 +1493,14 @@ def admin_download_app():
     if not current_user.is_admin:
         return redirect(url_for('index'))
 
+    dist_exe = os.path.join(basedir, "dist", "PyPondo.exe")
+    if os.path.exists(dist_exe):
+        return send_file(
+            dist_exe,
+            as_attachment=True,
+            download_name="PyPondo.exe"
+        )
+
     candidates = []
     all_in_one_zip = get_latest_bundle_path("all_in_one_bundle-")
     if all_in_one_zip:
@@ -1463,10 +1509,6 @@ def admin_download_app():
     dist_zip = os.path.join(basedir, "dist", "PyPondo-windows.zip")
     if os.path.exists(dist_zip):
         candidates.append((dist_zip, "PyPondo-windows.zip"))
-
-    dist_exe = os.path.join(basedir, "dist", "PyPondo.exe")
-    if os.path.exists(dist_exe):
-        candidates.append((dist_exe, "PyPondo.exe"))
 
     if candidates:
         latest_path, latest_name = max(candidates, key=lambda row: os.path.getmtime(row[0]))
@@ -1477,6 +1519,24 @@ def admin_download_app():
         )
 
     flash("No app bundle found. Build first using build_desktop_exe.bat.", "error")
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/download_android_app')
+@login_required
+def admin_download_android_app():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    apk_path = get_latest_apk_path()
+    if apk_path:
+        return send_file(
+            apk_path,
+            as_attachment=True,
+            download_name="PyPondo-Android.apk"
+        )
+
+    flash("No Android APK found. Build first using build_android.bat or buildozer android debug.", "error")
     return redirect(url_for('index'))
 
 
@@ -2067,7 +2127,15 @@ def api_agent_register_lan():
 
     pc = PC.query.filter_by(name=pc_name).first()
     if not pc:
-        return jsonify({"ok": False, "error": "pc not found"}), 404
+        # Auto-create an unmapped PC record for first-time client hostnames.
+        created_name = build_unique_agent_pc_name(pc_name)
+        pc = PC(name=created_name)
+        db.session.add(pc)
+        db.session.flush()
+        db.session.add(AdminLog(
+            admin_name=f"agent:{pc_name}",
+            action=f"Auto-created PC record '{created_name}' from agent identity '{pc_name}'"
+        ))
 
     body_ip = normalize_lan_ip(str(data.get("lan_ip", "")).strip()) if data.get("lan_ip") else None
     detected_ip = body_ip or get_client_ip_from_request()
