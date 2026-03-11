@@ -48,69 +48,6 @@ python test_independence.py
 # Shows all green checkmarks
 ```
 
-### 3. Windows Key Blocking (Kiosk Mode)
-
-**Enhanced security features:**
-- ✅ Blocks Windows key combinations (Win+Tab, Win+D, Win+L, etc.)
-- ✅ Blocks Alt+Tab for window switching
-- ✅ Blocks Ctrl+Alt+Delete
-- ✅ Prevents desktop access in kiosk mode
-
-**How it works:**
-```
-Kiosk mode enabled
-  ↓
-Installs global keyboard hook
-  ↓
-Blocks: Win keys, Alt+Tab, Win+D, Win+L, etc.
-  ↓
-Users cannot switch windows or access desktop
-```
-
-### 4. Android Mobile App
-
-**New mobile client:**
-- ✅ Kivy-based Android app
-- ✅ Connects to PyPondo server
-- ✅ Mobile-optimized interface
-- ✅ Login and booking functionality
-- ✅ Real-time communication with admin
-- ✅ APK build system with Buildozer
-- ✅ Update logs tab showing system changes
-
-### 5. Desktop Client
-
-**Desktop client features:**
-- ✅ Web-based desktop interface
-- ✅ User login with server connection
-- ✅ Desktop access panel with kiosk mode
-- ✅ Real-time balance and session status
-- ✅ System updates section showing changelog
-- ✅ **AI Assistant chat** for help with system questions
-- ✅ Color-coded update types (major, feature, bugfix, minor)
-- ✅ Automatic window minimization after login
-- ✅ Keyboard shortcut blocking for security
-- ✅ Termination dialog with secret key protection
-
-**Build Android APK:**
-```bash
-build_android.bat
-# Creates: bin/pypondo_mobile-1.0.0-debug.apk
-```
-
-**Mobile Features:**
-- User login with server connection
-- View account balance
-- Browse available PCs
-- Make bookings for future time slots
-- View existing bookings
-- Real-time booking status updates
-- **Update Logs Tab** - See system changelog with bug fixes, features, and major updates
-- **AI Assistant Tab** - Chat with AI for help navigating the system and answering questions
-- Color-coded update types (major, feature, bugfix, minor)
-- Tabbed interface keeps bookings accessible
-- Full screen login when logged out
-
 ## How to Use
 
 ### Simplest Way (Recommended)

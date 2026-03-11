@@ -55,20 +55,6 @@ if errorlevel 1 (
 
 echo [OK] Core packages available
 
-"%PYTHON_CMD%" %PYTHON_ARGS% -c "import keyboard" >nul 2>&1
-if errorlevel 1 (
-  echo.
-  echo [INFO] Installing keyboard hook library for Windows key blocking...
-  "%PYTHON_CMD%" %PYTHON_ARGS% -m pip install keyboard
-  if errorlevel 1 (
-    echo [WARNING] Failed to install keyboard library. Windows key blocking may be limited.
-  ) else (
-    echo [OK] Keyboard hook library available
-  )
-) else (
-  echo [OK] Keyboard hook library available
-)
-
 "%PYTHON_CMD%" %PYTHON_ARGS% -c "import webview" >nul 2>&1
 if errorlevel 1 (
   echo.

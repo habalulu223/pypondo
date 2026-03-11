@@ -1,22 +1,3 @@
-import sys
-
-# Guard against broken launch environments that add .../site-packages/flask
-# directly to sys.path, which can shadow stdlib typing with flask/typing.py.
-for _path in list(sys.path):
-    normalized = (_path or "").replace("/", "\\").lower()
-    if normalized.endswith("\\site-packages\\flask"):
-        try:
-            sys.path.remove(_path)
-        except ValueError:
-            pass
-
-import typing as _typing
-if not hasattr(_typing, "TYPE_CHECKING"):
-    raise RuntimeError(
-        "Invalid Python import path: stdlib typing is shadowed. "
-        "Use the project venv interpreter and remove PYTHONPATH entries that point to flask."
-    )
-
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -31,7 +12,6 @@ import uuid
 from decimal import Decimal, InvalidOperation
 from urllib import request as http_request
 from urllib import error as http_error
-from urllib.parse import urlparse
 from sqlalchemy import text
 import socket
 import time
@@ -154,15 +134,6 @@ class AdminLog(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.now)
 
 
-class SystemUpdate(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    version = db.Column(db.String(20), nullable=False)
-    update_type = db.Column(db.String(20), nullable=False)  # 'major', 'minor', 'bugfix', 'feature'
-    title = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.now)
-
-
 class PaymentTransaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -244,57 +215,6 @@ def ensure_core_seed_data():
         admin = User(username="admin", is_admin=True)
         admin.set_password("admin123")
         db.session.add(admin)
-        seeded = True
-
-    # Seed system updates if none exist
-    if not SystemUpdate.query.first():
-        system_updates = [
-            SystemUpdate(
-                version="1.0.0",
-                update_type="major",
-                title="Initial Release",
-                description="Complete PyPondo PC Cafe management system with admin interface, client kiosk mode, and mobile app."
-            ),
-            SystemUpdate(
-                version="1.1.0",
-                update_type="feature",
-                title="Mobile App Integration",
-                description="Added Android mobile app with login, booking system, and real-time communication with admin server."
-            ),
-            SystemUpdate(
-                version="1.1.1",
-                update_type="bugfix",
-                title="Windows Key Blocking Fix",
-                description="Fixed Windows key blocking to properly prevent Alt+Tab, Win+D, and other window switching combinations in kiosk mode."
-            ),
-            SystemUpdate(
-                version="1.1.2",
-                update_type="feature",
-                title="PC Online Status",
-                description="Added real-time PC online/offline status display in admin interface with visual indicators."
-            ),
-            SystemUpdate(
-                version="1.1.3",
-                update_type="feature",
-                title="Update Logs System",
-                description="Added system update logs tab in mobile app to show bug fixes, features, and major updates."
-            ),
-            SystemUpdate(
-                version="1.1.4",
-                update_type="bugfix",
-                title="Session Billing Enhancement",
-                description="Improved session billing to automatically charge users when admin stops sessions, ensuring accurate billing."
-            ),
-            SystemUpdate(
-                version="1.2.0",
-                update_type="major",
-                title="Gateway Discovery",
-                description="Implemented automatic network gateway discovery for seamless client-admin connection without manual IP configuration."
-            )
-        ]
-        
-        for update in system_updates:
-            db.session.add(update)
         seeded = True
 
     if seeded:
@@ -1279,105 +1199,6 @@ def get_latest_bundle_path(prefix):
     return max(candidates, key=lambda row: row[0])[1]
 
 
-def get_latest_file_from_dir(directory, allowed_extensions, prefixes=None):
-    if not os.path.isdir(directory):
-        return None
-
-    extensions = {ext.lower() for ext in allowed_extensions}
-    prefix_values = tuple(prefixes or [])
-    candidates = []
-
-    for file_name in os.listdir(directory):
-        file_name_lower = file_name.lower()
-        if not any(file_name_lower.endswith(ext) for ext in extensions):
-            continue
-        if prefix_values and not file_name.startswith(prefix_values):
-            continue
-
-        full_path = os.path.join(directory, file_name)
-        try:
-            mtime = os.path.getmtime(full_path)
-        except OSError:
-            continue
-        candidates.append((mtime, full_path))
-
-    if not candidates:
-        return None
-    return max(candidates, key=lambda row: row[0])[1]
-
-
-def resolve_download_artifact(kind):
-    dist_dir = os.path.join(basedir, "dist")
-    package_cache_dir = os.path.join(basedir, "package_cache")
-    mobile_bin_dir = os.path.join(basedir, "bin")
-
-    if kind in {"admin", "client", "windows"}:
-        # Prefer actual executable binaries over zip bundles.
-        windows_binary = get_latest_file_from_dir(
-            dist_dir,
-            allowed_extensions={".exe"},
-            prefixes=("PyPondo", "pypondo", "PyPondoAdmin", "PyPondoClient")
-        )
-        if windows_binary:
-            return windows_binary
-
-        role_prefixes = {
-            "admin": ("admin_bundle-", "all_in_one_bundle-"),
-            "client": ("client_bundle-", "all_in_one_bundle-")
-        }
-        if kind in role_prefixes:
-            role_zip = get_latest_file_from_dir(
-                package_cache_dir,
-                allowed_extensions={".zip"},
-                prefixes=role_prefixes[kind]
-            )
-            if role_zip:
-                return role_zip
-
-        dist_zip = get_latest_file_from_dir(
-            dist_dir,
-            allowed_extensions={".zip"},
-            prefixes=("PyPondo", "pypondo")
-        )
-        if dist_zip:
-            return dist_zip
-
-        return get_latest_file_from_dir(
-            package_cache_dir,
-            allowed_extensions={".zip"},
-            prefixes=("all_in_one_bundle-", "admin_bundle-", "client_bundle-")
-        )
-
-    if kind == "android":
-        # Android build output is usually in bin/*.apk.
-        apk = get_latest_file_from_dir(
-            mobile_bin_dir,
-            allowed_extensions={".apk"},
-            prefixes=("pypondo", "PyPondo")
-        )
-        if apk:
-            return apk
-
-        return get_latest_file_from_dir(
-            package_cache_dir,
-            allowed_extensions={".apk"},
-            prefixes=("pypondo", "PyPondo", "android")
-        )
-
-    return None
-
-
-def build_download_name(kind, artifact_path):
-    ext = os.path.splitext(artifact_path)[1].lower()
-    if kind == "admin":
-        return "PyPondo-Admin.exe" if ext == ".exe" else f"pypondo-admin{ext}"
-    if kind == "client":
-        return "PyPondo-Client.exe" if ext == ".exe" else f"pypondo-client{ext}"
-    if kind == "android":
-        return "PyPondo-Android.apk"
-    return os.path.basename(artifact_path)
-
-
 def is_kiosk_mode_enabled():
     return str(os.getenv("PYPONDO_KIOSK_MODE", "0")).strip().lower() in {"1", "true", "yes"}
 
@@ -1398,87 +1219,10 @@ def post_login_endpoint_for_user(user):
 
 
 def resolve_safe_next_url():
-    next_url = (request.values.get("next") or "").strip()
-    if not next_url:
-        return None
-
-    parsed = urlparse(next_url)
-
-    # Allow local relative redirects only.
-    if parsed.scheme or parsed.netloc:
-        return None
-    if not next_url.startswith("/"):
-        return None
-    if next_url.startswith("//"):
-        return None
-
-    return next_url
-
-
-def get_ai_response(message, user_id=None):
-    """Simple AI response system for PyPondo assistance."""
-    message_lower = message.lower().strip()
-
-    # Common greetings
-    if any(word in message_lower for word in ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening']):
-        return "Hello! I'm your PyPondo assistant. I can help you with questions about booking PCs, checking your balance, understanding the system, and more. What would you like to know?"
-
-    # Balance and account questions
-    if any(word in message_lower for word in ['balance', 'money', 'pondo', 'credit', 'funds']):
-        if 'how' in message_lower and 'check' in message_lower:
-            return "You can check your balance in the app after logging in. Your current balance is displayed at the top of the screen. You need positive balance to access PCs."
-        elif 'add' in message_lower or 'top' in message_lower or 'load' in message_lower:
-            return "To add funds to your account, please contact the admin or use the top-up feature if available. The admin can credit your account directly."
-        else:
-            return "Your account balance determines how long you can use PCs. Each minute costs a small amount. Make sure you have sufficient balance before starting a session."
-
-    # Booking questions
-    if any(word in message_lower for word in ['book', 'reserve', 'schedule', 'time slot']):
-        if 'how' in message_lower:
-            return "To book a PC: 1) Login to the app, 2) Go to the Bookings tab, 3) Select an available PC, 4) Choose your preferred date and time, 5) Tap 'Book Now'. You'll need sufficient balance."
-        elif 'cancel' in message_lower:
-            return "To cancel a booking, please contact the admin directly. The admin can manage all bookings from their dashboard."
-        else:
-            return "You can book PCs for future time slots through the mobile app. Check the Bookings tab to see available PCs and make reservations. Bookings help ensure your preferred PC is available when you need it."
-
-    # PC availability questions
-    if any(word in message_lower for word in ['available', 'free', 'pc', 'computer', 'station']):
-        if 'check' in message_lower or 'see' in message_lower:
-            return "You can see available PCs in the Bookings tab of the mobile app. Green status usually indicates available PCs. The admin dashboard also shows real-time PC status."
-        else:
-            return "PCs become available when other users finish their sessions. You can check availability in the mobile app or ask the admin. Some PCs may be reserved for maintenance."
-
-    # Session questions
-    if any(word in message_lower for word in ['session', 'start', 'end', 'time', 'duration']):
-        if 'start' in message_lower:
-            return "Sessions start automatically when you sit at a PC with sufficient balance. The system tracks your usage and deducts from your balance per minute."
-        elif 'end' in message_lower or 'stop' in message_lower:
-            return "Sessions end when you leave the PC or when the admin stops them. You'll be charged for the time used. Make sure to save your work before leaving!"
-        else:
-            return "Each session is timed and you're charged based on actual usage. The rate is typically per minute. You can see your active session status in the desktop client."
-
-    # Update/system questions
-    if any(word in message_lower for word in ['update', 'version', 'changelog', 'new', 'feature']):
-        return "You can see system updates and new features in the Updates tab. This shows bug fixes, new features, and major changes. Check regularly to stay informed about improvements!"
-
-    # Help and general questions
-    if any(word in message_lower for word in ['help', 'support', 'problem', 'issue', 'error']):
-        return "If you're having issues: 1) Check your balance, 2) Ensure you're logged in, 3) Try restarting the app, 4) Contact the admin for assistance. You can also ask me specific questions about the system!"
-
-    # Admin contact
-    if any(word in message_lower for word in ['admin', 'administrator', 'contact', 'support']):
-        return "For account issues, technical problems, or special requests, please contact the admin directly. They manage all accounts, PCs, and can help with any issues you encounter."
-
-    # Pricing questions
-    if any(word in message_lower for word in ['cost', 'price', 'rate', 'fee', 'charge']):
-        return "PC usage is charged per minute. The exact rate may vary - check with the admin for current pricing. You need sufficient balance before starting a session."
-
-    # App navigation
-    if any(word in message_lower for word in ['how', 'navigate', 'use', 'app']):
-        return "The app has tabs: Bookings (for reserving PCs), Updates (for system news). Use the Logout button when done. The desktop client shows your session status and balance."
-
-    # Default response
-    return "I'm here to help with questions about the PyPondo PC Cafe system! You can ask me about booking PCs, checking your balance, system features, or general navigation. What specific question do you have?"
+    next_url = (request.args.get("next") or "").strip()
+    if next_url.startswith("/") and not next_url.startswith("//"):
+        return next_url
+    return None
 
 
 @app.before_request
@@ -1532,221 +1276,6 @@ def api_server_info():
         "server_ip": server_ip,
         "server_port": 5000,
         "server_hostname": socket.gethostname()
-    }), 200
-
-
-# --- Mobile API Endpoints ---
-
-@app.route('/api/mobile/login', methods=['POST'])
-def api_mobile_login():
-    """Mobile login endpoint."""
-    data = request.get_json(silent=True) or {}
-    username = str(data.get('username', '')).strip()
-    password = str(data.get('password', '')).strip()
-
-    if not username or not password:
-        return jsonify({"ok": False, "error": "Username and password required"}), 400
-
-    user = User.query.filter_by(username=username).first()
-    if not user or not user.check_password(password):
-        return jsonify({"ok": False, "error": "Invalid credentials"}), 401
-
-    # Create a simple session token (in production, use proper JWT)
-    session_token = f"{user.id}:{username}:{hash(str(datetime.now()))}"
-
-    return jsonify({
-        "ok": True,
-        "user_id": user.id,
-        "username": user.username,
-        "balance": user.pondo,
-        "is_admin": user.is_admin,
-        "session_token": session_token
-    }), 200
-
-
-@app.route('/api/mobile/bookings', methods=['GET'])
-def api_mobile_get_bookings():
-    """Get user's bookings for mobile app."""
-    user_id = request.args.get('user_id')
-    if not user_id:
-        return jsonify({"ok": False, "error": "user_id required"}), 400
-
-    try:
-        user_id = int(user_id)
-    except:
-        return jsonify({"ok": False, "error": "Invalid user_id"}), 400
-
-    user = db.session.get(User, user_id)
-    if not user:
-        return jsonify({"ok": False, "error": "User not found"}), 404
-
-    bookings = Booking.query.filter_by(user_id=user_id).order_by(Booking.id.desc()).all()
-    bookings_data = []
-    for booking in bookings:
-        bookings_data.append({
-            "id": booking.id,
-            "pc_name": booking.pc.name,
-            "date": booking.booking_date,
-            "time": booking.time_slot,
-            "status": "confirmed"  # In real app, add status field to Booking model
-        })
-
-    return jsonify({
-        "ok": True,
-        "bookings": bookings_data,
-        "balance": user.pondo
-    }), 200
-
-
-@app.route('/api/mobile/pcs', methods=['GET'])
-def api_mobile_get_pcs():
-    """Get available PCs for booking."""
-    pcs = PC.query.all()
-    pcs_data = []
-    for pc in pcs:
-        pcs_data.append({
-            "id": pc.id,
-            "name": pc.name,
-            "is_occupied": pc.is_occupied,
-            "is_online": pc.last_agent_seen_at and (datetime.now() - pc.last_agent_seen_at).total_seconds() < 300
-        })
-
-    return jsonify({
-        "ok": True,
-        "pcs": pcs_data
-    }), 200
-
-
-@app.route('/api/mobile/book', methods=['POST'])
-def api_mobile_book():
-    """Create a new booking from mobile app."""
-    data = request.get_json(silent=True) or {}
-    user_id = data.get('user_id')
-    pc_id = data.get('pc_id')
-    booking_date = data.get('date')
-    time_slot = data.get('time')
-
-    if not all([user_id, pc_id, booking_date, time_slot]):
-        return jsonify({"ok": False, "error": "All fields required"}), 400
-
-    try:
-        user_id = int(user_id)
-        pc_id = int(pc_id)
-    except:
-        return jsonify({"ok": False, "error": "Invalid user_id or pc_id"}), 400
-
-    user = db.session.get(User, user_id)
-    pc = db.session.get(PC, pc_id)
-
-    if not user or not pc:
-        return jsonify({"ok": False, "error": "User or PC not found"}), 404
-
-    if user.pondo <= 0:
-        return jsonify({"ok": False, "error": "Insufficient balance"}), 400
-
-    # Check for existing booking at same time
-    existing = Booking.query.filter_by(
-        pc_id=pc_id,
-        booking_date=booking_date,
-        time_slot=time_slot
-    ).first()
-
-    if existing:
-        return jsonify({"ok": False, "error": "Time slot already booked"}), 409
-
-    # Create booking
-    booking = Booking(
-        user_id=user_id,
-        pc_id=pc_id,
-        booking_date=booking_date,
-        time_slot=time_slot
-    )
-
-    db.session.add(booking)
-    db.session.add(AdminLog(
-        admin_name=user.username,
-        action=f"Mobile booking created: {pc.name} on {booking_date} at {time_slot}"
-    ))
-    db.session.commit()
-
-    return jsonify({
-        "ok": True,
-        "booking_id": booking.id,
-        "message": f"Booked {pc.name} for {booking_date} at {time_slot}"
-    }), 201
-
-
-@app.route('/api/mobile/updates', methods=['GET'])
-def api_mobile_updates():
-    """Get system update logs for mobile app."""
-    limit = request.args.get('limit', 20, type=int)
-    if limit > 100:
-        limit = 100
-
-    updates = SystemUpdate.query.order_by(SystemUpdate.timestamp.desc()).limit(limit).all()
-    updates_data = []
-    for update in updates:
-        updates_data.append({
-            "id": update.id,
-            "version": update.version,
-            "update_type": update.update_type,
-            "title": update.title,
-            "description": update.description,
-            "timestamp": update.timestamp.isoformat() if update.timestamp else None
-        })
-
-    return jsonify({
-        "ok": True,
-        "updates": updates_data
-    }), 200
-
-
-@app.route('/api/mobile/ai-chat', methods=['POST'])
-def api_mobile_ai_chat():
-    """AI chat endpoint for mobile and desktop clients."""
-    data = request.get_json(silent=True) or {}
-    message = str(data.get('message', '')).strip()
-    user_id = data.get('user_id')
-
-    if not message:
-        return jsonify({"ok": False, "error": "Message required"}), 400
-
-    # Get AI response
-    ai_response = get_ai_response(message, user_id)
-
-    return jsonify({
-        "ok": True,
-        "response": ai_response,
-        "timestamp": datetime.now().isoformat()
-    }), 200
-
-
-@app.route('/api/mobile/topup', methods=['POST'])
-def api_mobile_topup():
-    """Create top-up request from mobile client."""
-    data = request.get_json(silent=True) or {}
-
-    try:
-        user_id = int(data.get('user_id', 0))
-    except Exception:
-        return jsonify({"ok": False, "error": "Invalid user_id"}), 400
-
-    user = db.session.get(User, user_id)
-    if not user:
-        return jsonify({"ok": False, "error": "User not found"}), 404
-
-    amount = parse_topup_amount(data.get('amount', 0))
-    if amount is None:
-        return jsonify({"ok": False, "error": "Invalid amount"}), 400
-
-    tx = create_online_payment_request(user, amount, source="mobile_api")
-    return jsonify({
-        "ok": True,
-        "message": "Payment request saved",
-        "transaction_id": tx.external_id,
-        "status": tx.status,
-        "amount": amount,
-        "username": user.username
     }), 200
 
 
@@ -1914,8 +1443,7 @@ def index():
         gateway_scan=gateway_scan,
         assigned_ips=assigned_ips,
         agent_status=agent_status,
-        today_date=datetime.now().strftime("%Y-%m-%d"),
-        current_time=datetime.now()
+        today_date=datetime.now().strftime("%Y-%m-%d")
     )
 
 
@@ -1927,69 +1455,28 @@ def admin_download_app():
     if not current_user.is_admin:
         return redirect(url_for('index'))
 
-    artifact_path = resolve_download_artifact("client")
-    if artifact_path:
+    candidates = []
+    all_in_one_zip = get_latest_bundle_path("all_in_one_bundle-")
+    if all_in_one_zip:
+        candidates.append((all_in_one_zip, "pypondo-app-bundle.zip"))
+
+    dist_zip = os.path.join(basedir, "dist", "PyPondo-windows.zip")
+    if os.path.exists(dist_zip):
+        candidates.append((dist_zip, "PyPondo-windows.zip"))
+
+    dist_exe = os.path.join(basedir, "dist", "PyPondo.exe")
+    if os.path.exists(dist_exe):
+        candidates.append((dist_exe, "PyPondo.exe"))
+
+    if candidates:
+        latest_path, latest_name = max(candidates, key=lambda row: os.path.getmtime(row[0]))
         return send_file(
-            artifact_path,
+            latest_path,
             as_attachment=True,
-            download_name=build_download_name("client", artifact_path)
+            download_name=latest_name
         )
 
-    flash("No downloadable app found. Build first using build_desktop_exe.bat.", "error")
-    return redirect(url_for('index'))
-
-
-@app.route('/admin/download_admin_app')
-@login_required
-def admin_download_admin_app():
-    if not current_user.is_admin:
-        return redirect(url_for('index'))
-
-    artifact_path = resolve_download_artifact("admin")
-    if artifact_path:
-        return send_file(
-            artifact_path,
-            as_attachment=True,
-            download_name=build_download_name("admin", artifact_path)
-        )
-
-    flash("No admin app found. Build first using build_desktop_exe.bat.", "error")
-    return redirect(url_for('index'))
-
-
-@app.route('/admin/download_client_app')
-@login_required
-def admin_download_client_app():
-    if not current_user.is_admin:
-        return redirect(url_for('index'))
-
-    artifact_path = resolve_download_artifact("client")
-    if artifact_path:
-        return send_file(
-            artifact_path,
-            as_attachment=True,
-            download_name=build_download_name("client", artifact_path)
-        )
-
-    flash("No client app found. Build first using build_desktop_exe.bat.", "error")
-    return redirect(url_for('index'))
-
-
-@app.route('/admin/download_android_app')
-@login_required
-def admin_download_android_app():
-    if not current_user.is_admin:
-        return redirect(url_for('index'))
-
-    artifact_path = resolve_download_artifact("android")
-    if artifact_path:
-        return send_file(
-            artifact_path,
-            as_attachment=True,
-            download_name=build_download_name("android", artifact_path)
-        )
-
-    flash("No Android APK found. Build first using build_android.bat.", "error")
+    flash("No app bundle found. Build first using build_desktop_exe.bat.", "error")
     return redirect(url_for('index'))
 
 

@@ -7,7 +7,6 @@ import webbrowser
 import logging
 import re
 import subprocess
-import traceback
 from urllib import request as http_request
 from urllib import error as http_error
 from urllib import parse as http_parse
@@ -48,7 +47,6 @@ if os.name == 'nt':
             kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
             vk = kb.vkCode
             alt_down = bool(kb.flags & 0x20)  # LLKHF_ALTDOWN
-            win_down = ctypes.windll.user32.GetAsyncKeyState(0x5B) & 0x8000 or ctypes.windll.user32.GetAsyncKeyState(0x5C) & 0x8000
             # VK_LWIN (0x5B) and VK_RWIN (0x5C) are the left/right Windows keys
             if vk in (0x5B, 0x5C):
                 if is_verbose_logging_enabled():
@@ -64,13 +62,6 @@ if os.name == 'nt':
                 if vk in (0x2E, 0x57):  # Delete, W
                     if is_verbose_logging_enabled():
                         print(f"[HOOK] blocking ctrl+alt+vk={vk}")
-                    return 1
-            # block Windows key combinations
-            if win_down:
-                # Block Tab (task view), D (desktop), M (minimize), L (lock), X (menu), arrows (snap)
-                if vk in (0x09, 0x44, 0x4D, 0x4C, 0x58, 0x25, 0x26, 0x27, 0x28):  # Tab, D, M, L, X, Left, Up, Right, Down
-                    if is_verbose_logging_enabled():
-                        print(f"[HOOK] blocking win+vk={vk}")
                     return 1
         # pass through everything else
         return ctypes.windll.user32.CallNextHookEx(_win_hook_id, nCode, wParam, lParam)
@@ -114,14 +105,6 @@ if os.name == 'nt':
                 # Ctrl+Alt+Delete
                 if e.alt and e.ctrl and name == 'delete':
                     return False
-                # Block Windows key combinations for window switching
-                try:
-                    if _kb.is_pressed('left windows') or _kb.is_pressed('right windows') or _kb.is_pressed('windows'):
-                        # Block common Windows shortcuts that allow window switching or desktop access
-                        if name in ('tab', 'd', 'm', 'l', 'x', 'up', 'down', 'left', 'right', 'shift', 'ctrl', 'alt'):
-                            return False
-                except:
-                    pass
                 return True
 
             _keyboard_hook_handle = _kb.hook(_filter_event)
@@ -864,7 +847,7 @@ def launch_browser_control_window(url):
     root = tk.Tk()
     root.title(APP_TITLE)
 
-    # Client app uses kiosk/fullscreen behavior, admin uses fullscreen dashboard.
+    # Only the standard client app is forced fullscreen and borderless.
     if is_client_app_mode():
         root.overrideredirect(True)
         try:
@@ -874,13 +857,8 @@ def launch_browser_control_window(url):
             screen_h = root.winfo_screenheight()
             root.geometry(f"{screen_w}x{screen_h}+0+0")
     else:
-        try:
-            root.state("zoomed")
-        except Exception:
-            screen_w = root.winfo_screenwidth()
-            screen_h = root.winfo_screenheight()
-            root.geometry(f"{screen_w}x{screen_h}+0+0")
-        root.minsize(980, 700)
+        root.geometry("520x220")
+        root.minsize(460, 200)
 
     if kiosk_lock_enabled():
         root.protocol("WM_DELETE_WINDOW", lambda: None)
@@ -928,26 +906,6 @@ def launch_ui(url):
                         webview.windows[0].minimize()
                     except Exception:
                         pass
-
-                def set_fullscreen(self, enabled=True):
-                    target = str(enabled).strip().lower() in {"1", "true", "yes", "on"}
-                    try:
-                        window_ref = webview.windows[0]
-                        current = getattr(window_ref, "fullscreen", None)
-                        if hasattr(window_ref, "toggle_fullscreen"):
-                            if current is None:
-                                if target:
-                                    window_ref.toggle_fullscreen()
-                            elif bool(current) != target:
-                                window_ref.toggle_fullscreen()
-                        if not target:
-                            try:
-                                window_ref.restore()
-                            except Exception:
-                                pass
-                        return True
-                    except Exception:
-                        return False
                 
                 def terminate(self, secret_key):
                     # Secret key to terminate the client app
@@ -964,21 +922,15 @@ def launch_ui(url):
                             pass
                     return False
 
-            client_mode = is_client_mode()
-            admin_mode = not client_mode
-            initial_width = 1280
-            initial_height = 820
-            initial_min_size = (980, 700)
-
             window = webview.create_window(
                 APP_TITLE,
                 url=url,
-                width=initial_width,
-                height=initial_height,
-                min_size=initial_min_size,
-                resizable=True if admin_mode else (not kiosk_lock_enabled()),
-                frameless=False,
-                fullscreen=False,
+                width=1280,
+                height=820,
+                min_size=(980, 700),
+                resizable=not is_client_mode(),
+                frameless=is_client_app_mode(),
+                fullscreen=is_client_app_mode(),
                 easy_drag=False,
                 js_api=Api()
             )
@@ -1094,9 +1046,7 @@ def main():
     server_thread = threading.Thread(target=run_flask, args=(APP_HOST, chosen_port), daemon=True)
     server_thread.start()
 
-    bind_host = APP_HOST
-    launch_host = "127.0.0.1" if bind_host in {"0.0.0.0", "::"} else bind_host
-    base_url = f"http://{launch_host}:{chosen_port}"
+    base_url = f"http://{APP_HOST}:{chosen_port}"
     launch_url = f"{base_url}{get_start_path()}"
     if not wait_for_server(base_url):
         print(f"Failed to start local server at {base_url}")
@@ -1118,29 +1068,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except Exception as exc:
-        try:
-            runtime_dir = get_runtime_base_dir()
-            log_path = os.path.join(runtime_dir, "client_startup_error.log")
-            with open(log_path, "a", encoding="utf-8") as handle:
-                handle.write("\n" + "=" * 72 + "\n")
-                handle.write(time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
-                handle.write(str(exc) + "\n")
-                handle.write(traceback.format_exc() + "\n")
-        except Exception:
-            pass
-
-        if os.name == "nt":
-            try:
-                import ctypes
-                ctypes.windll.user32.MessageBoxW(
-                    0,
-                    "PyPondo client failed to start. Check client_startup_error.log next to the app.",
-                    "PyPondo Startup Error",
-                    0x10,
-                )
-            except Exception:
-                pass
-        raise
+    raise SystemExit(main())
