@@ -222,6 +222,28 @@ class MainScreen(Screen):
         bookings_tab.content = bookings_content
         self.tab_panel.add_widget(bookings_tab)
 
+        # Top Up tab
+        topup_tab = TabbedPanelHeader(text='Top Up')
+        self.topup_tab = topup_tab
+        topup_content = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(10))
+        topup_content.add_widget(Label(text='Create Top-Up Request', size_hint_y=None, height=dp(30), font_size=dp(16)))
+
+        self.topup_amount_input = TextInput(hint_text='Amount (PHP)', multiline=False, input_filter='float', size_hint_y=None, height=dp(45))
+        topup_content.add_widget(self.topup_amount_input)
+
+        quick_topup_row = GridLayout(cols=4, size_hint_y=None, height=dp(45), spacing=dp(8))
+        for quick_amount in (100, 200, 500, 1000):
+            quick_btn = Button(text=f'PHP {quick_amount}', on_press=lambda inst, amt=quick_amount: self.set_topup_amount(amt))
+            quick_topup_row.add_widget(quick_btn)
+        topup_content.add_widget(quick_topup_row)
+
+        self.topup_submit_button = Button(text='Submit Top-Up Request', size_hint_y=None, height=dp(45), on_press=self.submit_topup_request)
+        topup_content.add_widget(self.topup_submit_button)
+        topup_content.add_widget(Label(text='Top-up requests are saved for admin confirmation.', size_hint_y=None, height=dp(28)))
+
+        topup_tab.content = topup_content
+        self.tab_panel.add_widget(topup_tab)
+
         # Updates tab
         updates_tab = TabbedPanelHeader(text='Updates')
         updates_content = BoxLayout(orientation='vertical')
@@ -563,8 +585,64 @@ class MainScreen(Screen):
         self.book_button.disabled = False
 
     def show_topup(self, instance):
-        # TODO: Implement topup view
-        self.status_label.text = "Top-up feature coming soon!"
+        self.tab_panel.switch_to(self.topup_tab)
+
+    def set_topup_amount(self, amount):
+        self.topup_amount_input.text = str(amount)
+
+    def submit_topup_request(self, instance):
+        raw_amount = self.topup_amount_input.text.strip()
+        if not raw_amount:
+            self.status_label.text = "Enter top-up amount"
+            self.status_label.color = (1, 0, 0, 1)
+            return
+
+        self.topup_submit_button.disabled = True
+        threading.Thread(target=self._submit_topup_request, args=(raw_amount,), daemon=True).start()
+
+    def _submit_topup_request(self, raw_amount):
+        app = App.get_running_app()
+        try:
+            amount = float(raw_amount)
+            if amount <= 0:
+                raise ValueError("Amount must be positive")
+
+            payload = {
+                "user_id": app.user_id,
+                "amount": amount,
+            }
+            base_url = f"http://{app.server_host}:{app.server_port}"
+            req = http_request.Request(
+                f"{base_url}/api/mobile/topup",
+                data=json.dumps(payload).encode('utf-8'),
+                method='POST',
+                headers={"Content-Type": "application/json"},
+            )
+
+            with http_request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode('utf-8'))
+
+            if not result.get("ok"):
+                message = result.get("error", "Top-up request failed")
+                Clock.schedule_once(lambda dt, msg=message: self._topup_failed(msg), 0)
+                return
+
+            message = result.get("message", "Top-up request submitted")
+            Clock.schedule_once(lambda dt, msg=message: self._topup_success(msg), 0)
+        except Exception as exc:
+            Clock.schedule_once(lambda dt, msg=str(exc): self._topup_failed(f"Top-up failed: {msg}"), 0)
+
+    def _topup_success(self, message):
+        self.status_label.text = message
+        self.status_label.color = (0, 1, 0, 1)
+        self.topup_submit_button.disabled = False
+        self.topup_amount_input.text = ""
+        self.refresh_data(None)
+
+    def _topup_failed(self, message):
+        self.status_label.text = message
+        self.status_label.color = (1, 0, 0, 1)
+        self.topup_submit_button.disabled = False
 
     def do_logout(self, instance):
         app = App.get_running_app()

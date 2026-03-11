@@ -94,6 +94,21 @@
         </div>
     </div>
 
+    <div class="desktop-tab" style="margin-top: 20px;">
+        <h2>Top Up</h2>
+        <form id="clientTopupForm" action="{{ url_for('topup_online') }}" method="POST">
+            <input id="clientTopupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required
+                   style="width:100%; box-sizing:border-box; padding:10px; background:#0e1422; border:1px solid #37415f; color:#fff; border-radius:4px; margin-bottom:10px;">
+            <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-bottom:10px;">
+                <button type="button" onclick="setClientTopup(100)">PHP 100</button>
+                <button type="button" onclick="setClientTopup(200)">PHP 200</button>
+                <button type="button" onclick="setClientTopup(500)">PHP 500</button>
+                <button type="button" onclick="setClientTopup(1000)">PHP 1000</button>
+            </div>
+            <button type="submit" class="btn" style="width:100%;">Submit Top Up Request</button>
+        </form>
+    </div>
+
     <div class="actions">
         <a class="btn" href="{{ url_for('client_bookings') }}">Manage Bookings</a>
     </div>
@@ -191,6 +206,13 @@
 
         // Load system updates
         loadSystemUpdates();
+
+        function setClientTopup(amount) {
+            var field = document.getElementById('clientTopupAmount');
+            if (field) {
+                field.value = amount;
+            }
+        }
 
         async function loadSystemUpdates() {
             try {

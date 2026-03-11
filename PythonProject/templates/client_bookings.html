@@ -62,6 +62,20 @@
         {% endif %}
     </div>
 
+    <div class="card" style="margin-bottom:16px;">
+        <h2 style="margin-top:0;">Top Up</h2>
+        <form id="clientTopupForm" action="{{ url_for('topup_online') }}" method="POST">
+            <input id="clientTopupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required>
+            <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin:8px 0;">
+                <button type="button" class="btn" onclick="setClientTopup(100)">PHP 100</button>
+                <button type="button" class="btn" onclick="setClientTopup(200)">PHP 200</button>
+                <button type="button" class="btn" onclick="setClientTopup(500)">PHP 500</button>
+                <button type="button" class="btn" onclick="setClientTopup(1000)">PHP 1000</button>
+            </div>
+            <button type="submit" class="btn" style="width:100%;">Submit Top Up Request</button>
+        </form>
+    </div>
+
     <div class="grid">
         <div class="card">
             <h2>Create Booking</h2>
@@ -145,6 +159,13 @@
                 return false;
             }
         });
+
+        function setClientTopup(amount) {
+            var field = document.getElementById('clientTopupAmount');
+            if (field) {
+                field.value = amount;
+            }
+        }
 
 
         // Termination dialog functionality

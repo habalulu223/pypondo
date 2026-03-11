@@ -1721,6 +1721,35 @@ def api_mobile_ai_chat():
     }), 200
 
 
+@app.route('/api/mobile/topup', methods=['POST'])
+def api_mobile_topup():
+    """Create top-up request from mobile client."""
+    data = request.get_json(silent=True) or {}
+
+    try:
+        user_id = int(data.get('user_id', 0))
+    except Exception:
+        return jsonify({"ok": False, "error": "Invalid user_id"}), 400
+
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"ok": False, "error": "User not found"}), 404
+
+    amount = parse_topup_amount(data.get('amount', 0))
+    if amount is None:
+        return jsonify({"ok": False, "error": "Invalid amount"}), 400
+
+    tx = create_online_payment_request(user, amount, source="mobile_api")
+    return jsonify({
+        "ok": True,
+        "message": "Payment request saved",
+        "transaction_id": tx.external_id,
+        "status": tx.status,
+        "amount": amount,
+        "username": user.username
+    }), 200
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
