@@ -7,6 +7,7 @@ import webbrowser
 import logging
 import re
 import subprocess
+import traceback
 from urllib import request as http_request
 from urllib import error as http_error
 from urllib import parse as http_parse
@@ -863,7 +864,7 @@ def launch_browser_control_window(url):
     root = tk.Tk()
     root.title(APP_TITLE)
 
-    # Only the standard client app is forced fullscreen and borderless.
+    # Client app uses kiosk/fullscreen behavior, admin uses fullscreen dashboard.
     if is_client_app_mode():
         root.overrideredirect(True)
         try:
@@ -873,8 +874,13 @@ def launch_browser_control_window(url):
             screen_h = root.winfo_screenheight()
             root.geometry(f"{screen_w}x{screen_h}+0+0")
     else:
-        root.geometry("520x220")
-        root.minsize(460, 200)
+        try:
+            root.state("zoomed")
+        except Exception:
+            screen_w = root.winfo_screenwidth()
+            screen_h = root.winfo_screenheight()
+            root.geometry(f"{screen_w}x{screen_h}+0+0")
+        root.minsize(980, 700)
 
     if kiosk_lock_enabled():
         root.protocol("WM_DELETE_WINDOW", lambda: None)
@@ -922,6 +928,26 @@ def launch_ui(url):
                         webview.windows[0].minimize()
                     except Exception:
                         pass
+
+                def set_fullscreen(self, enabled=True):
+                    target = str(enabled).strip().lower() in {"1", "true", "yes", "on"}
+                    try:
+                        window_ref = webview.windows[0]
+                        current = getattr(window_ref, "fullscreen", None)
+                        if hasattr(window_ref, "toggle_fullscreen"):
+                            if current is None:
+                                if target:
+                                    window_ref.toggle_fullscreen()
+                            elif bool(current) != target:
+                                window_ref.toggle_fullscreen()
+                        if not target:
+                            try:
+                                window_ref.restore()
+                            except Exception:
+                                pass
+                        return True
+                    except Exception:
+                        return False
                 
                 def terminate(self, secret_key):
                     # Secret key to terminate the client app
@@ -938,15 +964,21 @@ def launch_ui(url):
                             pass
                     return False
 
+            client_mode = is_client_mode()
+            admin_mode = not client_mode
+            initial_width = 1280
+            initial_height = 820
+            initial_min_size = (980, 700)
+
             window = webview.create_window(
                 APP_TITLE,
                 url=url,
-                width=1280,
-                height=820,
-                min_size=(980, 700),
-                resizable=not is_client_mode(),
-                frameless=is_client_app_mode(),
-                fullscreen=is_client_app_mode(),
+                width=initial_width,
+                height=initial_height,
+                min_size=initial_min_size,
+                resizable=True if admin_mode else (not kiosk_lock_enabled()),
+                frameless=False,
+                fullscreen=False,
                 easy_drag=False,
                 js_api=Api()
             )
@@ -1062,7 +1094,9 @@ def main():
     server_thread = threading.Thread(target=run_flask, args=(APP_HOST, chosen_port), daemon=True)
     server_thread.start()
 
-    base_url = f"http://{APP_HOST}:{chosen_port}"
+    bind_host = APP_HOST
+    launch_host = "127.0.0.1" if bind_host in {"0.0.0.0", "::"} else bind_host
+    base_url = f"http://{launch_host}:{chosen_port}"
     launch_url = f"{base_url}{get_start_path()}"
     if not wait_for_server(base_url):
         print(f"Failed to start local server at {base_url}")
@@ -1084,4 +1118,29 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        try:
+            runtime_dir = get_runtime_base_dir()
+            log_path = os.path.join(runtime_dir, "client_startup_error.log")
+            with open(log_path, "a", encoding="utf-8") as handle:
+                handle.write("\n" + "=" * 72 + "\n")
+                handle.write(time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
+                handle.write(str(exc) + "\n")
+                handle.write(traceback.format_exc() + "\n")
+        except Exception:
+            pass
+
+        if os.name == "nt":
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "PyPondo client failed to start. Check client_startup_error.log next to the app.",
+                    "PyPondo Startup Error",
+                    0x10,
+                )
+            except Exception:
+                pass
+        raise

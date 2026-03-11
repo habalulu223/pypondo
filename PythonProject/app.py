@@ -1,3 +1,22 @@
+import sys
+
+# Guard against broken launch environments that add .../site-packages/flask
+# directly to sys.path, which can shadow stdlib typing with flask/typing.py.
+for _path in list(sys.path):
+    normalized = (_path or "").replace("/", "\\").lower()
+    if normalized.endswith("\\site-packages\\flask"):
+        try:
+            sys.path.remove(_path)
+        except ValueError:
+            pass
+
+import typing as _typing
+if not hasattr(_typing, "TYPE_CHECKING"):
+    raise RuntimeError(
+        "Invalid Python import path: stdlib typing is shadowed. "
+        "Use the project venv interpreter and remove PYTHONPATH entries that point to flask."
+    )
+
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -12,6 +31,7 @@ import uuid
 from decimal import Decimal, InvalidOperation
 from urllib import request as http_request
 from urllib import error as http_error
+from urllib.parse import urlparse
 from sqlalchemy import text
 import socket
 import time
@@ -1259,6 +1279,105 @@ def get_latest_bundle_path(prefix):
     return max(candidates, key=lambda row: row[0])[1]
 
 
+def get_latest_file_from_dir(directory, allowed_extensions, prefixes=None):
+    if not os.path.isdir(directory):
+        return None
+
+    extensions = {ext.lower() for ext in allowed_extensions}
+    prefix_values = tuple(prefixes or [])
+    candidates = []
+
+    for file_name in os.listdir(directory):
+        file_name_lower = file_name.lower()
+        if not any(file_name_lower.endswith(ext) for ext in extensions):
+            continue
+        if prefix_values and not file_name.startswith(prefix_values):
+            continue
+
+        full_path = os.path.join(directory, file_name)
+        try:
+            mtime = os.path.getmtime(full_path)
+        except OSError:
+            continue
+        candidates.append((mtime, full_path))
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda row: row[0])[1]
+
+
+def resolve_download_artifact(kind):
+    dist_dir = os.path.join(basedir, "dist")
+    package_cache_dir = os.path.join(basedir, "package_cache")
+    mobile_bin_dir = os.path.join(basedir, "bin")
+
+    if kind in {"admin", "client", "windows"}:
+        # Prefer actual executable binaries over zip bundles.
+        windows_binary = get_latest_file_from_dir(
+            dist_dir,
+            allowed_extensions={".exe"},
+            prefixes=("PyPondo", "pypondo", "PyPondoAdmin", "PyPondoClient")
+        )
+        if windows_binary:
+            return windows_binary
+
+        role_prefixes = {
+            "admin": ("admin_bundle-", "all_in_one_bundle-"),
+            "client": ("client_bundle-", "all_in_one_bundle-")
+        }
+        if kind in role_prefixes:
+            role_zip = get_latest_file_from_dir(
+                package_cache_dir,
+                allowed_extensions={".zip"},
+                prefixes=role_prefixes[kind]
+            )
+            if role_zip:
+                return role_zip
+
+        dist_zip = get_latest_file_from_dir(
+            dist_dir,
+            allowed_extensions={".zip"},
+            prefixes=("PyPondo", "pypondo")
+        )
+        if dist_zip:
+            return dist_zip
+
+        return get_latest_file_from_dir(
+            package_cache_dir,
+            allowed_extensions={".zip"},
+            prefixes=("all_in_one_bundle-", "admin_bundle-", "client_bundle-")
+        )
+
+    if kind == "android":
+        # Android build output is usually in bin/*.apk.
+        apk = get_latest_file_from_dir(
+            mobile_bin_dir,
+            allowed_extensions={".apk"},
+            prefixes=("pypondo", "PyPondo")
+        )
+        if apk:
+            return apk
+
+        return get_latest_file_from_dir(
+            package_cache_dir,
+            allowed_extensions={".apk"},
+            prefixes=("pypondo", "PyPondo", "android")
+        )
+
+    return None
+
+
+def build_download_name(kind, artifact_path):
+    ext = os.path.splitext(artifact_path)[1].lower()
+    if kind == "admin":
+        return "PyPondo-Admin.exe" if ext == ".exe" else f"pypondo-admin{ext}"
+    if kind == "client":
+        return "PyPondo-Client.exe" if ext == ".exe" else f"pypondo-client{ext}"
+    if kind == "android":
+        return "PyPondo-Android.apk"
+    return os.path.basename(artifact_path)
+
+
 def is_kiosk_mode_enabled():
     return str(os.getenv("PYPONDO_KIOSK_MODE", "0")).strip().lower() in {"1", "true", "yes"}
 
@@ -1276,6 +1395,24 @@ def post_login_endpoint_for_user(user):
     if user_has_positive_balance(user):
         return "client_desktop"
     return "client_bookings"
+
+
+def resolve_safe_next_url():
+    next_url = (request.values.get("next") or "").strip()
+    if not next_url:
+        return None
+
+    parsed = urlparse(next_url)
+
+    # Allow local relative redirects only.
+    if parsed.scheme or parsed.netloc:
+        return None
+    if not next_url.startswith("/"):
+        return None
+    if next_url.startswith("//"):
+        return None
+
+    return next_url
 
 
 def get_ai_response(message, user_id=None):
@@ -1761,28 +1898,69 @@ def admin_download_app():
     if not current_user.is_admin:
         return redirect(url_for('index'))
 
-    candidates = []
-    all_in_one_zip = get_latest_bundle_path("all_in_one_bundle-")
-    if all_in_one_zip:
-        candidates.append((all_in_one_zip, "pypondo-app-bundle.zip"))
-
-    dist_zip = os.path.join(basedir, "dist", "PyPondo-windows.zip")
-    if os.path.exists(dist_zip):
-        candidates.append((dist_zip, "PyPondo-windows.zip"))
-
-    dist_exe = os.path.join(basedir, "dist", "PyPondo.exe")
-    if os.path.exists(dist_exe):
-        candidates.append((dist_exe, "PyPondo.exe"))
-
-    if candidates:
-        latest_path, latest_name = max(candidates, key=lambda row: os.path.getmtime(row[0]))
+    artifact_path = resolve_download_artifact("client")
+    if artifact_path:
         return send_file(
-            latest_path,
+            artifact_path,
             as_attachment=True,
-            download_name=latest_name
+            download_name=build_download_name("client", artifact_path)
         )
 
-    flash("No app bundle found. Build first using build_desktop_exe.bat.", "error")
+    flash("No downloadable app found. Build first using build_desktop_exe.bat.", "error")
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/download_admin_app')
+@login_required
+def admin_download_admin_app():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    artifact_path = resolve_download_artifact("admin")
+    if artifact_path:
+        return send_file(
+            artifact_path,
+            as_attachment=True,
+            download_name=build_download_name("admin", artifact_path)
+        )
+
+    flash("No admin app found. Build first using build_desktop_exe.bat.", "error")
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/download_client_app')
+@login_required
+def admin_download_client_app():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    artifact_path = resolve_download_artifact("client")
+    if artifact_path:
+        return send_file(
+            artifact_path,
+            as_attachment=True,
+            download_name=build_download_name("client", artifact_path)
+        )
+
+    flash("No client app found. Build first using build_desktop_exe.bat.", "error")
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/download_android_app')
+@login_required
+def admin_download_android_app():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    artifact_path = resolve_download_artifact("android")
+    if artifact_path:
+        return send_file(
+            artifact_path,
+            as_attachment=True,
+            download_name=build_download_name("android", artifact_path)
+        )
+
+    flash("No Android APK found. Build first using build_android.bat.", "error")
     return redirect(url_for('index'))
 
 

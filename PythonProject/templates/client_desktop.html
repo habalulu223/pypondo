@@ -135,14 +135,6 @@
             }
         });
 
-        // Minimize the window after login
-        window.addEventListener('load', function() {
-            setTimeout(function() {
-                if (window.pywebview && window.pywebview.api && window.pywebview.api.minimize) {
-                    window.pywebview.api.minimize();
-                }
-            }, 1000); // Wait 1 second for the page to fully load
-        });
 
         // Termination dialog functionality
         let terminateDialog = document.getElementById('terminate-dialog');
