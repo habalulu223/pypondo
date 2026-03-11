@@ -464,7 +464,7 @@ def probe_server_base_url(base_url):
     for path in ("/login", "/api/agent/register-lan"):
         target = root + path
         try:
-            with http_request.urlopen(target, timeout=1.5):
+            with http_request.urlopen(target, timeout=3):
                 return True
         except http_error.HTTPError as exc:
             if 200 <= exc.code < 500:
@@ -1005,6 +1005,7 @@ def main():
     if is_client_mode() and not env_flag("PYPONDO_FORCE_LOCAL_SERVER", default=False):
         if is_verbose_logging_enabled():
             print("[INFO] Client mode: searching for remote admin server...")
+        had_manual_host = bool(get_manual_host_candidates())
         remote_base_url = discover_remote_server_base_url()
         if not remote_base_url:
             manual_host = prompt_manual_admin_host(headless_mode=headless_mode)
@@ -1012,6 +1013,7 @@ def main():
                 os.environ["PYPONDO_SERVER_HOST"] = manual_host
                 os.environ["PYPONDO_ADMIN_IP"] = manual_host
                 save_manual_admin_host(manual_host)
+                had_manual_host = True
                 remote_base_url = discover_remote_server_base_url()
         if remote_base_url:
             launch_url = f"{remote_base_url}{get_start_path()}"
@@ -1032,6 +1034,26 @@ def main():
                     return 1
             return 0
 
+        if had_manual_host:
+            # User provided an explicit admin host/IP but it is unreachable.
+            error_msg = (
+                "Unable to connect to the configured admin server.\n\n"
+                "Check the admin IP/hostname in server_host.txt and ensure the admin app is running on port 5000.\n"
+                "Also allow Python/app through Windows Firewall on the admin PC."
+            )
+            print(error_msg)
+            if not headless_mode:
+                try:
+                    import tkinter as tk
+                    from tkinter import messagebox
+                    root = tk.Tk()
+                    root.withdraw()
+                    messagebox.showerror("PyPondo Client Connection Error", error_msg)
+                    root.destroy()
+                except Exception:
+                    pass
+            return 1
+
         # Could not find remote server - ALWAYS allow local fallback for App Independence
         if is_verbose_logging_enabled():
             print("[WARNING] Could not locate admin server, starting local server")
@@ -1046,7 +1068,8 @@ def main():
     server_thread = threading.Thread(target=run_flask, args=(APP_HOST, chosen_port), daemon=True)
     server_thread.start()
 
-    base_url = f"http://{APP_HOST}:{chosen_port}"
+    launch_host = "127.0.0.1" if APP_HOST in {"0.0.0.0", "::"} else APP_HOST
+    base_url = f"http://{launch_host}:{chosen_port}"
     launch_url = f"{base_url}{get_start_path()}"
     if not wait_for_server(base_url):
         print(f"Failed to start local server at {base_url}")
