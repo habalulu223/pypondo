@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client Desktop</title>
+    <link rel='icon' type='image/x-icon' href='/favicon.ico'>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #0b0c15; --card: #151922; --line: #00f3ff; --ok: #00ff9d; --warn: #ff0055; --text: #e0e6ed; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; padding: 16px; }
+        .top { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--line); padding-bottom: 10px; margin-bottom: 18px; }
+        .top h1 { margin: 0; font-family: 'Orbitron', sans-serif; font-size: 1.3rem; color: var(--line); letter-spacing: 1px; }
+        .btn { display: inline-block; text-decoration: none; border: 1px solid var(--line); color: var(--line); padding: 8px 12px; border-radius: 4px; font-size: 0.85rem; }
+        .btn:hover { background: var(--line); color: #000; }
+        .warn { border-color: var(--warn); color: var(--warn); }
+        .warn:hover { background: var(--warn); color: #fff; }
+        .flash { margin-bottom: 12px; padding: 10px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(0, 255, 157, 0.08); color: var(--ok); font-weight: 700; }
+        .status { margin-bottom: 14px; padding: 14px; border: 1px solid #2d3650; border-radius: 8px; background: #101725; }
+        .status strong { color: var(--ok); }
+        .desktop-tab {
+            width: min(900px, 92vw);
+            height: 420px;
+            min-width: 320px;
+            min-height: 240px;
+            resize: both;
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: linear-gradient(180deg, #121a2a, #0d121d);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.15);
+            padding: 16px;
+        }
+        .desktop-tab h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); }
+        .desktop-tab p { margin: 0 0 10px; color: #c2d0de; }
+        .actions { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+    </style>
+</head>
+<body>
+    <div class="top">
+        <h1>Client Desktop // Unlocked</h1>
+        <div>
+            <a class="btn" href="{{ url_for('client_bookings') }}">Bookings</a>
+            <a class="btn warn" href="{{ url_for('logout') }}">Logout</a>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            {% for msg in messages %}
+                <div class="flash">{{ msg }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="status">
+        Logged in as <strong>{{ current_user.username }}</strong> |
+        Balance: <strong>PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
+        {% if active_session %}
+            | Active session started: <strong>{{ active_session.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</strong>
+        {% endif %}
+    </div>
+
+    <div class="desktop-tab">
+        <h2>Desktop Access Panel</h2>
+        <p>Desktop is unlocked because your balance is greater than zero.</p>
+        <p>Resize this tab from the lower-right corner based on client preference.</p>
+        <p>Keep this app open while the client is using the station.</p>
+        {% if kiosk_mode %}
+            <p style="color:#ffb36b;">Kiosk lock is enabled. Window close controls are disabled.</p>
+        {% endif %}
+    </div>
+
+    <div class="actions">
+        <a class="btn" href="{{ url_for('client_bookings') }}">Manage Bookings</a>
+    </div>
+
+    <!-- Hidden termination dialog -->
+    <div id="terminate-dialog" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
+        <div style="background: var(--card); padding: 20px; border-radius: 8px; border: 2px solid var(--warn); max-width: 400px; width: 90%;">
+            <h3 style="color: var(--warn); margin-top: 0;">Terminate Client App</h3>
+            <p style="margin-bottom: 15px; color: var(--text);">Enter the secret key to terminate the application:</p>
+            <input type="password" id="secret-key" style="width: 100%; padding: 10px; margin-bottom: 15px; background: #0e1422; border: 1px solid #37415f; color: #fff; border-radius: 4px;" placeholder="Enter secret key">
+            <div style="display: flex; gap: 10px;">
+                <button id="terminate-btn" style="flex: 1; background: var(--warn); color: #fff; border: none; padding: 10px; border-radius: 4px; cursor: pointer;">Terminate</button>
+                <button id="cancel-btn" style="flex: 1; background: transparent; color: var(--text); border: 1px solid #37415f; padding: 10px; border-radius: 4px; cursor: pointer;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Block Windows shortcuts and dangerous key combinations
+        document.addEventListener('keydown', function(event) {
+            // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows/meta key, Alt+F4, Ctrl+W
+            if (
+                (event.altKey && event.key === 'Tab') ||
+                (event.altKey && event.key === 'Escape') ||
+                (event.ctrlKey && event.altKey && event.key === 'Delete') ||
+                event.key === 'Meta' ||
+                event.key === 'Win' ||
+                event.key === 'OS' ||
+                event.keyCode === 91 || event.keyCode === 92 ||
+                (event.code && event.code.toLowerCase().includes('meta')) ||
+                (event.altKey && event.key === 'F4') ||
+                (event.ctrlKey && event.key === 'w') ||
+                (event.ctrlKey && event.key === 'W') ||
+                (event.ctrlKey && event.key === 'Escape') ||
+                (event.ctrlKey && event.altKey && event.key === 'Escape')
+            ) {
+                event.preventDefault();
+                return false;
+            }
+        });
+
+        // Minimize the window after login
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                if (window.pywebview && window.pywebview.api && window.pywebview.api.minimize) {
+                    window.pywebview.api.minimize();
+                }
+            }, 1000); // Wait 1 second for the page to fully load
+        });
+
+        // Termination dialog functionality
+        let terminateDialog = document.getElementById('terminate-dialog');
+        let secretKeyInput = document.getElementById('secret-key');
+        let terminateBtn = document.getElementById('terminate-btn');
+        let cancelBtn = document.getElementById('cancel-btn');
+
+        // Listen for Ctrl+Shift+T to show termination dialog
+        document.addEventListener('keydown', function(event) {
+            if (event.ctrlKey && event.shiftKey && event.key === 'T') {
+                event.preventDefault();
+                terminateDialog.style.display = 'flex';
+                secretKeyInput.focus();
+            }
+        });
+
+        // Handle terminate button click
+        terminateBtn.addEventListener('click', function() {
+            let secretKey = secretKeyInput.value.trim();
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.terminate) {
+                let result = window.pywebview.api.terminate(secretKey);
+                if (result) {
+                    terminateDialog.style.display = 'none';
+                    alert('Application will terminate.');
+                } else {
+                    alert('Invalid secret key!');
+                    secretKeyInput.value = '';
+                    secretKeyInput.focus();
+                }
+            }
+        });
+
+        // Handle cancel button click
+        cancelBtn.addEventListener('click', function() {
+            terminateDialog.style.display = 'none';
+            secretKeyInput.value = '';
+        });
+
+        // Handle Enter key in input
+        secretKeyInput.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                terminateBtn.click();
+            } else if (event.key === 'Escape') {
+                cancelBtn.click();
+            }
+        });
+
+        // Close dialog when clicking outside
+        terminateDialog.addEventListener('click', function(event) {
+            if (event.target === terminateDialog) {
+                cancelBtn.click();
+            }
+        });
+    </script>
+</body>
+</html>
