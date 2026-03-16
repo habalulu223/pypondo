@@ -122,6 +122,11 @@
     </div>
 
     <script>
+        // Disable kiosk lock when on login page (user not logged in)
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.disable_kiosk_lock) {
+            window.pywebview.api.disable_kiosk_lock();
+        }
+
         // Block Windows shortcuts and dangerous key combinations when not logged in
         document.addEventListener('keydown', function(event) {
             // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows/meta key, Alt+F4, Ctrl+W

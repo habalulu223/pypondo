@@ -892,12 +892,9 @@ def launch_ui(url):
     try:
         import webview  # type: ignore
 
-        # install hook again just before creating the pywebview window.  the
-        # hook is already activated at startup when kiosk lock is enabled, but
-        # calling a second time is harmless and ensures it's in place if main()
-        # was bypassed.  this prevents the Start menu from appearing and blocks
-        # other combinations too (alt+tab/alt+esc/alt+f4, ctrl+alt+delete, etc.).
-        install_windows_key_blocker()
+        # Note: Keyboard hook is no longer installed automatically here
+        # It will be controlled via API calls from the web interface based on login state
+        # install_windows_key_blocker()
 
         try:
             class Api:
@@ -906,6 +903,28 @@ def launch_ui(url):
                         webview.windows[0].minimize()
                     except Exception:
                         pass
+                
+                def enable_kiosk_lock(self):
+                    """Enable keyboard blocking (Alt+Tab, etc.) for logged-in users"""
+                    if kiosk_lock_enabled():
+                        try:
+                            install_windows_key_blocker()
+                            return True
+                        except Exception as e:
+                            if is_verbose_logging_enabled():
+                                print(f"[WARN] Failed to enable kiosk lock: {e}")
+                            return False
+                    return False
+                
+                def disable_kiosk_lock(self):
+                    """Disable keyboard blocking for login screen"""
+                    try:
+                        uninstall_windows_key_blocker()
+                        return True
+                    except Exception as e:
+                        if is_verbose_logging_enabled():
+                            print(f"[WARN] Failed to disable kiosk lock: {e}")
+                        return False
                 
                 def terminate(self, secret_key):
                     # Secret key to terminate the client app
@@ -968,12 +987,8 @@ def launch_ui(url):
 def main():
     headless_mode = str(os.getenv("PYPONDO_HEADLESS", "")).strip().lower() in {"1", "true", "yes"}
 
-    # if kiosk lock is enabled we block keys immediately regardless of UI method
-    if kiosk_lock_enabled():
-        try:
-            install_windows_key_blocker()
-        except Exception:
-            pass
+    # Note: Keyboard hook is no longer installed automatically at startup
+    # It will be controlled via API calls from the web interface based on login state
 
     # Special handling for kiosk mode: launch client app
     if APP_MODE == "kiosk":

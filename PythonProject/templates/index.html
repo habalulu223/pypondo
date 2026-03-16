@@ -328,6 +328,11 @@
     </div>
 
     <script>
+        // Enable kiosk lock when admin is logged in
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.enable_kiosk_lock) {
+            window.pywebview.api.enable_kiosk_lock();
+        }
+
         function setTopup(amount) {
             var field = document.getElementById('topupAmount');
             if (field) field.value = amount;
