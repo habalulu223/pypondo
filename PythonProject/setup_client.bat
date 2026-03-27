@@ -1,4 +1,4 @@
-@echo off
+2@echo off
 REM PyPondo Client Standalone Setup
 REM This script prepares a minimal client installation
 

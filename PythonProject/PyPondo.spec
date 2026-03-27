@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('templates', 'templates'), ('server_host.txt', '.')]
 binaries = []
-hiddenimports = ['lan_agent']
+hiddenimports = ['lan_agent', 'keyboard']
 tmp_ret = collect_all('webview')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 

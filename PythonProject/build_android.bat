@@ -38,7 +38,7 @@ if errorlevel 2 (
     echo   wsl --install -d Ubuntu
     echo.
     echo After reboot, run this inside Ubuntu from your project folder:
-    echo   sudo apt update ^&^& sudo apt install -y python3-venv python3-pip openjdk-17-jdk git zip unzip
+    echo   sudo apt update ^&^& sudo apt install -y python3 python3-venv python3-pip openjdk-17-jdk git zip unzip
     echo   python3 -m venv .venv-android
     echo   source .venv-android/bin/activate
     echo   pip install --upgrade pip
@@ -53,6 +53,7 @@ if errorlevel 2 (
   echo.
   echo WSL is available. Run the build in your Ubuntu distro:
   echo   cd /mnt/c/Users/USER4/PycharmProjects/pypondo/PythonProject
+  echo   sudo apt update ^&^& sudo apt install -y python3 python3-venv python3-pip openjdk-17-jdk git zip unzip
   echo   python3 -m venv .venv-android
   echo   source .venv-android/bin/activate
   echo   pip install --upgrade pip

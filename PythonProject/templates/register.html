@@ -93,9 +93,9 @@
     </div>
 
     <script>
-        // Disable kiosk lock when on register page (user not logged in)
-        if (window.pywebview && window.pywebview.api && window.pywebview.api.disable_kiosk_lock) {
-            window.pywebview.api.disable_kiosk_lock();
+        // Keep kiosk lock enabled on register page until a user/admin is authenticated.
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.enable_kiosk_lock) {
+            window.pywebview.api.enable_kiosk_lock();
         }
 
         // Block Windows shortcuts and dangerous key combinations when not logged in

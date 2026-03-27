@@ -27,6 +27,11 @@
         th { color: #9fbad6; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.6px; }
         .balance-low { color: var(--warn); font-weight: 700; }
         .balance-ok { color: var(--ok); font-weight: 700; }
+        .quick-amounts { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+        .quick-amounts button { flex: 1 1 90px; border: 1px solid #37415f; background: #0e1422; color: var(--text); padding: 9px 10px; border-radius: 4px; cursor: pointer; }
+        .quick-amounts button:hover { border-color: var(--line); color: var(--line); }
+        .subtle { color: #8ea4bb; font-size: 0.82rem; line-height: 1.45; }
+        .history-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid #29324a; font-size: 0.84rem; }
         @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -37,6 +42,7 @@
             {% if current_user.pondo > 0 %}
             <a class="btn ok" href="{{ url_for('client_desktop') }}">Go To Desktop</a>
             {% endif %}
+            <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App</button>
             {% if not kiosk_mode %}
             <a class="btn warn" href="{{ url_for('logout') }}">Logout</a>
             {% endif %}
@@ -63,6 +69,43 @@
     </div>
 
     <div class="grid">
+        <div class="card">
+            <h2>Wallet &amp; Top Up</h2>
+            <p>
+                Balance:
+                <span class="{{ 'balance-ok' if current_user.pondo > 0 else 'balance-low' }}">
+                    PHP {{ "%.2f"|format(current_user.pondo) }}
+                </span>
+            </p>
+            <form action="{{ url_for('topup_online') }}" method="POST">
+                <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required>
+                <div class="quick-amounts">
+                    <button type="button" onclick="setTopup(100)">PHP 100</button>
+                    <button type="button" onclick="setTopup(200)">PHP 200</button>
+                    <button type="button" onclick="setTopup(500)">PHP 500</button>
+                    <button type="button" onclick="setTopup(1000)">PHP 1000</button>
+                </div>
+                <button type="submit" class="btn" style="width:100%; margin-top:10px;">Save Payment Request</button>
+            </form>
+            <p class="subtle">This submits a top-up request for admin confirmation. Your balance updates after the payment is confirmed.</p>
+
+            <div style="margin-top: 16px;">
+                <h2 style="margin-bottom: 8px;">Recent Top-Ups</h2>
+                {% if recent_payments %}
+                    {% for tx in recent_payments %}
+                        <div class="history-row">
+                            <span style="color:#9fbad6;">{{ tx.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                            <span style="color: {{ 'var(--ok)' if tx.status == 'paid' else '#d3a961' }};">
+                                {{ tx.status|upper }} PHP {{ "%.2f"|format(tx.amount) }}
+                            </span>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="subtle">No top-up transactions yet.</div>
+                {% endif %}
+            </div>
+        </div>
+
         <div class="card">
             <h2>Create Booking</h2>
             <form action="{{ url_for('book_pc') }}" method="POST">
@@ -128,6 +171,21 @@
             window.pywebview.api.enable_kiosk_lock();
         }
 
+        function minimizeClientApp() {
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.minimize) {
+                window.pywebview.api.minimize();
+                return;
+            }
+            window.blur();
+        }
+
+        function setTopup(amount) {
+            var field = document.getElementById('topupAmount');
+            if (field) {
+                field.value = amount;
+            }
+        }
+
         // Block Windows shortcuts and dangerous key combinations
         document.addEventListener('keydown', function(event) {
             // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows/meta key, Alt+F4, Ctrl+W
@@ -149,15 +207,6 @@
                 event.preventDefault();
                 return false;
             }
-        });
-
-        // Minimize the window after login
-        window.addEventListener('load', function() {
-            setTimeout(function() {
-                if (window.pywebview && window.pywebview.api && window.pywebview.api.minimize) {
-                    window.pywebview.api.minimize();
-                }
-            }, 1000); // Wait 1 second for the page to fully load
         });
 
         // Termination dialog functionality

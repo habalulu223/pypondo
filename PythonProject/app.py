@@ -3,12 +3,14 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+import io
 import json
 import os
 import re
 import ipaddress
 import subprocess
 import uuid
+import zipfile
 from decimal import Decimal, InvalidOperation
 from urllib import request as http_request
 from urllib import error as http_error
@@ -1195,6 +1197,30 @@ def create_online_payment_request(user, amount, source="web"):
     return tx
 
 
+def get_recent_payment_requests(user_id, limit=5):
+    try:
+        max_rows = max(1, int(limit))
+    except Exception:
+        max_rows = 5
+    return PaymentTransaction.query.filter_by(user_id=user_id).order_by(PaymentTransaction.created_at.desc()).limit(max_rows).all()
+
+
+def redirect_for_current_user_page():
+    referrer = (request.referrer or "").strip().lower()
+
+    if current_user.is_admin:
+        return redirect(url_for('index'))
+
+    if "/client/bookings" in referrer:
+        return redirect(url_for('client_bookings'))
+    if "/client/desktop" in referrer:
+        return redirect(url_for('client_desktop'))
+
+    if user_has_positive_balance(current_user):
+        return redirect(url_for('client_desktop'))
+    return redirect(url_for('client_bookings'))
+
+
 def get_latest_bundle_path(prefix):
     cache_dir = os.path.join(basedir, "package_cache")
     if not os.path.isdir(cache_dir):
@@ -1214,6 +1240,34 @@ def get_latest_bundle_path(prefix):
     if not candidates:
         return None
     return max(candidates, key=lambda row: row[0])[1]
+
+
+def get_desktop_download_artifact():
+    dist_exe = os.path.join(basedir, "dist", "PyPondo.exe")
+    if os.path.exists(dist_exe):
+        return dist_exe, "PyPondo.exe"
+
+    dist_zip = os.path.join(basedir, "dist", "PyPondo-windows.zip")
+    if os.path.exists(dist_zip):
+        return dist_zip, "PyPondo-windows.zip"
+
+    all_in_one_zip = get_latest_bundle_path("all_in_one_bundle-")
+    if all_in_one_zip:
+        return all_in_one_zip, "pypondo-app-bundle.zip"
+
+    return None
+
+
+def build_combined_download_bundle(desktop_artifact, apk_path):
+    desktop_path, desktop_name = desktop_artifact
+    bundle_stream = io.BytesIO()
+
+    with zipfile.ZipFile(bundle_stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.write(desktop_path, arcname=desktop_name)
+        archive.write(apk_path, arcname="PyPondo-Android.apk")
+
+    bundle_stream.seek(0)
+    return bundle_stream
 
 
 def get_latest_apk_path():
@@ -1371,9 +1425,11 @@ def client_desktop():
         return redirect(url_for('client_bookings'))
 
     active_session = Session.query.filter_by(user_id=current_user.id, end_time=None).order_by(Session.start_time.desc()).first()
+    recent_payments = get_recent_payment_requests(current_user.id)
     return render_template(
         'client_desktop.html',
         active_session=active_session,
+        recent_payments=recent_payments,
         kiosk_mode=is_kiosk_mode_enabled()
     )
 
@@ -1386,10 +1442,12 @@ def client_bookings():
 
     pcs = PC.query.order_by(PC.id.asc()).all()
     my_bookings = Booking.query.filter_by(user_id=current_user.id).order_by(Booking.id.desc()).all()
+    recent_payments = get_recent_payment_requests(current_user.id)
     return render_template(
         'client_bookings.html',
         pcs=pcs,
         bookings=my_bookings,
+        recent_payments=recent_payments,
         today_date=datetime.now().strftime("%Y-%m-%d"),
         kiosk_mode=is_kiosk_mode_enabled()
     )
@@ -1420,7 +1478,7 @@ def index():
     pcs = PC.query.all()
     users = User.query.all() if current_user.is_admin else [current_user]
     active_sessions = Session.query.filter_by(end_time=None).all()
-    recent_payments = PaymentTransaction.query.filter_by(user_id=current_user.id).order_by(PaymentTransaction.created_at.desc()).limit(5).all()
+    recent_payments = get_recent_payment_requests(current_user.id)
     local_ips = get_local_lan_addresses() if current_user.is_admin else []
     lan_summary = build_primary_ipv4_network_summary() if current_user.is_admin else None
     gateway_scan = get_gateway_client_scan(non_blocking=True) if current_user.is_admin else None
@@ -1493,25 +1551,18 @@ def admin_download_app():
     if not current_user.is_admin:
         return redirect(url_for('index'))
 
-    dist_exe = os.path.join(basedir, "dist", "PyPondo.exe")
-    if os.path.exists(dist_exe):
-        return send_file(
-            dist_exe,
-            as_attachment=True,
-            download_name="PyPondo.exe"
-        )
+    desktop_artifact = get_desktop_download_artifact()
+    if desktop_artifact:
+        apk_path = get_latest_apk_path()
+        if apk_path:
+            return send_file(
+                build_combined_download_bundle(desktop_artifact, apk_path),
+                as_attachment=True,
+                download_name="PyPondo-desktop-and-phone.zip",
+                mimetype="application/zip"
+            )
 
-    candidates = []
-    all_in_one_zip = get_latest_bundle_path("all_in_one_bundle-")
-    if all_in_one_zip:
-        candidates.append((all_in_one_zip, "pypondo-app-bundle.zip"))
-
-    dist_zip = os.path.join(basedir, "dist", "PyPondo-windows.zip")
-    if os.path.exists(dist_zip):
-        candidates.append((dist_zip, "PyPondo-windows.zip"))
-
-    if candidates:
-        latest_path, latest_name = max(candidates, key=lambda row: os.path.getmtime(row[0]))
+        latest_path, latest_name = desktop_artifact
         return send_file(
             latest_path,
             as_attachment=True,
@@ -1760,11 +1811,11 @@ def topup():
     amount = parse_topup_amount(amount_raw)
     if amount is None:
         flash('Invalid amount.', 'error')
-        return redirect(url_for('index'))
+        return redirect_for_current_user_page()
 
     tx = create_online_payment_request(current_user, amount, source="web")
     flash(f'Payment request saved: {tx.external_id}. Waiting for confirmation.', 'success')
-    return redirect(url_for('index'))
+    return redirect_for_current_user_page()
 
 
 @app.route('/topup/online', methods=['POST'])
@@ -1773,11 +1824,11 @@ def topup_online():
     amount = parse_topup_amount(request.form.get('amount', '').strip())
     if amount is None:
         flash('Invalid top-up amount.', 'error')
-        return redirect(url_for('index'))
+        return redirect_for_current_user_page()
 
     tx = create_online_payment_request(current_user, amount, source="web_online")
     flash(f'Payment request saved: {tx.external_id}. Waiting for confirmation.', 'success')
-    return redirect(url_for('index'))
+    return redirect_for_current_user_page()
 
 
 @app.route('/payment/success')

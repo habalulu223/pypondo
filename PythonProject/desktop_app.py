@@ -25,8 +25,12 @@ if os.name == 'nt':
     from ctypes import wintypes
 
     _win_hook_id = None
-    # handle returned when we use the optional "keyboard" package
-    _keyboard_hook_handle = None
+    # handles returned when we use the optional "keyboard" package
+    _keyboard_module = None
+    _keyboard_blocked_keys = []
+    _keyboard_hook_handles = []
+    _keyboard_hotkey_handles = []
+    _keyboard_proc_ref = None
 
     class _KBDLLHOOKSTRUCT(ctypes.Structure):
         # dwExtraInfo may be defined as ULONG_PTR; some Python versions do not
@@ -47,6 +51,7 @@ if os.name == 'nt':
             kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
             vk = kb.vkCode
             alt_down = bool(kb.flags & 0x20)  # LLKHF_ALTDOWN
+            ctrl_down = bool(ctypes.windll.user32.GetAsyncKeyState(0x11) & 0x8000)  # VK_CONTROL
             # VK_LWIN (0x5B) and VK_RWIN (0x5C) are the left/right Windows keys
             if vk in (0x5B, 0x5C):
                 if is_verbose_logging_enabled():
@@ -57,8 +62,12 @@ if os.name == 'nt':
                 if is_verbose_logging_enabled():
                     print(f"[HOOK] blocking alt+vk={vk}")
                 return 1
+            if ctrl_down and vk == 0x1B:  # Ctrl+Esc
+                if is_verbose_logging_enabled():
+                    print(f"[HOOK] blocking ctrl+vk={vk}")
+                return 1
             # ctrl+alt combinations
-            if alt_down and ctypes.windll.user32.GetAsyncKeyState(0x11) & 0x8000:
+            if alt_down and ctrl_down:
                 if vk in (0x2E, 0x57):  # Delete, W
                     if is_verbose_logging_enabled():
                         print(f"[HOOK] blocking ctrl+alt+vk={vk}")
@@ -76,68 +85,131 @@ if os.name == 'nt':
     def install_windows_key_blocker():
         """Set up suppression of sensitive key combinations.
 
-        When possible we use the ``keyboard`` package to install a global hook
-        with a small filtering callback.  If that package is missing or fails we
-        fall back to the older ctypes-based low-level hook.  The function is
-        safe to call multiple times; only one hook will be active.
+        When possible we use the ``keyboard`` package and call ``block_key()``
+        so Win/Alt-based escapes are suppressed globally. We also install a raw
+        Win32 low-level hook as a fallback/safety net for environments where the
+        keyboard package cannot suppress system combos reliably. The function is
+        safe to call multiple times; only one raw hook will be active.
         """
         if os.name != 'nt':
             return
-        global _win_hook_id, _keyboard_hook_handle
+        global _win_hook_id
+        global _keyboard_module, _keyboard_blocked_keys
+        global _keyboard_hook_handles, _keyboard_hotkey_handles
+        global _keyboard_proc_ref
 
-        # attempt high-level library first
-        try:
-            import keyboard as _kb
-            if is_verbose_logging_enabled():
-                print("[INFO] installing keyboard library hook")
-
-            def _filter_event(e):
-                # only consider key-down events; up events are harmless
-                if e.event_type != 'down':
-                    return True
-                name = e.name
-                # suppress any Windows/meta key press
-                if name in ('left windows', 'right windows', 'windows'):
-                    return False
-                # commonly abused combos while Alt is held
-                if e.alt and name in ('tab', 'esc', 'f4'):
-                    return False
-                # Ctrl+Alt+Delete
-                if e.alt and e.ctrl and name == 'delete':
-                    return False
-                return True
-
-            _keyboard_hook_handle = _kb.hook(_filter_event)
+        # avoid duplicate registration
+        if _win_hook_id is not None:
             return
-        except Exception as exc:
-            if is_verbose_logging_enabled():
-                print("[WARN] keyboard library hook failed:", exc)
-            # fall back to manual hook
+
+        has_keyboard_suppression = bool(_keyboard_hook_handles or _keyboard_hotkey_handles or _keyboard_blocked_keys)
+        if not has_keyboard_suppression:
+            # attempt high-level library first
+            try:
+                import keyboard as _kb
+                _keyboard_module = _kb
+                if is_verbose_logging_enabled():
+                    print("[INFO] installing keyboard.block_key suppression")
+
+                blocked_keys = (
+                    'left windows',
+                    'right windows',
+                    'windows',
+                    'alt',
+                )
+                hotkeys = (
+                    'alt+tab',
+                    'alt+esc',
+                    'alt+f4',
+                    'ctrl+alt+delete',
+                    'ctrl+w',
+                    'ctrl+esc',
+                    'ctrl+alt+esc',
+                )
+
+                installed_any = False
+                for key_name in blocked_keys:
+                    try:
+                        hook_handle = _kb.block_key(key_name)
+                        _keyboard_blocked_keys.append(key_name)
+                        if hook_handle is not None:
+                            _keyboard_hook_handles.append(hook_handle)
+                        installed_any = True
+                    except Exception as key_exc:
+                        if is_verbose_logging_enabled():
+                            print(f"[WARN] block_key('{key_name}') failed: {key_exc}")
+
+                for hotkey in hotkeys:
+                    try:
+                        hotkey_handle = _kb.add_hotkey(hotkey, lambda: None, suppress=True, trigger_on_release=False)
+                        _keyboard_hotkey_handles.append(hotkey_handle)
+                        installed_any = True
+                    except Exception as hotkey_exc:
+                        if is_verbose_logging_enabled():
+                            print(f"[WARN] add_hotkey('{hotkey}') failed: {hotkey_exc}")
+                if is_verbose_logging_enabled() and installed_any:
+                    print("[INFO] keyboard package suppression installed")
+            except Exception as exc:
+                if is_verbose_logging_enabled():
+                    print("[WARN] keyboard library hook failed:", exc)
+                # fall back to manual hook
 
         if _win_hook_id is not None:
             return
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
         WH_KEYBOARD_LL = 13
-        proc = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)(_keyboard_proc)
-        _win_hook_id = user32.SetWindowsHookExA(WH_KEYBOARD_LL, proc, kernel32.GetModuleHandleW(None), 0)
+        hook_proc_type = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+        _keyboard_proc_ref = hook_proc_type(_keyboard_proc)
+        _win_hook_id = user32.SetWindowsHookExW(WH_KEYBOARD_LL, _keyboard_proc_ref, kernel32.GetModuleHandleW(None), 0)
+        if not _win_hook_id:
+            if is_verbose_logging_enabled():
+                print(f"[WARN] SetWindowsHookExW failed with error: {ctypes.GetLastError()}")
+            return
         thread = threading.Thread(target=_run_hook_loop, daemon=True)
         thread.start()
 
     def uninstall_windows_key_blocker():
         """Remove any active suppression hook."""
-        global _win_hook_id, _keyboard_hook_handle
-        # first remove keyboard library hook if present
-        if _keyboard_hook_handle:
+        global _win_hook_id
+        global _keyboard_module, _keyboard_blocked_keys
+        global _keyboard_hook_handles, _keyboard_hotkey_handles
+        global _keyboard_proc_ref
+
+        # first remove keyboard library hooks/hotkeys if present
+        if _keyboard_module:
             try:
-                _keyboard_hook_handle()
+                for hotkey_handle in _keyboard_hotkey_handles:
+                    try:
+                        _keyboard_module.remove_hotkey(hotkey_handle)
+                    except Exception:
+                        pass
+                _keyboard_hotkey_handles = []
+
+                if hasattr(_keyboard_module, "unblock_key"):
+                    for key_name in _keyboard_blocked_keys:
+                        try:
+                            _keyboard_module.unblock_key(key_name)
+                        except Exception:
+                            pass
+                else:
+                    for hook_handle in _keyboard_hook_handles:
+                        try:
+                            _keyboard_module.unhook(hook_handle)
+                        except Exception:
+                            pass
             except Exception:
                 pass
-            _keyboard_hook_handle = None
+
+            _keyboard_blocked_keys = []
+            _keyboard_hook_handles = []
+            _keyboard_module = None
+
         # then remove raw win32 hook
         if _win_hook_id:
             ctypes.windll.user32.UnhookWindowsHookEx(_win_hook_id)
             _win_hook_id = None
+        _keyboard_proc_ref = None
 
 else:
     def install_windows_key_blocker():
@@ -257,20 +329,25 @@ def looks_like_ip_literal(host_value):
 
 
 def read_host_candidates_from_file():
-    file_path = os.path.join(get_runtime_base_dir(), SERVER_HOST_FILE)
-    if not os.path.exists(file_path):
-        return []
-
     values = []
-    try:
-        with open(file_path, "r", encoding="utf-8") as handle:
-            for raw_line in handle:
-                line = raw_line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                values.extend(split_host_candidates(line))
-    except Exception:
-        return []
+    seen_paths = set()
+
+    for file_path in get_server_host_candidate_paths():
+        normalized_path = os.path.normcase(os.path.abspath(file_path))
+        if normalized_path in seen_paths or not os.path.exists(file_path):
+            continue
+        seen_paths.add(normalized_path)
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    values.extend(split_host_candidates(line))
+        except Exception:
+            continue
+
     return values
 
 
@@ -666,12 +743,24 @@ def is_frozen_bundle():
 
 def get_runtime_base_dir():
     if is_frozen_bundle():
-        # For PyInstaller bundles, check if we're in a temp extraction directory
-        if hasattr(sys, '_MEIPASS'):
-            return sys._MEIPASS
-        # Otherwise, use the exe directory
         return os.path.abspath(os.path.dirname(sys.executable))
     return os.path.abspath(os.path.dirname(__file__))
+
+
+def get_runtime_resource_dir():
+    if is_frozen_bundle() and hasattr(sys, "_MEIPASS"):
+        return sys._MEIPASS
+    return os.path.abspath(os.path.dirname(__file__))
+
+
+def get_server_host_candidate_paths():
+    primary_path = os.path.join(get_runtime_base_dir(), SERVER_HOST_FILE)
+    resource_path = os.path.join(get_runtime_resource_dir(), SERVER_HOST_FILE)
+
+    paths = [primary_path]
+    if os.path.normcase(os.path.abspath(resource_path)) != os.path.normcase(os.path.abspath(primary_path)):
+        paths.append(resource_path)
+    return paths
 
 
 def get_windows_startup_command(app_mode=None):
@@ -844,6 +933,13 @@ def launch_browser_control_window(url):
     def open_in_browser():
         webbrowser.open(url)
 
+    if kiosk_lock_enabled():
+        try:
+            install_windows_key_blocker()
+        except Exception as exc:
+            if is_verbose_logging_enabled():
+                print(f"[WARN] Failed to install kiosk lock in browser mode: {exc}")
+
     root = tk.Tk()
     root.title(APP_TITLE)
 
@@ -892,9 +988,13 @@ def launch_ui(url):
     try:
         import webview  # type: ignore
 
-        # Note: Keyboard hook is no longer installed automatically here
-        # It will be controlled via API calls from the web interface based on login state
-        # install_windows_key_blocker()
+        # Install lock immediately so it is active even before JS bridge is ready.
+        if kiosk_lock_enabled():
+            try:
+                install_windows_key_blocker()
+            except Exception as exc:
+                if is_verbose_logging_enabled():
+                    print(f"[WARN] Failed to pre-enable kiosk lock: {exc}")
 
         try:
             class Api:
@@ -987,8 +1087,14 @@ def launch_ui(url):
 def main():
     headless_mode = str(os.getenv("PYPONDO_HEADLESS", "")).strip().lower() in {"1", "true", "yes"}
 
-    # Note: Keyboard hook is no longer installed automatically at startup
-    # It will be controlled via API calls from the web interface based on login state
+    # Kiosk lock is pre-enabled when client UI launches. API calls can still
+    # re-apply or disable it if needed.
+    if is_client_mode() and kiosk_lock_enabled() and not headless_mode:
+        try:
+            install_windows_key_blocker()
+        except Exception as exc:
+            if is_verbose_logging_enabled():
+                print(f"[WARN] Failed to pre-install kiosk lock at startup: {exc}")
 
     # Special handling for kiosk mode: launch client app
     if APP_MODE == "kiosk":

@@ -18,10 +18,11 @@
         .flash { margin-bottom: 12px; padding: 10px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(0, 255, 157, 0.08); color: var(--ok); font-weight: 700; }
         .status { margin-bottom: 14px; padding: 14px; border: 1px solid #2d3650; border-radius: 8px; background: #101725; }
         .status strong { color: var(--ok); }
+        .grid { display: grid; grid-template-columns: minmax(320px, 1.4fr) minmax(280px, 0.9fr); gap: 16px; align-items: start; }
+        .card { border: 1px solid #2d3650; border-radius: 10px; background: #101725; padding: 16px; }
         .desktop-tab {
-            width: min(900px, 92vw);
+            width: auto;
             height: 420px;
-            min-width: 320px;
             min-height: 240px;
             resize: both;
             overflow: auto;
@@ -34,12 +35,19 @@
         .desktop-tab h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); }
         .desktop-tab p { margin: 0 0 10px; color: #c2d0de; }
         .actions { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+        .quick-amounts { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+        .quick-amounts button { flex: 1 1 90px; border: 1px solid #37415f; background: #0e1422; color: var(--text); padding: 9px 10px; border-radius: 4px; cursor: pointer; }
+        .quick-amounts button:hover { border-color: var(--line); color: var(--line); }
+        .subtle { color: #9db0c6; font-size: 0.84rem; line-height: 1.45; }
+        .history-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid #29324a; font-size: 0.84rem; }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
     <div class="top">
         <h1>Client Desktop // Unlocked</h1>
         <div>
+            <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App</button>
             <a class="btn" href="{{ url_for('client_bookings') }}">Bookings</a>
             <a class="btn warn" href="{{ url_for('logout') }}">Logout</a>
         </div>
@@ -61,18 +69,56 @@
         {% endif %}
     </div>
 
-    <div class="desktop-tab">
-        <h2>Desktop Access Panel</h2>
-        <p>Desktop is unlocked because your balance is greater than zero.</p>
-        <p>Resize this tab from the lower-right corner based on client preference.</p>
-        <p>Keep this app open while the client is using the station.</p>
-        {% if kiosk_mode %}
-            <p style="color:#ffb36b;">Kiosk lock is enabled. Window close controls are disabled.</p>
-        {% endif %}
+    <div class="grid">
+        <div class="desktop-tab">
+            <h2>Desktop Access Panel</h2>
+            <p>Desktop is unlocked because your balance is greater than zero.</p>
+            <p>Resize this tab from the lower-right corner based on client preference.</p>
+            <p>Keep this app open while the client is using the station.</p>
+            {% if kiosk_mode %}
+                <p style="color:#ffb36b;">Kiosk lock is enabled. Window close controls are disabled.</p>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <h2 style="margin-top:0; font-family: 'Orbitron', sans-serif; color: var(--line);">Wallet &amp; Top Up</h2>
+            <p>
+                Available balance:
+                <strong>PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
+            </p>
+            <form action="{{ url_for('topup_online') }}" method="POST">
+                <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required style="width:100%; box-sizing:border-box; margin: 6px 0; padding: 10px; border-radius: 4px; border: 1px solid #37415f; background: #0e1422; color: #fff;">
+                <div class="quick-amounts">
+                    <button type="button" onclick="setTopup(100)">PHP 100</button>
+                    <button type="button" onclick="setTopup(200)">PHP 200</button>
+                    <button type="button" onclick="setTopup(500)">PHP 500</button>
+                    <button type="button" onclick="setTopup(1000)">PHP 1000</button>
+                </div>
+                <button type="submit" class="btn" style="width:100%; margin-top:10px;">Save Payment Request</button>
+            </form>
+            <p class="subtle">This creates a top-up request for admin approval. Your current session stays active while waiting for confirmation.</p>
+
+            <div style="margin-top: 16px;">
+                <h2 style="margin-bottom: 8px; font-size: 1rem;">Recent Top-Ups</h2>
+                {% if recent_payments %}
+                    {% for tx in recent_payments %}
+                        <div class="history-row">
+                            <span style="color:#9fbad6;">{{ tx.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                            <span style="color: {{ 'var(--ok)' if tx.status == 'paid' else '#d3a961' }};">
+                                {{ tx.status|upper }} PHP {{ "%.2f"|format(tx.amount) }}
+                            </span>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="subtle">No top-up transactions yet.</div>
+                {% endif %}
+            </div>
+        </div>
     </div>
 
     <div class="actions">
         <a class="btn" href="{{ url_for('client_bookings') }}">Manage Bookings</a>
+        <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App</button>
     </div>
 
     <!-- Hidden termination dialog -->
@@ -92,6 +138,21 @@
         // Enable kiosk lock when user is logged in and on desktop
         if (window.pywebview && window.pywebview.api && window.pywebview.api.enable_kiosk_lock) {
             window.pywebview.api.enable_kiosk_lock();
+        }
+
+        function minimizeClientApp() {
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.minimize) {
+                window.pywebview.api.minimize();
+                return;
+            }
+            window.blur();
+        }
+
+        function setTopup(amount) {
+            var field = document.getElementById('topupAmount');
+            if (field) {
+                field.value = amount;
+            }
         }
 
         // Block Windows shortcuts and dangerous key combinations
@@ -115,15 +176,6 @@
                 event.preventDefault();
                 return false;
             }
-        });
-
-        // Minimize the window after login
-        window.addEventListener('load', function() {
-            setTimeout(function() {
-                if (window.pywebview && window.pywebview.api && window.pywebview.api.minimize) {
-                    window.pywebview.api.minimize();
-                }
-            }, 1000); // Wait 1 second for the page to fully load
         });
 
         // Termination dialog functionality
