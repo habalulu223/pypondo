@@ -125,6 +125,7 @@ if "%PYPONDO_CLEAN%"=="1" (
     --collect-all webview ^
     --hidden-import lan_agent ^
     --hidden-import keyboard ^
+    --add-data "assets;assets" ^
     --add-data "templates;templates" ^
     --add-data "server_host.txt;." ^
     desktop_app.py
@@ -139,6 +140,7 @@ if "%PYPONDO_CLEAN%"=="1" (
     --collect-all webview ^
     --hidden-import lan_agent ^
     --hidden-import keyboard ^
+    --add-data "assets;assets" ^
     --add-data "templates;templates" ^
     --add-data "server_host.txt;." ^
     desktop_app.py

@@ -25,6 +25,7 @@ app = Flask(__name__)
 
 # --- Config ---
 basedir = os.path.abspath(os.path.dirname(__file__))
+assets_dir = os.path.join(basedir, 'assets')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'pccafe.db')
 app.config['SECRET_KEY'] = 'super_secret_cyber_key'
 
@@ -106,6 +107,7 @@ class PC(db.Model):
     lan_ip = db.Column(db.String(64), nullable=True)
     lan_port = db.Column(db.Integer, nullable=True)
     last_agent_seen_at = db.Column(db.DateTime, nullable=True)
+    online_since_at = db.Column(db.DateTime, nullable=True)
 
 
 class Booking(db.Model):
@@ -180,6 +182,9 @@ def ensure_pc_lan_ip_column():
         db.session.commit()
     if "last_agent_seen_at" not in cols:
         db.session.execute(text("ALTER TABLE pc ADD COLUMN last_agent_seen_at DATETIME"))
+        db.session.commit()
+    if "online_since_at" not in cols:
+        db.session.execute(text("ALTER TABLE pc ADD COLUMN online_since_at DATETIME"))
         db.session.commit()
 
 
@@ -1005,6 +1010,57 @@ def get_agent_status_note(pc_name):
     return f"agent status: last seen {age_seconds // 60}m ago"
 
 
+def get_agent_online_window_seconds():
+    try:
+        return max(int(os.getenv("LAN_AGENT_ONLINE_WINDOW_SECONDS", "90")), 1)
+    except Exception:
+        return 90
+
+
+def is_pc_online(pc, now_dt=None, online_window_seconds=None):
+    if not pc or not pc.last_agent_seen_at:
+        return False
+    if now_dt is None:
+        now_dt = datetime.now()
+    if online_window_seconds is None:
+        online_window_seconds = get_agent_online_window_seconds()
+    return (now_dt - pc.last_agent_seen_at).total_seconds() <= online_window_seconds
+
+
+def mark_pc_agent_seen(pc, seen_at=None):
+    if not pc:
+        return
+    if seen_at is None:
+        seen_at = datetime.now()
+
+    last_seen = pc.last_agent_seen_at
+    online_window_seconds = get_agent_online_window_seconds()
+    within_same_online_window = bool(
+        last_seen and (seen_at - last_seen).total_seconds() <= online_window_seconds
+    )
+    if not pc.online_since_at:
+        pc.online_since_at = last_seen if within_same_online_window else seen_at
+    elif not within_same_online_window:
+        pc.online_since_at = seen_at
+
+    pc.last_agent_seen_at = seen_at
+
+
+def format_duration_compact(total_seconds):
+    total_seconds = int(max(total_seconds or 0, 0))
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
+
+
 def enqueue_lan_command(pc_name, command, payload=None, note=None):
     payload_data = payload if isinstance(payload, dict) else {}
     existing = LanCommand.query.filter(
@@ -1371,6 +1427,22 @@ def api_server_info():
     }), 200
 
 
+@app.route('/favicon.ico')
+def favicon():
+    favicon_path = os.path.join(assets_dir, 'pypondo.ico')
+    if os.path.exists(favicon_path):
+        return send_file(favicon_path, mimetype='image/x-icon', max_age=86400)
+    return '', 404
+
+
+@app.route('/app-icon.png')
+def app_icon():
+    icon_path = os.path.join(assets_dir, 'pypondo-icon-256.png')
+    if os.path.exists(icon_path):
+        return send_file(icon_path, mimetype='image/png', max_age=86400)
+    return '', 404
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -1477,17 +1549,46 @@ def index():
 
     pcs = PC.query.all()
     users = User.query.all() if current_user.is_admin else [current_user]
-    active_sessions = Session.query.filter_by(end_time=None).all()
+    active_sessions = Session.query.filter_by(end_time=None).order_by(Session.start_time.asc()).all()
     recent_payments = get_recent_payment_requests(current_user.id)
     local_ips = get_local_lan_addresses() if current_user.is_admin else []
     lan_summary = build_primary_ipv4_network_summary() if current_user.is_admin else None
     gateway_scan = get_gateway_client_scan(non_blocking=True) if current_user.is_admin else None
     discovered_ips = [row.get("ip") for row in (gateway_scan.get("clients", []) if isinstance(gateway_scan, dict) else [])] if current_user.is_admin else []
     assigned_ips = {pc.lan_ip for pc in pcs if pc.lan_ip}
-    online_window_seconds = int(os.getenv("LAN_AGENT_ONLINE_WINDOW_SECONDS", "90"))
+    online_window_seconds = get_agent_online_window_seconds()
     now_dt = datetime.now()
     pending_statuses = {"queued", "sent"}
     pending_counts = {}
+    active_session_by_pc = {}
+    for session in active_sessions:
+        active_session_by_pc.setdefault(session.pc_id, session)
+
+    for pc in pcs:
+        active_session = active_session_by_pc.get(pc.id)
+        online_now = is_pc_online(pc, now_dt, online_window_seconds)
+        effective_in_use = bool(pc.is_occupied or active_session or online_now)
+        usage_started_at = None
+        usage_source = None
+        if active_session:
+            usage_started_at = active_session.start_time
+            usage_source = "session"
+        elif online_now:
+            usage_started_at = pc.online_since_at or pc.last_agent_seen_at
+            usage_source = "online"
+        elif pc.is_occupied:
+            usage_source = "occupied"
+
+        pc.dashboard_session = active_session
+        pc.dashboard_online = online_now
+        pc.dashboard_in_use = effective_in_use
+        pc.dashboard_usage_source = usage_source
+        pc.dashboard_usage_started_text = usage_started_at.strftime('%Y-%m-%d %H:%M:%S') if usage_started_at else None
+        pc.dashboard_usage_duration_text = (
+            format_duration_compact((now_dt - usage_started_at).total_seconds())
+            if usage_started_at else None
+        )
+
     if current_user.is_admin:
         for cmd in LanCommand.query.filter(LanCommand.status.in_(list(pending_statuses))).all():
             pending_counts[cmd.pc_name] = pending_counts.get(cmd.pc_name, 0) + 1
@@ -1497,7 +1598,7 @@ def index():
         mapped_ips = set()
         for pc in pcs:
             last_seen = pc.last_agent_seen_at
-            is_online = bool(last_seen and (now_dt - last_seen).total_seconds() <= online_window_seconds)
+            is_online = is_pc_online(pc, now_dt, online_window_seconds)
             if last_seen:
                 age_seconds = int(max((now_dt - last_seen).total_seconds(), 0))
                 if age_seconds < 60:
@@ -1511,6 +1612,7 @@ def index():
                 "lan_ip": pc.lan_ip,
                 "online": is_online,
                 "seen_text": seen_text,
+                "online_since_at": pc.online_since_at.isoformat() if pc.online_since_at else None,
                 "queue_count": pending_counts.get(pc.name, 0)
             })
             if pc.lan_ip:
@@ -1853,6 +1955,7 @@ def pc_command():
 
     pc_id = request.form.get('pc_id', type=int)
     command = (request.form.get('command') or '').strip().lower()
+    reason = (request.form.get('reason') or '').strip()
     pc = db.session.get(PC, pc_id) if pc_id else None
 
     if not pc:
@@ -1863,7 +1966,14 @@ def pc_command():
         flash('Invalid command.', 'error')
         return redirect(url_for('index'))
 
-    ok, message = send_lan_command(pc.name, command, {})
+    payload = {
+        "requested_by": current_user.username,
+        "skip_user_approval": command in {"lock", "restart", "shutdown"}
+    }
+    if reason:
+        payload["reason"] = reason
+
+    ok, message = send_lan_command(pc.name, command, payload)
     db.session.add(AdminLog(admin_name=current_user.username, action=f"LAN command '{command}' to {pc.name}: {message}"))
     db.session.commit()
 
@@ -1893,7 +2003,12 @@ def api_pc_command():
     if payload is not None and not isinstance(payload, dict):
         return jsonify({"ok": False, "error": "payload must be an object"}), 400
 
-    ok, message = send_lan_command(pc_name, command, payload)
+    payload_data = dict(payload or {})
+    payload_data.setdefault("requested_by", current_user.username)
+    if command in {"lock", "restart", "shutdown"}:
+        payload_data["skip_user_approval"] = True
+
+    ok, message = send_lan_command(pc_name, command, payload_data)
     db.session.add(AdminLog(admin_name=current_user.username, action=f"API LAN command '{command}' to {pc_name}: {message}"))
     db.session.commit()
 
@@ -2098,6 +2213,8 @@ def api_admin_lan_discovery():
         return jsonify({"ok": False, "error": "admin-only endpoint"}), 403
 
     pcs = PC.query.order_by(PC.id.asc()).all()
+    now_dt = datetime.now()
+    online_window_seconds = get_agent_online_window_seconds()
     pending_counts = {}
     for cmd in LanCommand.query.filter(LanCommand.status.in_(["queued", "sent"])).all():
         pending_counts[cmd.pc_name] = pending_counts.get(cmd.pc_name, 0) + 1
@@ -2119,6 +2236,8 @@ def api_admin_lan_discovery():
             "lan_ip": pc.lan_ip,
             "lan_port": pc.lan_port,
             "last_agent_seen_at": pc.last_agent_seen_at.isoformat() if pc.last_agent_seen_at else None,
+            "online_since_at": pc.online_since_at.isoformat() if pc.online_since_at else None,
+            "online": is_pc_online(pc, now_dt, online_window_seconds),
             "queued_count": pending_counts.get(pc.name, 0)
         } for pc in pcs]
     }), 200
@@ -2208,7 +2327,7 @@ def api_agent_register_lan():
 
     pc.lan_ip = detected_ip
     pc.lan_port = agent_port
-    pc.last_agent_seen_at = datetime.now()
+    mark_pc_agent_seen(pc)
     db.session.add(AdminLog(admin_name=f"agent:{pc_name}", action=f"Auto-registered LAN target {detected_ip}:{agent_port}"))
     db.session.commit()
     cmd = pick_next_lan_command_for_names([pc.name, pc_name])
@@ -2256,7 +2375,7 @@ def api_agent_pull_command():
 
     touched_pc = matched_pc or PC.query.filter(PC.name.in_(candidate_names)).first()
     if touched_pc:
-        touched_pc.last_agent_seen_at = datetime.now()
+        mark_pc_agent_seen(touched_pc)
         db.session.commit()
 
     cmd = pick_next_lan_command_for_names(candidate_names)
@@ -2314,7 +2433,7 @@ def api_agent_ack_command():
 
     touched_pc = PC.query.filter_by(name=cmd.pc_name).first()
     if touched_pc:
-        touched_pc.last_agent_seen_at = datetime.now()
+        mark_pc_agent_seen(touched_pc)
 
     cmd.status = "done" if ok_flag else "failed"
     cmd.completed_at = datetime.now()

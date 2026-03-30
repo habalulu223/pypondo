@@ -65,6 +65,8 @@
     </style>
 </head>
 <body>
+    {% include '_animated_background.html' %}
+    {% include '_startup_splash.html' %}
 
     <div class="top-bar">
         <h1>CyberCore // System Dashboard</h1>
@@ -100,10 +102,10 @@
 
             <div class="pc-grid">
                 {% for pc in pcs %}
-                <div class="card {{ 'occupied' if pc.is_occupied else 'free' }}">
+                <div class="card {{ 'occupied' if pc.dashboard_in_use else 'free' }}">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <h3>{{ pc.name }}</h3>
-                        <span class="status-badge">{{ 'In Use' if pc.is_occupied else 'Ready' }}</span>
+                        <span class="status-badge">{{ 'In Use' if pc.dashboard_in_use else 'Ready' }}</span>
                     </div>
                     {% if current_user.is_admin %}
                         <p style="color:#bbb; font-size:0.85em; margin: 4px 0 8px;">
@@ -115,18 +117,24 @@
                         </form>
                     {% endif %}
 
-                    {% if pc.is_occupied %}
-                        {% for sess in sessions %}
-                            {% if sess.pc_id == pc.id %}
-                                <p style="color: #aaa; font-size: 0.9em;">User ID: #{{ sess.user_id }}</p>
-                                <p style="color: #aaa; font-size: 0.9em;">Started: {{ sess.start_time.strftime('%H:%M') }}</p>
-                                {% if current_user.is_admin %}
-                                    <a href="/end_session/{{ sess.id }}" class="btn btn-red">STOP & BILL</a>
-                                {% else %}
-                                    <p style="color: var(--neon-red); font-size: 0.8em; margin-top: 10px;">SESSION ACTIVE</p>
-                                {% endif %}
+                    {% if pc.dashboard_in_use %}
+                        {% if pc.dashboard_session %}
+                            <p style="color: #aaa; font-size: 0.9em;">User ID: #{{ pc.dashboard_session.user_id }}</p>
+                            <p style="color: #aaa; font-size: 0.9em;">Started: {{ pc.dashboard_session.start_time.strftime('%H:%M') }}</p>
+                            <p style="color: #aaa; font-size: 0.9em;">Used For: {{ pc.dashboard_usage_duration_text }}</p>
+                            {% if current_user.is_admin %}
+                                <a href="/end_session/{{ pc.dashboard_session.id }}" class="btn btn-red">STOP & BILL</a>
+                            {% else %}
+                                <p style="color: var(--neon-red); font-size: 0.8em; margin-top: 10px;">SESSION ACTIVE</p>
                             {% endif %}
-                        {% endfor %}
+                        {% elif pc.dashboard_online %}
+                            <p style="color: var(--neon-green); font-size: 0.9em;">PC is online and treated as in use.</p>
+                            <p style="color: #aaa; font-size: 0.9em;">Online Since: {{ pc.dashboard_usage_started_text }}</p>
+                            <p style="color: #aaa; font-size: 0.9em;">Used For: {{ pc.dashboard_usage_duration_text }}</p>
+                        {% else %}
+                            <p style="color: #aaa; font-size: 0.9em;">Marked occupied in admin.</p>
+                            <p style="color: #777; font-size: 0.84em;">No active session start time is available for this PC.</p>
+                        {% endif %}
                     {% else %}
                         <form action="/book" method="POST">
                             <input type="hidden" name="pc_id" value="{{ pc.id }}">
@@ -134,8 +142,10 @@
                             <input type="time" name="time_slot" required>
                             <button type="submit" style="width:100%">Reserve for Me</button>
                         </form>
+                    {% endif %}
 
-                        {% if current_user.is_admin %}
+                    {% if current_user.is_admin %}
+                        {% if not pc.dashboard_in_use %}
                         <div style="margin-top:15px; border-top:1px solid #333; padding-top:10px;">
                             <small style="color:#666; text-transform:uppercase;">Admin Quick Start:</small>
                             <div style="max-height: 100px; overflow-y: auto;">
@@ -146,6 +156,7 @@
                                 {% endfor %}
                             </div>
                         </div>
+                        {% endif %}
                         <div style="margin-top:12px;">
                             <small style="color:#666; text-transform:uppercase;">LAN Command:</small>
                             <form action="/pc_command" method="POST">
@@ -156,10 +167,10 @@
                                     <option value="shutdown">Shutdown</option>
                                     <option value="wake">Wake</option>
                                 </select>
-                                <input type="text" name="reason" maxlength="200" placeholder="Reason (required for restart/shutdown)">
-                                <input type="text" name="confirm_text" placeholder="Type {{ power_command_confirm_text }} for restart/shutdown">
+                                <input type="text" name="reason" maxlength="200" placeholder="Reason (optional)">
                                 <button type="submit" style="width:100%">Send to {{ pc.name }}</button>
                             </form>
+                            <p style="font-size:0.78em; color:#777; margin:6px 0 0;">Admin power commands now run directly without asking the client user first.</p>
                         </div>
                         <div style="margin-top:12px;">
                             <small style="color:#666; text-transform:uppercase;">Auto Connect Target:</small>
@@ -188,7 +199,6 @@
                                 <button type="submit" class="btn btn-red" style="width:100%">Clear Pending Commands</button>
                             </form>
                         </div>
-                        {% endif %}
                     {% endif %}
                 </div>
                 {% endfor %}
@@ -240,7 +250,7 @@
                 </div>
                 <div style="margin-bottom:15px; border:1px solid #333; border-radius:8px; padding:12px;">
                     <small style="color:#666; text-transform:uppercase;">Agent Status</small>
-                    <p style="font-size:0.8em; color:#777; margin:6px 0 6px;">OFFLINE means no recent agent heartbeat; PC may be on but agent/network may be down.</p>
+                    <p style="font-size:0.8em; color:#777; margin:6px 0 6px;">ONLINE PCs are also shown as in use on the station cards. OFFLINE means no recent agent heartbeat; PC may be on but agent/network may be down.</p>
                     <div style="max-height:180px; overflow-y:auto; margin-top:8px; border-top:1px solid #333; padding-top:6px;">
                         {% if agent_status %}
                             {% for row in agent_status %}
