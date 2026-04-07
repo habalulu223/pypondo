@@ -1,0 +1,313 @@
+<style>
+    .cyber-bg {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        overflow: hidden;
+        pointer-events: none;
+        transition: opacity 0.9s ease, transform 1s ease, filter 0.9s ease;
+    }
+
+    body.startup-active .cyber-bg {
+        opacity: 0.08;
+        transform: scale(1.04);
+        filter: blur(8px);
+    }
+
+    body.startup-complete .cyber-bg {
+        opacity: 1;
+        transform: scale(1);
+        filter: blur(0);
+    }
+
+    .cyber-bg::before,
+    .cyber-bg::after {
+        content: "";
+        position: absolute;
+        inset: -12%;
+        background:
+            radial-gradient(circle at center, rgba(0, 243, 255, 0.2) 0%, rgba(0, 243, 255, 0.08) 18%, rgba(0, 0, 0, 0) 46%),
+            radial-gradient(circle at 18% 20%, rgba(0, 120, 255, 0.12) 0%, rgba(0, 0, 0, 0) 32%),
+            radial-gradient(circle at 82% 78%, rgba(0, 255, 157, 0.08) 0%, rgba(0, 0, 0, 0) 26%);
+        animation: bgPulse 8s ease-in-out infinite alternate;
+    }
+
+    .cyber-bg::after {
+        opacity: 0.45;
+        filter: blur(34px);
+        animation-duration: 12s;
+    }
+
+    .cyber-grid {
+        position: absolute;
+        inset: 0;
+        background-image:
+            linear-gradient(rgba(0, 243, 255, 0.06) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0, 243, 255, 0.06) 1px, transparent 1px);
+        background-size: 64px 64px;
+        mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.95) 24%, rgba(0, 0, 0, 0.5) 58%, transparent 86%);
+        opacity: 0.5;
+    }
+
+    .cyber-svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+    }
+
+    .cyber-wire {
+        fill: none;
+        stroke: rgba(72, 120, 165, 0.48);
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .cyber-wire-glow {
+        fill: none;
+        stroke: rgba(0, 243, 255, 0.14);
+        stroke-width: 8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: blur(2px);
+    }
+
+    .cyber-pulse {
+        fill: none;
+        stroke: rgba(135, 245, 255, 0.95);
+        stroke-width: 3.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-dasharray: 18 380;
+        animation: wireCurrent 3.2s linear infinite;
+        filter: drop-shadow(0 0 7px rgba(0, 243, 255, 0.95));
+    }
+
+    .cyber-pulse.delay-1 { animation-delay: -0.9s; }
+    .cyber-pulse.delay-2 { animation-delay: -1.8s; }
+    .cyber-pulse.delay-3 { animation-delay: -2.4s; }
+
+    .cyber-node {
+        fill: rgba(11, 15, 26, 0.9);
+        stroke: rgba(0, 243, 255, 0.55);
+        stroke-width: 2;
+    }
+
+    .cyber-node.hot {
+        fill: rgba(0, 243, 255, 0.18);
+        stroke: rgba(138, 248, 255, 0.95);
+        filter: drop-shadow(0 0 10px rgba(0, 243, 255, 0.9));
+        animation: nodeBlink 2.2s ease-in-out infinite;
+    }
+
+    .cyber-core {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: min(28vw, 230px);
+        aspect-ratio: 1;
+        transform: translate(-50%, -50%);
+        display: grid;
+        place-items: center;
+    }
+
+    .cyber-core::before,
+    .cyber-core::after {
+        content: "";
+        position: absolute;
+        inset: -22%;
+        border-radius: 28%;
+        border: 1px solid rgba(0, 243, 255, 0.24);
+        box-shadow: 0 0 30px rgba(0, 243, 255, 0.16), inset 0 0 24px rgba(0, 243, 255, 0.06);
+        animation: coreRotate 16s linear infinite;
+    }
+
+    .cyber-core::after {
+        inset: -10%;
+        border-radius: 36%;
+        border-color: rgba(0, 255, 157, 0.22);
+        animation-direction: reverse;
+        animation-duration: 10s;
+    }
+
+    .cyber-core-ring {
+        position: absolute;
+        inset: 6%;
+        border-radius: 50%;
+        border: 1px solid rgba(0, 243, 255, 0.25);
+        box-shadow: inset 0 0 24px rgba(0, 243, 255, 0.12);
+    }
+
+    .cyber-core-shell {
+        position: absolute;
+        inset: 16%;
+        border-radius: 50%;
+        background:
+            radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.14), transparent 34%),
+            radial-gradient(circle at center, rgba(11, 25, 40, 0.96) 0%, rgba(8, 12, 20, 0.98) 72%);
+        border: 1px solid rgba(0, 243, 255, 0.35);
+        box-shadow:
+            0 0 25px rgba(0, 243, 255, 0.16),
+            inset 0 0 20px rgba(0, 243, 255, 0.08),
+            inset 0 0 50px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+    }
+
+    .cyber-core-shell::before {
+        content: "";
+        position: absolute;
+        inset: 12%;
+        border-radius: 50%;
+        border: 1px dashed rgba(0, 243, 255, 0.22);
+        animation: coreRotate 12s linear infinite reverse;
+    }
+
+    .cyber-core-icon {
+        position: absolute;
+        width: 40%;
+        max-width: 84px;
+        filter: drop-shadow(0 0 16px rgba(0, 243, 255, 0.35));
+        animation: iconFloat 3.8s ease-in-out infinite;
+    }
+
+    .cyber-sparks {
+        position: absolute;
+        inset: 0;
+    }
+
+    .cyber-sparks span {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(185, 251, 255, 1) 0%, rgba(0, 243, 255, 0.75) 40%, rgba(0, 243, 255, 0) 72%);
+        box-shadow: 0 0 12px rgba(0, 243, 255, 0.8);
+        animation: sparkOrbit 4.8s linear infinite;
+    }
+
+    .cyber-sparks span:nth-child(1) { top: 6%; left: 50%; animation-delay: -0.2s; }
+    .cyber-sparks span:nth-child(2) { top: 50%; left: 8%; animation-delay: -1.7s; }
+    .cyber-sparks span:nth-child(3) { right: 12%; top: 44%; animation-delay: -3.1s; }
+    .cyber-sparks span:nth-child(4) { left: 46%; bottom: 8%; animation-delay: -4.2s; }
+
+    body > *:not(.cyber-bg) {
+        position: relative;
+        z-index: 1;
+    }
+
+    @keyframes wireCurrent {
+        from { stroke-dashoffset: 0; }
+        to { stroke-dashoffset: -398; }
+    }
+
+    @keyframes coreRotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
+    @keyframes bgPulse {
+        from { transform: scale(1) rotate(0deg); opacity: 0.72; }
+        to { transform: scale(1.06) rotate(2deg); opacity: 1; }
+    }
+
+    @keyframes nodeBlink {
+        0%, 100% { opacity: 0.45; }
+        50% { opacity: 1; }
+    }
+
+    @keyframes iconFloat {
+        0%, 100% { transform: translateY(0) scale(1); }
+        50% { transform: translateY(-4px) scale(1.03); }
+    }
+
+    @keyframes sparkOrbit {
+        0%, 100% { transform: scale(0.8); opacity: 0.4; }
+        40% { transform: scale(1.2); opacity: 1; }
+        75% { transform: scale(0.9); opacity: 0.6; }
+    }
+
+    @media (max-width: 700px) {
+        .cyber-core {
+            width: min(46vw, 180px);
+        }
+
+        .cyber-grid {
+            background-size: 42px 42px;
+        }
+
+        .cyber-wire,
+        .cyber-pulse {
+            stroke-width: 2.3;
+        }
+    }
+</style>
+
+<div class="cyber-bg" aria-hidden="true">
+    <div class="cyber-grid"></div>
+    <svg class="cyber-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+        <path class="cyber-wire-glow" d="M80 140 H280 L360 260 H430" />
+        <path class="cyber-wire-glow" d="M920 140 H720 L640 260 H570" />
+        <path class="cyber-wire-glow" d="M80 860 H280 L360 740 H430" />
+        <path class="cyber-wire-glow" d="M920 860 H720 L640 740 H570" />
+        <path class="cyber-wire-glow" d="M170 500 H340 L405 500" />
+        <path class="cyber-wire-glow" d="M830 500 H660 L595 500" />
+        <path class="cyber-wire-glow" d="M500 90 V270" />
+        <path class="cyber-wire-glow" d="M500 910 V730" />
+
+        <path class="cyber-wire" d="M80 140 H280 L360 260 H430" />
+        <path class="cyber-wire" d="M920 140 H720 L640 260 H570" />
+        <path class="cyber-wire" d="M80 860 H280 L360 740 H430" />
+        <path class="cyber-wire" d="M920 860 H720 L640 740 H570" />
+        <path class="cyber-wire" d="M170 500 H340 L405 500" />
+        <path class="cyber-wire" d="M830 500 H660 L595 500" />
+        <path class="cyber-wire" d="M500 90 V270" />
+        <path class="cyber-wire" d="M500 910 V730" />
+
+        <path class="cyber-pulse" d="M80 140 H280 L360 260 H430" />
+        <path class="cyber-pulse delay-1" d="M920 140 H720 L640 260 H570" />
+        <path class="cyber-pulse delay-2" d="M80 860 H280 L360 740 H430" />
+        <path class="cyber-pulse delay-3" d="M920 860 H720 L640 740 H570" />
+        <path class="cyber-pulse delay-1" d="M170 500 H340 L405 500" />
+        <path class="cyber-pulse delay-2" d="M830 500 H660 L595 500" />
+        <path class="cyber-pulse delay-3" d="M500 90 V270" />
+        <path class="cyber-pulse" d="M500 910 V730" />
+
+        <circle class="cyber-node" cx="80" cy="140" r="10" />
+        <circle class="cyber-node hot" cx="280" cy="140" r="8" />
+        <circle class="cyber-node hot" cx="360" cy="260" r="8" />
+        <circle class="cyber-node" cx="430" cy="260" r="10" />
+        <circle class="cyber-node" cx="920" cy="140" r="10" />
+        <circle class="cyber-node hot" cx="720" cy="140" r="8" />
+        <circle class="cyber-node hot" cx="640" cy="260" r="8" />
+        <circle class="cyber-node" cx="570" cy="260" r="10" />
+        <circle class="cyber-node" cx="80" cy="860" r="10" />
+        <circle class="cyber-node hot" cx="280" cy="860" r="8" />
+        <circle class="cyber-node hot" cx="360" cy="740" r="8" />
+        <circle class="cyber-node" cx="430" cy="740" r="10" />
+        <circle class="cyber-node" cx="920" cy="860" r="10" />
+        <circle class="cyber-node hot" cx="720" cy="860" r="8" />
+        <circle class="cyber-node hot" cx="640" cy="740" r="8" />
+        <circle class="cyber-node" cx="570" cy="740" r="10" />
+        <circle class="cyber-node hot" cx="500" cy="90" r="8" />
+        <circle class="cyber-node hot" cx="500" cy="270" r="8" />
+        <circle class="cyber-node hot" cx="500" cy="730" r="8" />
+        <circle class="cyber-node hot" cx="500" cy="910" r="8" />
+        <circle class="cyber-node" cx="170" cy="500" r="10" />
+        <circle class="cyber-node hot" cx="340" cy="500" r="8" />
+        <circle class="cyber-node hot" cx="660" cy="500" r="8" />
+        <circle class="cyber-node" cx="830" cy="500" r="10" />
+    </svg>
+
+    <div class="cyber-core">
+        <div class="cyber-core-ring"></div>
+        <div class="cyber-core-shell"></div>
+        <img class="cyber-core-icon" src="/app-icon.png" alt="">
+        <div class="cyber-sparks">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+    </div>
+</div>
