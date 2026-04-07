@@ -31,7 +31,17 @@
         .quick-amounts button { flex: 1 1 90px; border: 1px solid #37415f; background: #0e1422; color: var(--text); padding: 9px 10px; border-radius: 4px; cursor: pointer; }
         .quick-amounts button:hover { border-color: var(--line); color: var(--line); }
         .subtle { color: #8ea4bb; font-size: 0.82rem; line-height: 1.45; }
-        .history-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid #29324a; font-size: 0.84rem; }
+        .history-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #29324a; font-size: 0.84rem; }
+        .history-main { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+        .history-main span:last-child { text-align: right; }
+        .history-action form { margin: 0; }
+        .history-cancel {
+            border-color: var(--warn);
+            color: var(--warn);
+            padding: 5px 8px;
+            font-size: 0.72rem;
+        }
+        .history-cancel:hover { background: var(--warn); color: #fff; }
         @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -43,8 +53,8 @@
         <div>
             {% if current_user.pondo > 0 %}
             <a class="btn ok" href="{{ url_for('client_desktop') }}">Go To Desktop</a>
-            {% endif %}
             <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App</button>
+            {% endif %}
             {% if not kiosk_mode %}
             <a class="btn warn" href="{{ url_for('logout') }}">Logout</a>
             {% endif %}
@@ -81,25 +91,35 @@
             </p>
             <form action="{{ url_for('topup_online') }}" method="POST">
                 <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required>
+                <input type="hidden" name="return_to" value="{{ url_for('client_bookings') }}">
                 <div class="quick-amounts">
                     <button type="button" onclick="setTopup(100)">PHP 100</button>
                     <button type="button" onclick="setTopup(200)">PHP 200</button>
                     <button type="button" onclick="setTopup(500)">PHP 500</button>
                     <button type="button" onclick="setTopup(1000)">PHP 1000</button>
                 </div>
-                <button type="submit" class="btn" style="width:100%; margin-top:10px;">Save Payment Request</button>
+                <button type="submit" class="btn" style="width:100%; margin-top:10px;">Choose Payment Method</button>
             </form>
-            <p class="subtle">This submits a top-up request for admin confirmation. Your balance updates after the payment is confirmed.</p>
+            <p class="subtle">Choose GCash, Card, or Cash before submitting the top-up request. Your balance updates after the payment is confirmed.</p>
 
             <div style="margin-top: 16px;">
                 <h2 style="margin-bottom: 8px;">Recent Top-Ups</h2>
                 {% if recent_payments %}
                     {% for tx in recent_payments %}
                         <div class="history-row">
-                            <span style="color:#9fbad6;">{{ tx.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
-                            <span style="color: {{ 'var(--ok)' if tx.status == 'paid' else '#d3a961' }};">
-                                {{ tx.status|upper }} PHP {{ "%.2f"|format(tx.amount) }}
-                            </span>
+                            <div class="history-main">
+                                <span style="color:#9fbad6;">{{ tx.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                <span style="color: {{ 'var(--ok)' if tx.status == 'paid' else ('var(--warn)' if tx.status == 'cancelled' else '#d3a961') }};">
+                                    {{ tx.provider.replace('_', ' ')|upper }} | {{ tx.status|upper }} | PHP {{ "%.2f"|format(tx.amount) }}
+                                </span>
+                            </div>
+                            {% if tx.status in ['pending', 'pending_confirmation', 'awaiting_cash'] %}
+                            <div class="history-action">
+                                <form action="{{ url_for('client_cancel_payment', payment_id=tx.id) }}" method="POST">
+                                    <button type="submit" class="btn history-cancel">Cancel</button>
+                                </form>
+                            </div>
+                            {% endif %}
                         </div>
                     {% endfor %}
                 {% else %}

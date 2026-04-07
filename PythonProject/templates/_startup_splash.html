@@ -2,7 +2,7 @@
     .startup-splash {
         position: fixed;
         inset: 0;
-        display: flex;
+        display: none;
         align-items: center;
         justify-content: center;
         background: radial-gradient(circle at center, rgba(10, 19, 32, 0.94), rgba(3, 6, 12, 0.985));
@@ -68,6 +68,7 @@
     }
 
     body.startup-active .startup-splash {
+        display: flex;
         background:
             radial-gradient(circle at center, rgba(5, 16, 30, 0.93), rgba(2, 4, 10, 0.995) 74%);
         animation: loginIntroFade 6.1s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;

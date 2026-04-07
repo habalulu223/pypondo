@@ -38,6 +38,12 @@ HOURLY_RATE = 15.0
 ALLOWED_LAN_COMMANDS = {"lock", "restart", "shutdown", "wake"}
 MAX_TOPUP_AMOUNT = 10000.0
 TOPUP_CURRENCY = os.getenv("TOPUP_CURRENCY", "php").strip().lower() or "php"
+PAYMONGO_PUBLIC_KEY = os.getenv("PAYMONGO_PUBLIC_KEY", "pk_test_hRN7jf1RAviu9fXsis5mLU8y").strip()
+ALLOWED_TOPUP_METHODS = {
+    "gcash": "GCash",
+    "card": "Card",
+    "cash": "Cash"
+}
 DEFAULT_LAN_AGENT_TOKEN = "pypondo-lan-token-change-me"
 LAN_SCAN_CACHE = {"timestamp": 0, "cidr": None, "result": None, "scan_in_progress": False}
 LAN_SCAN_LOCK = threading.Lock()
@@ -1234,23 +1240,30 @@ def parse_topup_amount(raw):
     return float(amount.quantize(Decimal("0.01")))
 
 
-def create_online_payment_request(user, amount, source="web"):
-    external_id = f"REQ-{uuid.uuid4().hex[:16].upper()}"
+def create_payment_request(user, amount, source="web", provider="online_request", status="pending", external_id=None):
+    external_id = (external_id or "").strip() or f"REQ-{uuid.uuid4().hex[:16].upper()}"
     tx = PaymentTransaction(
         user_id=user.id,
-        provider="online_request",
+        provider=provider,
         external_id=external_id,
         amount=amount,
         currency=TOPUP_CURRENCY,
-        status="pending"
+        status=status
     )
     db.session.add(tx)
     db.session.add(AdminLog(
         admin_name=user.username,
-        action=f"Online payment request ({source}) created: {external_id}, amount={amount:.2f} {TOPUP_CURRENCY}"
+        action=(
+            f"Payment request ({source}) created: {external_id}, provider={provider}, "
+            f"status={status}, amount={amount:.2f} {TOPUP_CURRENCY}"
+        )
     ))
     db.session.commit()
     return tx
+
+
+def create_online_payment_request(user, amount, source="web"):
+    return create_payment_request(user, amount, source=source)
 
 
 def get_recent_payment_requests(user_id, limit=5):
@@ -1259,6 +1272,38 @@ def get_recent_payment_requests(user_id, limit=5):
     except Exception:
         max_rows = 5
     return PaymentTransaction.query.filter_by(user_id=user_id).order_by(PaymentTransaction.created_at.desc()).limit(max_rows).all()
+
+
+def get_all_payment_requests(limit=200):
+    try:
+        max_rows = max(1, int(limit))
+    except Exception:
+        max_rows = 200
+    return PaymentTransaction.query.order_by(PaymentTransaction.created_at.desc()).limit(max_rows).all()
+
+
+def confirm_payment_transaction(tx, admin_user):
+    if not tx:
+        return False, "Payment transaction not found."
+    if tx.status == "paid":
+        return False, "Payment is already confirmed."
+
+    user = db.session.get(User, tx.user_id)
+    if not user:
+        return False, "User for this payment was not found."
+
+    user.pondo += float(tx.amount or 0.0)
+    tx.status = "paid"
+    tx.credited_at = datetime.now()
+    db.session.add(AdminLog(
+        admin_name=admin_user.username,
+        action=(
+            f"Confirmed payment {tx.external_id} for {user.username}, "
+            f"provider={tx.provider}, amount={tx.amount:.2f} {tx.currency}"
+        )
+    ))
+    db.session.commit()
+    return True, f"Confirmed payment {tx.external_id} for {user.username}."
 
 
 def redirect_for_current_user_page():
@@ -1275,6 +1320,13 @@ def redirect_for_current_user_page():
     if user_has_positive_balance(current_user):
         return redirect(url_for('client_desktop'))
     return redirect(url_for('client_bookings'))
+
+
+def resolve_safe_return_to(raw_value):
+    target = str(raw_value or "").strip()
+    if target.startswith("/") and not target.startswith("//"):
+        return target
+    return None
 
 
 def get_latest_bundle_path(prefix):
@@ -1742,6 +1794,41 @@ def view_logs():
     return render_template('logs.html', logs=logs)
 
 
+@app.route('/admin/payments')
+@login_required
+def admin_payments():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    payments = get_all_payment_requests()
+    user_map = {
+        user.id: user.username
+        for user in User.query.filter(User.id.in_([tx.user_id for tx in payments])).all()
+    } if payments else {}
+
+    for tx in payments:
+        tx.display_username = user_map.get(tx.user_id, f"User #{tx.user_id}")
+
+    return render_template('payments.html', payments=payments)
+
+
+@app.route('/admin/payments/confirm', methods=['POST'])
+@login_required
+def admin_confirm_payment():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    tx_id = request.form.get('payment_id', type=int)
+    if not tx_id:
+        flash('Select a payment first.', 'error')
+        return redirect(url_for('admin_payments'))
+
+    tx = db.session.get(PaymentTransaction, tx_id)
+    ok, message = confirm_payment_transaction(tx, current_user)
+    flash(message, 'success' if ok else 'error')
+    return redirect(url_for('admin_payments'))
+
+
 @app.route('/admin/terminate-system', methods=['POST'])
 @login_required
 def terminate_system():
@@ -1928,8 +2015,63 @@ def topup_online():
         flash('Invalid top-up amount.', 'error')
         return redirect_for_current_user_page()
 
-    tx = create_online_payment_request(current_user, amount, source="web_online")
-    flash(f'Payment request saved: {tx.external_id}. Waiting for confirmation.', 'success')
+    return_to = resolve_safe_return_to(request.form.get('return_to')) or resolve_safe_return_to(request.referrer)
+    return render_template(
+        'payment.html',
+        amount=amount,
+        return_to=return_to,
+        paymongo_public_key=PAYMONGO_PUBLIC_KEY,
+        paymongo_ready=bool(PAYMONGO_PUBLIC_KEY),
+        topup_currency=TOPUP_CURRENCY.upper(),
+        payment_methods=ALLOWED_TOPUP_METHODS
+    )
+
+
+@app.route('/topup/complete', methods=['POST'])
+@login_required
+def topup_complete():
+    amount = parse_topup_amount(request.form.get('amount', '').strip())
+    if amount is None:
+        flash('Invalid top-up amount.', 'error')
+        return redirect_for_current_user_page()
+
+    method = str(request.form.get('method', '')).strip().lower()
+    if method not in ALLOWED_TOPUP_METHODS:
+        flash('Invalid payment method.', 'error')
+        return redirect_for_current_user_page()
+
+    return_to = resolve_safe_return_to(request.form.get('return_to'))
+    payment_method_id = str(request.form.get('payment_method_id', '')).strip()
+    payment_reference = str(request.form.get('payment_reference', '')).strip()
+
+    if method == "cash":
+        tx = create_payment_request(
+            current_user,
+            amount,
+            source="cash_checkout",
+            provider="cash",
+            status="awaiting_cash",
+            external_id=f"CASH-{uuid.uuid4().hex[:16].upper()}"
+        )
+        flash(f'Cash top-up request saved: {tx.external_id}. Please pay at the counter.', 'success')
+    else:
+        external_id = payment_method_id or payment_reference or f"{method.upper()}-{uuid.uuid4().hex[:16].upper()}"
+        tx = create_payment_request(
+            current_user,
+            amount,
+            source=f"paymongo_{method}",
+            provider=f"paymongo_{method}",
+            status="pending_confirmation",
+            external_id=external_id
+        )
+        flash(
+            f'{ALLOWED_TOPUP_METHODS[method]} top-up request saved: {tx.external_id}. '
+            f'Payment is waiting for confirmation.',
+            'success'
+        )
+
+    if return_to:
+        return redirect(return_to)
     return redirect_for_current_user_page()
 
 
@@ -1945,6 +2087,35 @@ def payment_success():
 def payment_cancel():
     flash('Payment cancelled.', 'info')
     return redirect(url_for('index'))
+
+
+@app.route('/client/payments/cancel/<int:payment_id>', methods=['POST'])
+@login_required
+def client_cancel_payment(payment_id):
+    tx = PaymentTransaction.query.filter_by(id=payment_id, user_id=current_user.id).first()
+    if not tx:
+        flash('Payment request not found.', 'error')
+        return redirect_for_current_user_page()
+
+    if tx.status == 'paid':
+        flash('Confirmed payments cannot be cancelled.', 'error')
+        return redirect_for_current_user_page()
+
+    if tx.status == 'cancelled':
+        flash('Payment request is already cancelled.', 'info')
+        return redirect_for_current_user_page()
+
+    tx.status = 'cancelled'
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action=(
+            f"Cancelled own payment request {tx.external_id}, "
+            f"provider={tx.provider}, amount={tx.amount:.2f} {tx.currency}"
+        )
+    ))
+    db.session.commit()
+    flash(f'Payment request {tx.external_id} cancelled.', 'success')
+    return redirect_for_current_user_page()
 
 
 @app.route('/pc_command', methods=['POST'])
