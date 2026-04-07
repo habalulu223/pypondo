@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Payment Method</title>
+    <link rel='icon' type='image/x-icon' href='/favicon.ico'>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0b0c15;
+            --card: #151922;
+            --line: #00f3ff;
+            --ok: #00ff9d;
+            --warn: #ff0055;
+            --text: #e0e6ed;
+            --muted: #90a6bc;
+        }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Roboto', sans-serif;
+            padding: 18px;
+        }
+        .shell {
+            max-width: 1040px;
+            margin: 0 auto;
+        }
+        .top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 18px;
+            border-bottom: 2px solid var(--line);
+            padding-bottom: 12px;
+        }
+        .top h1 {
+            margin: 0;
+            font-family: 'Orbitron', sans-serif;
+            color: var(--line);
+            font-size: clamp(1.2rem, 2vw, 1.7rem);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .btn,
+        button {
+            background: transparent;
+            border: 1px solid var(--line);
+            color: var(--line);
+            padding: 10px 14px;
+            border-radius: 6px;
+            text-decoration: none;
+            cursor: pointer;
+            font-family: 'Orbitron', sans-serif;
+            text-transform: uppercase;
+            transition: 0.25s;
+        }
+        .btn:hover,
+        button:hover {
+            background: var(--line);
+            color: #000;
+            box-shadow: 0 0 14px rgba(0, 243, 255, 0.45);
+        }
+        .btn.warn {
+            border-color: var(--warn);
+            color: var(--warn);
+        }
+        .btn.warn:hover {
+            background: var(--warn);
+            color: #fff;
+            box-shadow: 0 0 14px rgba(255, 0, 85, 0.35);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: minmax(280px, 0.95fr) minmax(360px, 1.2fr);
+            gap: 18px;
+        }
+        .card {
+            background: linear-gradient(180deg, rgba(21, 25, 34, 0.95), rgba(10, 15, 25, 0.96));
+            border: 1px solid #2a3347;
+            border-radius: 14px;
+            padding: 20px;
+            box-shadow: 0 0 24px rgba(0, 243, 255, 0.08);
+        }
+        .card h2 {
+            margin-top: 0;
+            margin-bottom: 12px;
+            font-family: 'Orbitron', sans-serif;
+            color: var(--line);
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .summary-amount {
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(2rem, 4vw, 2.7rem);
+            color: var(--ok);
+            margin: 10px 0 14px;
+        }
+        .muted {
+            color: var(--muted);
+            line-height: 1.5;
+        }
+        .method-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(110px, 1fr));
+            gap: 12px;
+            margin: 14px 0 18px;
+        }
+        .method-option input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .method-label {
+            display: block;
+            padding: 16px 12px;
+            border-radius: 12px;
+            border: 1px solid #33415a;
+            background: rgba(11, 18, 30, 0.9);
+            cursor: pointer;
+            min-height: 88px;
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .method-label strong {
+            display: block;
+            margin-bottom: 6px;
+            font-family: 'Orbitron', sans-serif;
+            color: #f3f8ff;
+        }
+        .method-label span {
+            font-size: 0.84rem;
+            color: var(--muted);
+            line-height: 1.4;
+        }
+        .method-option input:checked + .method-label {
+            border-color: var(--line);
+            box-shadow: 0 0 18px rgba(0, 243, 255, 0.2);
+            transform: translateY(-2px);
+        }
+        .field-group {
+            display: none;
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid #29324a;
+        }
+        .field-group.active {
+            display: block;
+        }
+        .field-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 11px 12px;
+            margin: 0 0 10px;
+            border-radius: 6px;
+            border: 1px solid #3a465f;
+            background: #0e1422;
+            color: #fff;
+        }
+        input:focus {
+            border-color: var(--line);
+            outline: none;
+        }
+        .helper,
+        .notice,
+        .error-box {
+            border-radius: 10px;
+            padding: 12px 14px;
+            line-height: 1.45;
+            font-size: 0.9rem;
+        }
+        .helper {
+            background: rgba(0, 243, 255, 0.08);
+            border: 1px solid rgba(0, 243, 255, 0.22);
+            color: #b5edf7;
+        }
+        .notice {
+            background: rgba(255, 179, 107, 0.08);
+            border: 1px solid rgba(255, 179, 107, 0.28);
+            color: #ffcc98;
+        }
+        .error-box {
+            display: none;
+            margin-top: 12px;
+            background: rgba(255, 0, 85, 0.08);
+            border: 1px solid rgba(255, 0, 85, 0.24);
+            color: #ff9cb8;
+        }
+        .error-box.active {
+            display: block;
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 18px;
+        }
+        .actions button {
+            flex: 1 1 220px;
+        }
+        .fine-print {
+            margin-top: 16px;
+            font-size: 0.82rem;
+            color: var(--muted);
+        }
+        @media (max-width: 920px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        @media (max-width: 640px) {
+            .method-grid,
+            .field-row {
+                grid-template-columns: 1fr;
+            }
+            .top {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    {% include '_animated_background.html' %}
+    {% include '_startup_splash.html' %}
+
+    <div class="shell">
+        <div class="top">
+            <h1>Choose Payment Method</h1>
+            <a class="btn warn" href="{{ return_to or url_for('client_bookings') }}">Back</a>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Top-Up Summary</h2>
+                <div class="muted">You are about to add funds to <strong>{{ current_user.username }}</strong>.</div>
+                <div class="summary-amount">{{ topup_currency }} {{ '%.2f'|format(amount) }}</div>
+                <div class="helper">Select a payment method on the right. `Cash` creates a counter payment request. `GCash` and `Card` create a PayMongo payment-method record, then save the top-up request in PyPondo for confirmation.</div>
+                <div class="fine-print">Current balance: PHP {{ '%.2f'|format(current_user.pondo) }}</div>
+            </div>
+
+            <div class="card">
+                <h2>Payment Method</h2>
+
+                <div class="method-grid">
+                    <label class="method-option">
+                        <input type="radio" name="payment_method" value="gcash" checked>
+                        <span class="method-label">
+                            <strong>GCash</strong>
+                            <span>Mobile wallet details and PayMongo payment-method creation.</span>
+                        </span>
+                    </label>
+                    <label class="method-option">
+                        <input type="radio" name="payment_method" value="card">
+                        <span class="method-label">
+                            <strong>Card</strong>
+                            <span>Enter card details to create a PayMongo card method.</span>
+                        </span>
+                    </label>
+                    <label class="method-option">
+                        <input type="radio" name="payment_method" value="cash">
+                        <span class="method-label">
+                            <strong>Cash</strong>
+                            <span>Manual payment at the counter with pending confirmation.</span>
+                        </span>
+                    </label>
+                </div>
+
+                <form id="checkoutForm" action="{{ url_for('topup_complete') }}" method="POST">
+                    <input type="hidden" name="amount" value="{{ '%.2f'|format(amount) }}">
+                    <input type="hidden" name="method" id="selectedMethod" value="gcash">
+                    <input type="hidden" name="payment_method_id" id="paymentMethodId" value="">
+                    <input type="hidden" name="payment_reference" id="paymentReference" value="">
+                    <input type="hidden" name="return_to" value="{{ return_to or '' }}">
+
+                    <div id="gcashFields" class="field-group active">
+                        <div class="field-row">
+                            <input id="gcashName" type="text" placeholder="Full name">
+                            <input id="gcashEmail" type="email" placeholder="Email address">
+                        </div>
+                        <input id="gcashPhone" type="text" placeholder="Mobile number (e.g. 09171234567)">
+                        <div class="notice">This page uses your PayMongo public test key to create a GCash payment method record before saving the request.</div>
+                    </div>
+
+                    <div id="cardFields" class="field-group">
+                        <div class="field-row">
+                            <input id="cardName" type="text" placeholder="Cardholder name">
+                            <input id="cardEmail" type="email" placeholder="Billing email">
+                        </div>
+                        <input id="cardNumber" type="text" inputmode="numeric" placeholder="Card number">
+                        <div class="field-row">
+                            <input id="cardExpMonth" type="text" inputmode="numeric" placeholder="Exp month (MM)">
+                            <input id="cardExpYear" type="text" inputmode="numeric" placeholder="Exp year (YYYY)">
+                        </div>
+                        <input id="cardCvc" type="text" inputmode="numeric" placeholder="CVC">
+                        <div class="notice">Card details are sent straight to PayMongo to create a payment method record and are not stored in PyPondo.</div>
+                    </div>
+
+                    <div id="cashFields" class="field-group">
+                        <div class="helper">Cash top-up will be marked as <strong>awaiting cash</strong>. The user can pay the counter staff, and the balance should be confirmed afterward.</div>
+                    </div>
+
+                    <div id="paymentError" class="error-box"></div>
+
+                    <div class="actions">
+                        <button id="submitButton" type="submit">Continue With GCash</button>
+                    </div>
+                </form>
+
+                <div class="fine-print">
+                    PayMongo public key loaded:
+                    <strong>{{ 'Yes' if paymongo_ready else 'No' }}</strong>
+                    {% if not paymongo_ready %}
+                    <br>Online method creation is disabled until a public key is configured.
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            var paymongoPublicKey = {{ paymongo_public_key|tojson }};
+            var paymongoReady = {{ 'true' if paymongo_ready else 'false' }};
+            var radioButtons = Array.prototype.slice.call(document.querySelectorAll('input[name="payment_method"]'));
+            var selectedMethodInput = document.getElementById('selectedMethod');
+            var paymentMethodIdInput = document.getElementById('paymentMethodId');
+            var paymentReferenceInput = document.getElementById('paymentReference');
+            var paymentError = document.getElementById('paymentError');
+            var submitButton = document.getElementById('submitButton');
+            var checkoutForm = document.getElementById('checkoutForm');
+
+            var fieldGroups = {
+                gcash: document.getElementById('gcashFields'),
+                card: document.getElementById('cardFields'),
+                cash: document.getElementById('cashFields')
+            };
+
+            var labels = {
+                gcash: 'Continue With GCash',
+                card: 'Continue With Card',
+                cash: 'Save Cash Request'
+            };
+
+            function showError(message) {
+                paymentError.textContent = message;
+                paymentError.classList.add('active');
+            }
+
+            function clearError() {
+                paymentError.textContent = '';
+                paymentError.classList.remove('active');
+            }
+
+            function normalizeCardYear(value) {
+                var raw = String(value || '').trim();
+                if (raw.length === 2) {
+                    return '20' + raw;
+                }
+                return raw;
+            }
+
+            function setActiveMethod(method) {
+                selectedMethodInput.value = method;
+                paymentMethodIdInput.value = '';
+                paymentReferenceInput.value = '';
+                clearError();
+
+                Object.keys(fieldGroups).forEach(function(key) {
+                    fieldGroups[key].classList.toggle('active', key === method);
+                });
+
+                submitButton.textContent = labels[method] || 'Continue';
+                submitButton.disabled = (!paymongoReady && method !== 'cash');
+            }
+
+            async function createPayMongoPaymentMethod(method) {
+                var payload;
+
+                if (method === 'gcash') {
+                    var gcashName = document.getElementById('gcashName').value.trim();
+                    var gcashEmail = document.getElementById('gcashEmail').value.trim();
+                    var gcashPhone = document.getElementById('gcashPhone').value.trim();
+
+                    if (!gcashName || !gcashEmail || !gcashPhone) {
+                        throw new Error('Complete the GCash name, email, and mobile number fields.');
+                    }
+
+                    payload = {
+                        data: {
+                            attributes: {
+                                type: 'gcash',
+                                billing: {
+                                    name: gcashName,
+                                    email: gcashEmail,
+                                    phone: gcashPhone
+                                }
+                            }
+                        }
+                    };
+                } else {
+                    var cardName = document.getElementById('cardName').value.trim();
+                    var cardEmail = document.getElementById('cardEmail').value.trim();
+                    var cardNumber = document.getElementById('cardNumber').value.replace(/\s+/g, '');
+                    var cardExpMonth = document.getElementById('cardExpMonth').value.trim();
+                    var cardExpYear = normalizeCardYear(document.getElementById('cardExpYear').value);
+                    var cardCvc = document.getElementById('cardCvc').value.trim();
+
+                    if (!cardName || !cardEmail || !cardNumber || !cardExpMonth || !cardExpYear || !cardCvc) {
+                        throw new Error('Complete all card fields before continuing.');
+                    }
+
+                    payload = {
+                        data: {
+                            attributes: {
+                                type: 'card',
+                                details: {
+                                    card_number: cardNumber,
+                                    exp_month: parseInt(cardExpMonth, 10),
+                                    exp_year: parseInt(cardExpYear, 10),
+                                    cvc: cardCvc
+                                },
+                                billing: {
+                                    name: cardName,
+                                    email: cardEmail
+                                }
+                            }
+                        }
+                    };
+                }
+
+                var response = await fetch('https://api.paymongo.com/v1/payment_methods', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Basic ' + btoa(paymongoPublicKey + ':')
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                var body = await response.json().catch(function() { return {}; });
+                if (!response.ok) {
+                    var detail = 'Unable to create the payment method.';
+                    if (body && body.errors && body.errors.length && body.errors[0].detail) {
+                        detail = body.errors[0].detail;
+                    }
+                    throw new Error(detail);
+                }
+
+                if (!body || !body.data || !body.data.id) {
+                    throw new Error('PayMongo did not return a payment method id.');
+                }
+
+                return body.data.id;
+            }
+
+            radioButtons.forEach(function(radio) {
+                radio.addEventListener('change', function() {
+                    setActiveMethod(radio.value);
+                });
+            });
+
+            checkoutForm.addEventListener('submit', async function(event) {
+                var method = selectedMethodInput.value;
+                clearError();
+
+                if (method === 'cash') {
+                    return;
+                }
+
+                event.preventDefault();
+
+                if (!paymongoReady) {
+                    showError('PayMongo public key is not configured.');
+                    return;
+                }
+
+                submitButton.disabled = true;
+                submitButton.textContent = 'Connecting...';
+
+                try {
+                    var paymentMethodId = await createPayMongoPaymentMethod(method);
+                    paymentMethodIdInput.value = paymentMethodId;
+                    paymentReferenceInput.value = paymentMethodId;
+                    checkoutForm.submit();
+                } catch (error) {
+                    showError(error.message || 'Payment setup failed.');
+                    submitButton.disabled = false;
+                    submitButton.textContent = labels[method] || 'Continue';
+                }
+            });
+
+            setActiveMethod('gcash');
+        })();
+    </script>
+</body>
+</html>
