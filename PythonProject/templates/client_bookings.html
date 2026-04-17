@@ -11,12 +11,34 @@
         body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; padding: 16px; }
         .top { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--line); padding-bottom: 10px; margin-bottom: 18px; }
         .top h1 { margin: 0; font-family: 'Orbitron', sans-serif; font-size: 1.2rem; color: var(--line); letter-spacing: 1px; }
-        .btn { display: inline-block; text-decoration: none; border: 1px solid var(--line); color: var(--line); padding: 8px 12px; border-radius: 4px; font-size: 0.85rem; background: transparent; cursor: pointer; }
-        .btn:hover { background: var(--line); color: #000; }
-        .warn { border-color: var(--warn); color: var(--warn); }
-        .warn:hover { background: var(--warn); color: #fff; }
-        .ok { border-color: var(--ok); color: var(--ok); }
-        .ok:hover { background: var(--ok); color: #000; }
+        .btn, .quick-amounts button, .btn.history-cancel {
+            display: inline-block;
+            text-decoration: none;
+            border: 1px solid var(--line);
+            color: var(--line);
+            background: #000;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            box-shadow: 0 0 14px rgba(0, 243, 255, 0.18);
+            transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+            cursor: pointer;
+        }
+        .btn:hover, .quick-amounts button:hover, .btn.history-cancel:hover {
+            background: var(--line);
+            color: #000;
+            border-color: var(--line);
+            box-shadow: 0 0 24px rgba(0, 243, 255, 0.32);
+        }
+        .warn { border-color: var(--line); color: var(--line); }
+        .warn:hover { background: var(--line); color: #000; }
+        .ok { border-color: var(--line); color: var(--line); }
+        .ok:hover { background: var(--line); color: #000; }
+        .history-cancel {
+            border-color: var(--line);
+            color: var(--line);
+        }
+        .history-cancel:hover { background: var(--line); color: #000; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .card { border: 1px solid #2d3650; border-radius: 8px; background: var(--card); padding: 14px; }
         .card h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); font-size: 1rem; }
