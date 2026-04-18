@@ -217,7 +217,6 @@
                 </div>
                 <div style="margin-bottom:15px; border:1px solid #333; border-radius:8px; padding:12px;">
                     <small style="color:#666; text-transform:uppercase;">LAN Discovery</small>
-                    <a href="/admin/auto_assign_ips" class="btn" style="width:100%; box-sizing:border-box; text-align:center;">Auto Assign IPs</a>
                     <p style="font-size:0.85em; color:#aaa; margin:8px 0 4px;">Server LAN IPs (IPv4/IPv6): {{ local_ips|join(', ') if local_ips else 'N/A' }}</p>
                     {% if lan_summary %}
                         <p style="font-size:0.85em; color:#aaa; margin:2px 0 2px;">Router: {{ lan_summary.gateway_ipv4 or 'N/A' }} | Mask: {{ lan_summary.subnet_mask or 'N/A' }}</p>

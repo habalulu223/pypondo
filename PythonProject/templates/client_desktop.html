@@ -81,7 +81,7 @@
     <div class="top">
         <h1>Client Desktop // Unlocked</h1>
         <div>
-            <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App</button>
+            <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
             <a class="btn" href="{{ url_for('client_bookings') }}">Bookings</a>
             <a class="btn warn" href="{{ url_for('logout') }}">Logout</a>
         </div>
@@ -108,6 +108,7 @@
             <h2>Desktop Access Panel</h2>
             <p>Desktop is unlocked because your balance is greater than zero.</p>
             <p>Resize this tab from the lower-right corner based on client preference.</p>
+            <p>Use "Minimize App (Timer)" to minimize and start the billing timer. The timer can be moved by clicking and holding, and becomes transparent after 20 seconds.</p>
             <p>Keep this app open while the client is using the station.</p>
             {% if kiosk_mode %}
                 <p style="color:#ffb36b;">Kiosk lock is enabled. Window close controls are disabled.</p>
@@ -162,7 +163,7 @@
 
     <div class="actions">
         <a class="btn" href="{{ url_for('client_bookings') }}">Manage Bookings</a>
-        <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App</button>
+        <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
     </div>
 
     <!-- Hidden termination dialog -->

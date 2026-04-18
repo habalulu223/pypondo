@@ -987,6 +987,8 @@ def launch_browser_control_window(url):
 def launch_ui(url):
     try:
         import webview  # type: ignore
+        import tkinter as tk
+        from tkinter import ttk
 
         # Install lock immediately so it is active even before JS bridge is ready.
         if kiosk_lock_enabled():
@@ -996,11 +998,27 @@ def launch_ui(url):
                 if is_verbose_logging_enabled():
                     print(f"[WARN] Failed to pre-enable kiosk lock: {exc}")
 
+        # Timer window variables
+        timer_thread = None
+
+        def create_timer_window():
+            try:
+                import subprocess
+                script_path = os.path.join(os.path.dirname(__file__), "timer_window.py")
+                subprocess.Popen([sys.executable, script_path], 
+                               creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            except Exception as e:
+                print(f"Failed to start timer: {e}")
+
         try:
             class Api:
                 def minimize(self):
                     try:
                         webview.windows[0].minimize()
+                        # Start timer in a separate thread
+                        import threading
+                        timer_thread = threading.Thread(target=create_timer_window, daemon=True)
+                        timer_thread.start()
                     except Exception:
                         pass
                 
