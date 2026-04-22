@@ -75,10 +75,10 @@
         <div>
             {% if current_user.pondo > 0 %}
             <a class="btn ok" href="{{ url_for('client_desktop') }}">Go To Desktop</a>
-            <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App</button>
+            <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
             {% endif %}
             {% if not kiosk_mode %}
-            <a class="btn warn" href="{{ url_for('logout') }}">Logout</a>
+            <a class="btn warn" href="{{ url_for('logout') }}" onclick="clearDashboardTimerState()">Logout</a>
             {% endif %}
         </div>
     </div>
@@ -97,9 +97,14 @@
         <span class="{{ 'balance-ok' if current_user.pondo > 0 else 'balance-low' }}">
             PHP {{ "%.2f"|format(current_user.pondo) }}
         </span>
+        | Timer: <strong id="dashboard-timer-time">00:00:00</strong>
+        | Estimated Cost: <strong id="dashboard-timer-cost">PHP 0.00</strong>
         {% if current_user.pondo <= 0 %}
             | Add credits to unlock desktop access.
         {% endif %}
+        <div class="subtle" id="dashboard-timer-note" style="margin-top:8px;">
+            The timer shows here in the user dashboard once desktop use starts, and it continues in the floating desktop timer when the app is minimized.
+        </div>
     </div>
 
     <div class="grid">
@@ -152,17 +157,16 @@
 
         <div class="card">
             <h2>Create Booking</h2>
-            <form action="{{ url_for('book_pc') }}" method="POST">
+            <form action="{{ url_for('book_pc') }}" method="POST" class="booking-form">
                 <select name="pc_id" required>
-                    <option value="" disabled selected>Select Available PC</option>
+                    <option value="" disabled selected>Select PC</option>
                     {% for pc in pcs %}
-                        {% if not pc.is_occupied %}
-                            <option value="{{ pc.id }}">{{ pc.name }}</option>
-                        {% endif %}
+                        <option value="{{ pc.id }}">{{ pc.name }}{% if pc.booking_in_use_now %} (In Use){% else %} (Ready){% endif %}</option>
                     {% endfor %}
                 </select>
-                <input type="date" name="booking_date" min="{{ today_date }}" value="{{ today_date }}" required>
-                <input type="time" name="time_slot" required>
+                <input type="date" name="booking_date" class="booking-date-input" min="{{ today_date }}" value="{{ today_date }}" required>
+                <input type="time" name="time_slot" class="booking-time-input" required>
+                <p class="subtle">Same-day bookings must be at least {{ booking_lead_minutes }} minutes ahead. PCs marked "In Use" can still be reserved for a later time.</p>
                 <button type="submit" class="btn" style="width:100%;">Reserve Slot</button>
             </form>
         </div>
@@ -210,9 +214,154 @@
     </div>
 
     <script>
-        // Enable kiosk lock when user is logged in and on bookings page
-        if (window.pywebview && window.pywebview.api && window.pywebview.api.enable_kiosk_lock) {
-            window.pywebview.api.enable_kiosk_lock();
+        function withPywebviewApi(callback) {
+            if (window.pywebview && window.pywebview.api) {
+                callback(window.pywebview.api);
+                return;
+            }
+            window.addEventListener('pywebviewready', function () {
+                if (window.pywebview && window.pywebview.api) {
+                    callback(window.pywebview.api);
+                }
+            }, { once: true });
+        }
+
+        withPywebviewApi(function (api) {
+            if (api.enable_kiosk_lock) {
+                api.enable_kiosk_lock();
+            }
+        });
+
+        function formatLocalDate(date) {
+            return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+        }
+
+        function formatLocalTime(date) {
+            return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+        }
+
+        function wireBookingForms() {
+            var leadMinutes = {{ booking_lead_minutes|tojson }};
+            var bookingForms = document.querySelectorAll('form.booking-form');
+
+            bookingForms.forEach(function (form) {
+                var dateInput = form.querySelector('input.booking-date-input');
+                var timeInput = form.querySelector('input.booking-time-input');
+                if (!dateInput || !timeInput) {
+                    return;
+                }
+
+                function syncConstraints() {
+                    var now = new Date();
+                    var cutoff = new Date(now.getTime() + leadMinutes * 60000);
+                    var today = formatLocalDate(now);
+                    var cutoffDate = formatLocalDate(cutoff);
+
+                    dateInput.min = today;
+                    if (!dateInput.value || dateInput.value < cutoffDate) {
+                        dateInput.value = cutoffDate;
+                    }
+
+                    if (dateInput.value === cutoffDate) {
+                        var minTime = formatLocalTime(cutoff);
+                        timeInput.min = minTime;
+                        if (!timeInput.value || timeInput.value < minTime) {
+                            timeInput.value = minTime;
+                        }
+                        return;
+                    }
+
+                    timeInput.min = '';
+                }
+
+                dateInput.addEventListener('change', syncConstraints);
+                timeInput.addEventListener('focus', syncConstraints);
+                syncConstraints();
+            });
+        }
+
+        wireBookingForms();
+
+        var dashboardTimer = (function () {
+            var storageKey = 'pypondo.timer.started_at.user.{{ current_user.id }}';
+            var hourlyRate = {{ hourly_rate|tojson }};
+            var hasDesktopAccess = {{ (current_user.pondo > 0)|tojson }};
+            var timeNode = document.getElementById('dashboard-timer-time');
+            var costNode = document.getElementById('dashboard-timer-cost');
+            var noteNode = document.getElementById('dashboard-timer-note');
+
+            function readStartedAt() {
+                var rawValue = window.localStorage.getItem(storageKey);
+                var parsedValue = parseInt(rawValue, 10);
+                return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
+            }
+
+            function ensureStartedAt() {
+                if (!hasDesktopAccess) {
+                    return null;
+                }
+                var startedAt = readStartedAt();
+                if (!startedAt) {
+                    startedAt = Date.now();
+                    window.localStorage.setItem(storageKey, String(startedAt));
+                }
+                return startedAt;
+            }
+
+            function formatElapsed(elapsedMs) {
+                var totalSeconds = Math.max(Math.floor(elapsedMs / 1000), 0);
+                var hours = Math.floor(totalSeconds / 3600);
+                var minutes = Math.floor((totalSeconds % 3600) / 60);
+                var seconds = totalSeconds % 60;
+                return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+            }
+
+            function render() {
+                if (!hasDesktopAccess) {
+                    window.localStorage.removeItem(storageKey);
+                    timeNode.textContent = '00:00:00';
+                    costNode.textContent = 'PHP 0.00';
+                    noteNode.textContent = 'The timer starts after desktop access is unlocked and will continue when the app is minimized.';
+                    return;
+                }
+
+                var startedAt = readStartedAt();
+                if (!startedAt) {
+                    timeNode.textContent = '00:00:00';
+                    costNode.textContent = 'PHP 0.00';
+                    noteNode.textContent = 'Open desktop access or minimize the app to start the timer, then it will stay visible here as well.';
+                    return;
+                }
+
+                var elapsedMs = Math.max(Date.now() - startedAt, 0);
+                timeNode.textContent = formatElapsed(elapsedMs);
+                costNode.textContent = 'PHP ' + ((elapsedMs / 3600000) * hourlyRate).toFixed(2);
+                noteNode.textContent = 'The timer is running and will stay synced with the floating desktop timer when the app is minimized.';
+            }
+
+            render();
+            window.setInterval(render, 1000);
+
+            return {
+                ensureStartedAt: ensureStartedAt,
+                clear: function () {
+                    window.localStorage.removeItem(storageKey);
+                    timeNode.textContent = '00:00:00';
+                    costNode.textContent = 'PHP 0.00';
+                }
+            };
+        })();
+
+        function clearDashboardTimerState() {
+            if (dashboardTimer) {
+                dashboardTimer.clear();
+            }
+            withPywebviewApi(function (api) {
+                if (api.stop_timer) {
+                    api.stop_timer();
+                }
+            });
+            return true;
         }
 
         function minimizeClientApp() {
@@ -230,9 +379,38 @@
             }
         }
 
+        function isTypingField(target) {
+            if (!target || !target.tagName) {
+                return false;
+            }
+            var tag = target.tagName.toLowerCase();
+            return tag === 'input' || tag === 'textarea' || target.isContentEditable;
+        }
+
         // Block Windows shortcuts and dangerous key combinations
         document.addEventListener('keydown', function(event) {
-            // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows/meta key, Alt+F4, Ctrl+W
+            if (isTypingField(event.target) || isTypingField(document.activeElement)) {
+                if (
+                    (event.altKey && event.key === 'Tab') ||
+                    (event.altKey && event.key === 'Escape') ||
+                    (event.ctrlKey && event.altKey && event.key === 'Delete') ||
+                    event.key === 'Meta' ||
+                    event.key === 'Win' ||
+                    event.key === 'OS' ||
+                    event.keyCode === 91 || event.keyCode === 92 ||
+                    (event.code && event.code.toLowerCase().includes('meta')) ||
+                    (event.altKey && event.key === 'F4') ||
+                    (event.ctrlKey && event.key === 'w') ||
+                    (event.ctrlKey && event.key === 'W') ||
+                    (event.ctrlKey && event.key === 'Escape') ||
+                    (event.ctrlKey && event.altKey && event.key === 'Escape')
+                ) {
+                    event.preventDefault();
+                    return false;
+                }
+                return;
+            }
+
             if (
                 (event.altKey && event.key === 'Tab') ||
                 (event.altKey && event.key === 'Escape') ||

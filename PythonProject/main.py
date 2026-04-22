@@ -27,6 +27,7 @@ try:
     from kivy.uix.scrollview import ScrollView
     from kivy.uix.spinner import Spinner
     from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelHeader, TabbedPanelItem
+    from kivy.uix.screenmanager import Screen, ScreenManager
     from kivy.core.window import Window
     from kivy.clock import Clock
     from kivy.properties import StringProperty, NumericProperty
@@ -36,6 +37,99 @@ try:
 except ImportError:
     KIVY_AVAILABLE = False
     print("Kivy not available. This is a desktop-only version.")
+
+    class _FallbackWidget:
+        def __init__(self, *args, **kwargs):
+            self.children = []
+            self.text = kwargs.get("text", "")
+            self.disabled = kwargs.get("disabled", False)
+            self.values = kwargs.get("values", [])
+            self.content = None
+            self.current = None
+
+        def add_widget(self, widget):
+            self.children.append(widget)
+
+        def bind(self, *args, **kwargs):
+            return None
+
+        def setter(self, _name):
+            return lambda *args, **kwargs: None
+
+        def clear_widgets(self):
+            self.children = []
+
+        def switch_to(self, *_args, **_kwargs):
+            return None
+
+        def scroll_to(self, *_args, **_kwargs):
+            return None
+
+    class App:
+        def __init__(self, *args, **kwargs):
+            self.root = None
+
+        @staticmethod
+        def get_running_app():
+            return None
+
+        def run(self):
+            raise RuntimeError("Kivy is required for the mobile app.")
+
+    class Screen(_FallbackWidget):
+        pass
+
+    class ScreenManager(_FallbackWidget):
+        pass
+
+    class BoxLayout(_FallbackWidget):
+        pass
+
+    class GridLayout(_FallbackWidget):
+        pass
+
+    class Label(_FallbackWidget):
+        pass
+
+    class Button(_FallbackWidget):
+        pass
+
+    class TextInput(_FallbackWidget):
+        pass
+
+    class ScrollView(_FallbackWidget):
+        pass
+
+    class Spinner(_FallbackWidget):
+        pass
+
+    class TabbedPanel(_FallbackWidget):
+        pass
+
+    class TabbedPanelHeader(_FallbackWidget):
+        pass
+
+    class TabbedPanelItem(_FallbackWidget):
+        pass
+
+    class Window:
+        size = (0, 0)
+
+    class Clock:
+        @staticmethod
+        def schedule_once(*_args, **_kwargs):
+            return None
+
+    class StringProperty:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class NumericProperty:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    def dp(value):
+        return value
 
 # Constants
 DEFAULT_SERVER_HOST = "192.168.1.100"

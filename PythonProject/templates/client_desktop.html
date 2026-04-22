@@ -83,7 +83,7 @@
         <div>
             <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
             <a class="btn" href="{{ url_for('client_bookings') }}">Bookings</a>
-            <a class="btn warn" href="{{ url_for('logout') }}">Logout</a>
+            <a class="btn warn" href="{{ url_for('logout') }}" onclick="clearDashboardTimerState()">Logout</a>
         </div>
     </div>
 
@@ -97,10 +97,15 @@
 
     <div class="status">
         Logged in as <strong>{{ current_user.username }}</strong> |
-        Balance: <strong>PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
+        Balance: <strong id="user-balance-top">PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
         {% if active_session %}
             | Active session started: <strong>{{ active_session.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</strong>
         {% endif %}
+        | Timer: <strong id="dashboard-timer-time">00:00:00</strong>
+        | Estimated Cost: <strong id="dashboard-timer-cost">PHP 0.00</strong>
+        <div class="subtle" id="dashboard-timer-note" style="margin-top:8px;">
+            The timer runs here on the dashboard and continues in the floating desktop timer when the app is minimized.
+        </div>
     </div>
 
     <div class="grid">
@@ -108,7 +113,7 @@
             <h2>Desktop Access Panel</h2>
             <p>Desktop is unlocked because your balance is greater than zero.</p>
             <p>Resize this tab from the lower-right corner based on client preference.</p>
-            <p>Use "Minimize App (Timer)" to minimize and start the billing timer. The timer can be moved by clicking and holding, and becomes transparent after 20 seconds.</p>
+            <p>Use "Minimize App (Timer)" to minimize and keep the floating timer visible on the desktop. The live timer above stays synced with the same start time.</p>
             <p>Keep this app open while the client is using the station.</p>
             {% if kiosk_mode %}
                 <p style="color:#ffb36b;">Kiosk lock is enabled. Window close controls are disabled.</p>
@@ -119,7 +124,7 @@
             <h2 style="margin-top:0; font-family: 'Orbitron', sans-serif; color: var(--line);">Wallet &amp; Top Up</h2>
             <p>
                 Available balance:
-                <strong>PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
+                <strong id="user-balance-bottom">PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
             </p>
             <form action="{{ url_for('topup_online') }}" method="POST">
                 <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required style="width:100%; box-sizing:border-box; margin: 6px 0; padding: 10px; border-radius: 4px; border: 1px solid #37415f; background: #0e1422; color: #fff;">
@@ -180,17 +185,204 @@
     </div>
 
     <script>
-        // Enable kiosk lock when user is logged in and on desktop
-        if (window.pywebview && window.pywebview.api && window.pywebview.api.enable_kiosk_lock) {
-            window.pywebview.api.enable_kiosk_lock();
-        }
+        function withPywebviewApi(callback) {
+            function attempt() {
+                if (window.pywebview && window.pywebview.api) {
+                    callback(window.pywebview.api);
+                    return true;
+                }
+                return false;
+            }
 
-        function minimizeClientApp() {
-            if (window.pywebview && window.pywebview.api && window.pywebview.api.minimize) {
-                window.pywebview.api.minimize();
+            if (attempt()) {
                 return;
             }
-            window.blur();
+
+            window.addEventListener('pywebviewready', function () {
+                attempt();
+            }, { once: true });
+
+            setTimeout(attempt, 200);
+            setTimeout(attempt, 1000);
+        }
+
+        withPywebviewApi(function (api) {
+            if (api.enable_kiosk_lock) {
+                api.enable_kiosk_lock();
+            }
+        });
+
+        var dashboardTimer = (function () {
+            var storageKey = 'pypondo.timer.started_at.user.{{ current_user.id }}';
+            var hourlyRate = {{ hourly_rate|tojson }};
+            var timeNode = document.getElementById('dashboard-timer-time');
+            var costNode = document.getElementById('dashboard-timer-cost');
+
+            function readStartedAt() {
+                var rawValue = window.localStorage.getItem(storageKey);
+                var parsedValue = parseInt(rawValue, 10);
+                return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
+            }
+
+            function ensureStartedAt() {
+                var startedAt = readStartedAt();
+                if (!startedAt) {
+                    startedAt = Date.now();
+                    window.localStorage.setItem(storageKey, String(startedAt));
+                }
+                return startedAt;
+            }
+
+            function formatElapsed(elapsedMs) {
+                var totalSeconds = Math.max(Math.floor(elapsedMs / 1000), 0);
+                var hours = Math.floor(totalSeconds / 3600);
+                var minutes = Math.floor((totalSeconds % 3600) / 60);
+                var seconds = totalSeconds % 60;
+                return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+            }
+
+            function render() {
+                var startedAt = ensureStartedAt();
+                var elapsedMs = Math.max(Date.now() - startedAt, 0);
+                timeNode.textContent = formatElapsed(elapsedMs);
+                costNode.textContent = 'PHP ' + ((elapsedMs / 3600000) * hourlyRate).toFixed(2);
+            }
+
+            render();
+            window.setInterval(render, 1000);
+
+            return {
+                ensureStartedAt: ensureStartedAt,
+                clear: function () {
+                    window.localStorage.removeItem(storageKey);
+                    timeNode.textContent = '00:00:00';
+                    costNode.textContent = 'PHP 0.00';
+                }
+            };
+        })();
+
+        // Automatically start the timer when the desktop client loads and the user has balance.
+        {% if current_user.pondo > 0 %}
+        withPywebviewApi(function (api) {
+            if (api.start_timer) {
+                api.start_timer(dashboardTimer.ensureStartedAt());
+            }
+        });
+        {% endif %}
+
+        function ensureTimerOnClose() {
+            var startedAt = dashboardTimer ? dashboardTimer.ensureStartedAt() : Date.now();
+            withPywebviewApi(function (api) {
+                if (api.start_timer) {
+                    api.start_timer(startedAt);
+                }
+            });
+        }
+
+        window.addEventListener('beforeunload', ensureTimerOnClose);
+        window.addEventListener('pagehide', ensureTimerOnClose);
+
+        function clearDashboardTimerState() {
+            if (dashboardTimer) {
+                dashboardTimer.clear();
+            }
+            withPywebviewApi(function (api) {
+                if (api.stop_timer) {
+                    api.stop_timer();
+                }
+            });
+            return true;
+        }
+
+        function chargeBalance() {
+            fetch('/api/charge-balance', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(function (response) {
+                return response.json();
+            })
+            .then(function (result) {
+                if (!result.ok) {
+                    console.warn('Charge balance failed:', result.message);
+                }
+            })
+            .catch(function (error) {
+                console.warn('Charge balance request failed:', error);
+            });
+        }
+
+        {% if current_user.pondo > 0 %}
+        setTimeout(chargeBalance, 5000);
+        setInterval(chargeBalance, 60000);
+        {% endif %}
+
+        function refreshSessionStatus() {
+            fetch('/api/session-status', {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(function (response) {
+                return response.json();
+            })
+            .then(function (result) {
+                if (result.ok) {
+                    // Update balance displays
+                    var balanceText = 'PHP ' + result.balance.toFixed(2);
+                    var topBalanceElement = document.getElementById('user-balance-top');
+                    var bottomBalanceElement = document.getElementById('user-balance-bottom');
+                    if (topBalanceElement) {
+                        topBalanceElement.textContent = balanceText;
+                    }
+                    if (bottomBalanceElement) {
+                        bottomBalanceElement.textContent = balanceText;
+                    }
+
+                    // Update cost display if we have session data
+                    if (result.has_session) {
+                        var costElement = document.getElementById('dashboard-timer-cost');
+                        if (costElement) {
+                            costElement.textContent = 'PHP ' + result.cost.toFixed(2);
+                        }
+                    }
+                }
+            })
+            .catch(function (error) {
+                console.warn('Session status refresh failed:', error);
+            });
+        }
+
+        // Refresh session status every 3 seconds for live updates
+        setInterval(refreshSessionStatus, 3000);
+        // Initial refresh
+        setTimeout(refreshSessionStatus, 1000);
+
+        function minimizeClientApp() {
+            withPywebviewApi(function (api) {
+                if (api.minimize) {
+                    Promise.resolve(api.minimize())
+                        .catch(function (e) {
+                            console.warn('Minimize API failed:', e);
+                            if (typeof window.close === 'function') {
+                                window.close();
+                            } else {
+                                window.blur();
+                            }
+                        });
+                    return;
+                }
+                if (typeof window.close === 'function') {
+                    window.close();
+                } else {
+                    window.blur();
+                }
+            });
         }
 
         function setTopup(amount) {
@@ -200,9 +392,39 @@
             }
         }
 
+        function isTypingField(target) {
+            if (!target || !target.tagName) {
+                return false;
+            }
+            var tag = target.tagName.toLowerCase();
+            return tag === 'input' || tag === 'textarea' || target.isContentEditable;
+        }
+
         // Block Windows shortcuts and dangerous key combinations
         document.addEventListener('keydown', function(event) {
-            // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows/meta key, Alt+F4, Ctrl+W
+            // Always allow normal typing in form fields, but still suppress unsafe OS combos.
+            if (isTypingField(event.target) || isTypingField(document.activeElement)) {
+                if (
+                    (event.altKey && event.key === 'Tab') ||
+                    (event.altKey && event.key === 'Escape') ||
+                    (event.ctrlKey && event.altKey && event.key === 'Delete') ||
+                    event.key === 'Meta' ||
+                    event.key === 'Win' ||
+                    event.key === 'OS' ||
+                    event.keyCode === 91 || event.keyCode === 92 ||
+                    (event.code && event.code.toLowerCase().includes('meta')) ||
+                    (event.altKey && event.key === 'F4') ||
+                    (event.ctrlKey && event.key === 'w') ||
+                    (event.ctrlKey && event.key === 'W') ||
+                    (event.ctrlKey && event.key === 'Escape') ||
+                    (event.ctrlKey && event.altKey && event.key === 'Escape')
+                ) {
+                    event.preventDefault();
+                    return false;
+                }
+                return;
+            }
+
             if (
                 (event.altKey && event.key === 'Tab') ||
                 (event.altKey && event.key === 'Escape') ||

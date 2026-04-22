@@ -16,13 +16,14 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
 
 # (list) List of inclusions using pattern matching
-#source.include_patterns = assets/*,images/*.png
+source.include_patterns = assets/*.png,assets/*.ico
 
 # (list) Source files to exclude (let empty to not exclude anything)
 #source.exclude_exts = spec
 
 # (list) List of directory to exclude (let empty to not exclude anything)
-#source.exclude_dirs = tests,bin
+source.exclude_dirs = .git,.idea,.venv,.venv-android,build,dist,package_cache,instance,__pycache__
+source.exclude_patterns = app.py,desktop_app.py,lan_agent.py,configure_client.py,test_*.py,setup_*.py,pccafe.db,server_host.txt,server_host.txt.example,*.md,*.bat,*.ps1
 
 # (str) Application versioning (method 1)
 version = 1.0.0
@@ -33,7 +34,7 @@ version = 1.0.0
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy,urllib3,certifi
+requirements = python3,kivy
 
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes
@@ -46,7 +47,7 @@ requirements = python3,kivy,urllib3,certifi
 #presplash.filename = %(source.dir)s/data/presplash.png
 
 # (str) Icon of the application
-#icon.filename = %(source.dir)s/data/icon.png
+icon.filename = %(source.dir)s/assets/pypondo-icon-256.png
 
 # (str) Supported orientation (one of landscape, sensorLandscape, portrait or all)
 orientation = portrait

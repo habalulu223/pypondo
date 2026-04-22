@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timedelta
 import io
 import json
 import os
@@ -26,7 +26,9 @@ app = Flask(__name__)
 # --- Config ---
 basedir = os.path.abspath(os.path.dirname(__file__))
 assets_dir = os.path.join(basedir, 'assets')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'pccafe.db')
+default_db_path = os.path.join(basedir, 'pccafe.db')
+database_path = os.path.abspath(os.getenv("PYPONDO_DB_PATH", default_db_path))
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + database_path
 app.config['SECRET_KEY'] = 'super_secret_cyber_key'
 
 db = SQLAlchemy(app)
@@ -35,8 +37,10 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 
 HOURLY_RATE = 15.0
+BOOKING_LEAD_MINUTES = 30
 ALLOWED_LAN_COMMANDS = {"lock", "restart", "shutdown", "wake"}
 MAX_TOPUP_AMOUNT = 10000.0
+APP_VERSION = os.getenv("PYPONDO_APP_VERSION", "1.0.0").strip() or "1.0.0"
 TOPUP_CURRENCY = os.getenv("TOPUP_CURRENCY", "php").strip().lower() or "php"
 PAYMONGO_PUBLIC_KEY = os.getenv("PAYMONGO_PUBLIC_KEY", "pk_test_hRN7jf1RAviu9fXsis5mLU8y").strip()
 ALLOWED_TOPUP_METHODS = {
@@ -45,6 +49,7 @@ ALLOWED_TOPUP_METHODS = {
     "cash": "Cash"
 }
 DEFAULT_LAN_AGENT_TOKEN = "pypondo-lan-token-change-me"
+BILLING_DISABLED = str(os.getenv("PYPONDO_DISABLE_BILLING", "0")).strip().lower() in {"1", "true", "yes"}
 LAN_SCAN_CACHE = {"timestamp": 0, "cidr": None, "result": None, "scan_in_progress": False}
 LAN_SCAN_LOCK = threading.Lock()
 NETWORK_CMD_CACHE = {}
@@ -55,6 +60,9 @@ HOSTNAME_CACHE_LOCK = threading.Lock()
 # Global tracking for ping processes to prevent orphaned pings on exit
 ACTIVE_PING_PROCESSES = set()
 PING_LOCK = threading.Lock()
+
+# Auto-charge settings
+AUTO_CHARGE_ENABLED = True  # Default to enabled for backward compatibility
 
 def terminate_all_ping_processes():
     """Kill all active ping processes on exit to prevent spam."""
@@ -1067,6 +1075,79 @@ def format_duration_compact(total_seconds):
     return f"{seconds}s"
 
 
+def normalize_booking_date_value(raw_value):
+    raw_value = (raw_value or "").strip()
+    if not raw_value:
+        return datetime.now().strftime("%Y-%m-%d")
+    try:
+        return datetime.strptime(raw_value, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def normalize_time_slot_value(raw_value):
+    raw_value = (raw_value or "").strip()
+    if not raw_value:
+        return None
+    for time_format in ("%H:%M", "%H:%M:%S"):
+        try:
+            return datetime.strptime(raw_value, time_format).strftime("%H:%M")
+        except ValueError:
+            continue
+    return None
+
+
+def parse_booking_datetime(booking_date, time_slot):
+    try:
+        return datetime.strptime(f"{booking_date} {time_slot}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+
+def find_conflicting_booking(pc_id, booking_date, time_slot):
+    same_day_bookings = Booking.query.filter_by(pc_id=pc_id, booking_date=booking_date).all()
+    for booking in same_day_bookings:
+        if normalize_time_slot_value(booking.time_slot) == time_slot:
+            return booking
+    return None
+
+
+def get_pc_booking_usage_state(pc, now_dt=None, online_window_seconds=None):
+    if now_dt is None:
+        now_dt = datetime.now()
+    if online_window_seconds is None:
+        online_window_seconds = get_agent_online_window_seconds()
+
+    active_session = Session.query.filter_by(pc_id=pc.id, end_time=None).order_by(Session.start_time.desc()).first()
+    online_now = is_pc_online(pc, now_dt, online_window_seconds)
+    return {
+        "active_session": active_session,
+        "online_now": online_now,
+        "in_use": bool(pc.is_occupied or active_session or online_now)
+    }
+
+
+def annotate_booking_usage_for_pcs(pcs, now_dt=None):
+    if not pcs:
+        return pcs
+
+    if now_dt is None:
+        now_dt = datetime.now()
+
+    online_window_seconds = get_agent_online_window_seconds()
+    active_sessions = Session.query.filter_by(end_time=None).order_by(Session.start_time.desc()).all()
+    active_session_by_pc = {}
+    for session in active_sessions:
+        active_session_by_pc.setdefault(session.pc_id, session)
+
+    for pc in pcs:
+        active_session = active_session_by_pc.get(pc.id)
+        online_now = is_pc_online(pc, now_dt, online_window_seconds)
+        pc.booking_in_use_now = bool(pc.is_occupied or active_session or online_now)
+
+    return pcs
+
+
 def enqueue_lan_command(pc_name, command, payload=None, note=None):
     payload_data = payload if isinstance(payload, dict) else {}
     existing = LanCommand.query.filter(
@@ -1208,11 +1289,13 @@ def charge_elapsed_for_session(session, now=None):
 
     last_charged = session.last_charged_at or session.start_time
     elapsed_seconds = (now - last_charged).total_seconds()
-    if elapsed_seconds < 60:  # minimum 1 minute to avoid tiny charges
+    if elapsed_seconds < 1:  # minimum 1 second for live charging every 3 seconds
         return 0.0
 
     hours_played = elapsed_seconds / 3600.0
     charge = round(hours_played * HOURLY_RATE, 2)
+    if charge > user.pondo:
+        charge = round(user.pondo, 2)
     user.pondo -= charge
     session.cost = (session.cost or 0.0) + charge
     session.last_charged_at = now
@@ -1228,6 +1311,25 @@ def finalize_session(session):
     if pc:
         pc.is_occupied = False
     return charge
+
+
+def get_session_current_cost(session, now=None):
+    if not session:
+        return 0.0
+    if now is None:
+        now = datetime.now()
+
+    current_cost = float(session.cost or 0.0)
+    if session.end_time is not None:
+        return round(current_cost, 2)
+
+    last_charged = session.last_charged_at or session.start_time
+    if not last_charged:
+        return round(current_cost, 2)
+
+    elapsed_seconds = max((now - last_charged).total_seconds(), 0.0)
+    current_cost += (elapsed_seconds / 3600.0) * HOURLY_RATE
+    return round(current_cost, 2)
 
 
 def parse_topup_amount(raw):
@@ -1366,13 +1468,81 @@ def get_desktop_download_artifact():
     return None
 
 
-def build_combined_download_bundle(desktop_artifact, apk_path):
+def get_android_build_kit_files():
+    files = []
+    candidates = [
+        ("main.py", "main.py"),
+        ("buildozer.spec", "buildozer.spec"),
+        ("buildozer_shim.py", "buildozer_shim.py"),
+        ("build_android.bat", "build_android.bat"),
+        ("build_android_safe.bat", "build_android_safe.bat"),
+        ("build_android.ps1", "build_android.ps1"),
+        ("build_android_wsl.sh", "build_android_wsl.sh"),
+        ("MOBILE_README.md", "MOBILE_README.md"),
+        (os.path.join("assets", "pypondo-icon-256.png"), os.path.join("assets", "pypondo-icon-256.png")),
+        (os.path.join("assets", "pypondo.ico"), os.path.join("assets", "pypondo.ico")),
+    ]
+
+    for relative_path, archive_name in candidates:
+        full_path = os.path.join(basedir, relative_path)
+        if os.path.exists(full_path):
+            files.append((full_path, archive_name.replace("\\", "/")))
+    return files
+
+
+def build_android_build_kit_notes():
+    return "\n".join([
+        "PyPondo Android Build Kit",
+        "=========================",
+        "",
+        "This bundle contains the mobile Kivy app source and Android build scripts.",
+        "",
+        "Quick build path from Windows PowerShell:",
+        "1. Install WSL Ubuntu and reboot if needed: wsl --install -d Ubuntu",
+        "2. From Windows in this folder, run: build_android_safe.bat",
+        "3. Or run: powershell -ExecutionPolicy Bypass -File .\\build_android.ps1",
+        "4. Do not run build_android_wsl.sh directly from PowerShell.",
+        "",
+        "Quick build path from Linux/WSL shell:",
+        "1. Open Ubuntu or another Linux shell in this folder.",
+        "2. Run: chmod +x build_android_wsl.sh && ./build_android_wsl.sh",
+        "",
+        "The generated APK will be placed in bin/ and can then be copied back",
+        "into the main PyPondo project under PythonProject/bin/ so the admin",
+        "dashboard can serve it directly as DOWNLOAD APK.",
+        "",
+        f"Expected APK filename pattern: pypondo_mobile-{APP_VERSION}-debug.apk",
+    ])
+
+
+def add_android_build_kit_to_archive(archive, root_prefix="PyPondo-Android-build-kit"):
+    normalized_root = str(root_prefix or "").strip("/\\")
+    for full_path, archive_name in get_android_build_kit_files():
+        target_name = archive_name if not normalized_root else f"{normalized_root}/{archive_name}"
+        archive.write(full_path, arcname=target_name)
+
+    notes_name = "README_FIRST.txt" if not normalized_root else f"{normalized_root}/README_FIRST.txt"
+    archive.writestr(notes_name, build_android_build_kit_notes())
+
+
+def build_android_build_kit_bundle():
+    bundle_stream = io.BytesIO()
+    with zipfile.ZipFile(bundle_stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        add_android_build_kit_to_archive(archive)
+    bundle_stream.seek(0)
+    return bundle_stream
+
+
+def build_combined_download_bundle(desktop_artifact, apk_path=None):
     desktop_path, desktop_name = desktop_artifact
     bundle_stream = io.BytesIO()
 
     with zipfile.ZipFile(bundle_stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.write(desktop_path, arcname=desktop_name)
-        archive.write(apk_path, arcname="PyPondo-Android.apk")
+        if apk_path:
+            archive.write(apk_path, arcname="PyPondo-Android.apk")
+        else:
+            add_android_build_kit_to_archive(archive)
 
     bundle_stream.seek(0)
     return bundle_stream
@@ -1397,6 +1567,10 @@ def get_latest_apk_path():
     if not candidates:
         return None
     return max(candidates, key=lambda row: row[0])[1]
+
+
+def is_android_apk_ready():
+    return bool(get_latest_apk_path())
 
 
 def is_kiosk_mode_enabled():
@@ -1425,6 +1599,153 @@ def resolve_safe_next_url():
     return None
 
 
+def get_request_data():
+    data = request.get_json(silent=True)
+    if isinstance(data, dict):
+        return data
+    if request.form:
+        return request.form
+    if request.args:
+        return request.args
+    return {}
+
+
+def get_request_value(name, default=None):
+    payload = get_request_data()
+    if hasattr(payload, "get"):
+        return payload.get(name, default)
+    return default
+
+
+def get_mobile_user_from_request():
+    raw_user_id = get_request_value("user_id")
+    try:
+        user_id = int(raw_user_id)
+    except (TypeError, ValueError):
+        return None, (jsonify({"ok": False, "error": "user_id is required"}), 400)
+
+    user = db.session.get(User, user_id)
+    if not user:
+        return None, (jsonify({"ok": False, "error": "User not found"}), 404)
+    if user.is_admin:
+        return None, (jsonify({"ok": False, "error": "Admin accounts are not supported by the mobile client"}), 403)
+    return user, None
+
+
+def serialize_mobile_booking(booking, now_dt=None):
+    if now_dt is None:
+        now_dt = datetime.now()
+
+    booking_dt = parse_booking_datetime(
+        normalize_booking_date_value(booking.booking_date),
+        normalize_time_slot_value(booking.time_slot)
+    )
+    status = "confirmed"
+    if booking_dt and booking_dt < now_dt:
+        status = "expired"
+
+    return {
+        "id": booking.id,
+        "pc_id": booking.pc_id,
+        "pc_name": booking.pc.name if booking.pc else f"PC-{booking.pc_id}",
+        "date": booking.booking_date or now_dt.strftime("%Y-%m-%d"),
+        "time": normalize_time_slot_value(booking.time_slot) or booking.time_slot,
+        "status": status
+    }
+
+
+def get_mobile_updates_feed():
+    newest_timestamp = None
+    for relative_path in ("app.py", "desktop_app.py", "main.py"):
+        target = os.path.join(basedir, relative_path)
+        if not os.path.exists(target):
+            continue
+        try:
+            candidate = datetime.fromtimestamp(os.path.getmtime(target)).isoformat()
+        except OSError:
+            continue
+        if newest_timestamp is None or candidate > newest_timestamp:
+            newest_timestamp = candidate
+
+    timestamp = newest_timestamp or datetime.now().isoformat()
+    return [
+        {
+            "version": APP_VERSION,
+            "update_type": "major",
+            "title": "PyPondo core system ready",
+            "description": "Admin, desktop, and mobile booking flows are available from the same server.",
+            "timestamp": timestamp
+        },
+        {
+            "version": APP_VERSION,
+            "update_type": "feature",
+            "title": "Mobile API enabled",
+            "description": "The server now exposes mobile login, bookings, PC availability, top-up, and assistant endpoints.",
+            "timestamp": timestamp
+        },
+        {
+            "version": APP_VERSION,
+            "update_type": "minor",
+            "title": "LAN monitoring active",
+            "description": "Client discovery, PC mapping, and live session monitoring remain available in the admin dashboard.",
+            "timestamp": timestamp
+        }
+    ]
+
+
+def build_mobile_assistant_response(user, message):
+    text_value = str(message or "").strip()
+    lowered = text_value.lower()
+
+    bookings = Booking.query.filter_by(user_id=user.id).order_by(Booking.booking_date.asc(), Booking.time_slot.asc()).all()
+    upcoming_booking = None
+    now_dt = datetime.now()
+    for booking in bookings:
+        booking_dt = parse_booking_datetime(
+            normalize_booking_date_value(booking.booking_date),
+            normalize_time_slot_value(booking.time_slot)
+        )
+        if booking_dt and booking_dt >= now_dt:
+            upcoming_booking = booking
+            break
+
+    if any(term in lowered for term in ("balance", "pondo", "credit", "credits")):
+        return f"Your current balance is PHP {float(user.pondo or 0.0):.2f}."
+
+    if any(term in lowered for term in ("booking", "reservation", "book")):
+        if upcoming_booking:
+            return (
+                f"Your next booking is for {upcoming_booking.pc.name} on "
+                f"{upcoming_booking.booking_date} at {normalize_time_slot_value(upcoming_booking.time_slot) or upcoming_booking.time_slot}."
+            )
+        if bookings:
+            return f"You have {len(bookings)} booking record(s), but none are upcoming right now."
+        return "You do not have any bookings yet. Open the Bookings tab to reserve a PC."
+
+    if any(term in lowered for term in ("pc", "pcs", "available", "computer")):
+        pcs = PC.query.order_by(PC.id.asc()).all()
+        available_count = sum(1 for pc in pcs if not get_pc_booking_usage_state(pc, now_dt=now_dt)["in_use"])
+        return f"There are {available_count} available PC(s) right now."
+
+    if any(term in lowered for term in ("top up", "topup", "payment", "gcash", "card", "cash")):
+        return "Use the Top Up tab to submit a request. Cash, GCash, and card requests are saved for admin confirmation."
+
+    active_session = Session.query.filter_by(user_id=user.id, end_time=None).order_by(Session.start_time.desc()).first()
+    if any(term in lowered for term in ("session", "playing", "time")):
+        if active_session and active_session.start_time:
+            elapsed = max((now_dt - active_session.start_time).total_seconds(), 0)
+            return (
+                f"Your session has been running for {format_duration_compact(elapsed)} "
+                f"and has cost PHP {float(active_session.cost or 0.0):.2f} so far."
+            )
+        return "You do not have an active session right now."
+
+    return (
+        "I can help with your balance, bookings, available PCs, top-up requests, and session status. "
+        "Try asking about any of those."
+    )
+
+
 @app.before_request
 def bootstrap_schema():
     if not getattr(app, "_schema_ready", False):
@@ -1432,6 +1753,7 @@ def bootstrap_schema():
         ensure_pc_lan_ip_column()
         ensure_booking_date_column()
         ensure_session_last_charged_at_column()
+        ensure_core_seed_data()
         app._schema_ready = True
 
 
@@ -1473,10 +1795,215 @@ def api_server_info():
     
     return jsonify({
         "ok": True,
+        "app_version": APP_VERSION,
         "server_ip": server_ip,
         "server_port": 5000,
         "server_hostname": socket.gethostname()
     }), 200
+
+
+@app.route('/api/mobile/login', methods=['POST'])
+def api_mobile_login():
+    username = str(get_request_value("username", "")).strip()
+    password = str(get_request_value("password", "")).strip()
+    if not username or not password:
+        return jsonify({"ok": False, "error": "Username and password are required"}), 400
+
+    user = User.query.filter_by(username=username).first()
+    if not user or not user.check_password(password):
+        return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+    if user.is_admin:
+        return jsonify({"ok": False, "error": "Admin accounts are not supported by the mobile client"}), 403
+
+    return jsonify({
+        "ok": True,
+        "user_id": user.id,
+        "username": user.username,
+        "balance": round(float(user.pondo or 0.0), 2),
+        "app_version": APP_VERSION
+    }), 200
+
+
+@app.route('/api/mobile/bookings', methods=['GET'])
+def api_mobile_bookings():
+    user, error = get_mobile_user_from_request()
+    if error:
+        return error
+
+    now_dt = datetime.now()
+    bookings = Booking.query.filter_by(user_id=user.id).order_by(Booking.booking_date.asc(), Booking.time_slot.asc()).all()
+    return jsonify({
+        "ok": True,
+        "bookings": [serialize_mobile_booking(booking, now_dt=now_dt) for booking in bookings]
+    }), 200
+
+
+@app.route('/api/mobile/pcs', methods=['GET'])
+def api_mobile_pcs():
+    now_dt = datetime.now()
+    pcs = PC.query.order_by(PC.id.asc()).all()
+    payload = []
+    for pc in pcs:
+        usage_state = get_pc_booking_usage_state(pc, now_dt=now_dt)
+        payload.append({
+            "id": pc.id,
+            "name": pc.name,
+            "is_occupied": usage_state["in_use"],
+            "lan_ip": pc.lan_ip,
+            "online": usage_state["online_now"]
+        })
+    return jsonify({"ok": True, "pcs": payload}), 200
+
+
+@app.route('/api/mobile/updates', methods=['GET'])
+def api_mobile_updates():
+    return jsonify({"ok": True, "updates": get_mobile_updates_feed()}), 200
+
+
+@app.route('/api/mobile/book', methods=['POST'])
+def api_mobile_book():
+    user, error = get_mobile_user_from_request()
+    if error:
+        return error
+
+    try:
+        pc_id = int(get_request_value("pc_id"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "pc_id is required"}), 400
+
+    pc = db.session.get(PC, pc_id)
+    if not pc:
+        return jsonify({"ok": False, "error": "Selected PC was not found"}), 404
+
+    booking_date = normalize_booking_date_value(get_request_value("date") or get_request_value("booking_date"))
+    if not booking_date:
+        return jsonify({"ok": False, "error": "Invalid booking date"}), 400
+
+    time_slot = normalize_time_slot_value(get_request_value("time") or get_request_value("time_slot"))
+    if not time_slot:
+        return jsonify({"ok": False, "error": "Invalid booking time"}), 400
+
+    booking_dt = parse_booking_datetime(booking_date, time_slot)
+    if not booking_dt:
+        return jsonify({"ok": False, "error": "Invalid booking schedule"}), 400
+
+    now_dt = datetime.now()
+    lead_cutoff = now_dt + timedelta(minutes=BOOKING_LEAD_MINUTES)
+    usage_state = get_pc_booking_usage_state(pc, now_dt=now_dt)
+    if booking_dt < lead_cutoff:
+        if usage_state["in_use"]:
+            return jsonify({
+                "ok": False,
+                "error": f"{pc.name} is currently in use. Choose a time at least {BOOKING_LEAD_MINUTES} minutes from now."
+            }), 400
+        return jsonify({
+            "ok": False,
+            "error": f"Bookings must be scheduled at least {BOOKING_LEAD_MINUTES} minutes ahead."
+        }), 400
+
+    conflicting_booking = find_conflicting_booking(pc.id, booking_date, time_slot)
+    if conflicting_booking:
+        if conflicting_booking.user_id == user.id:
+            error_message = f"You already have a booking for {pc.name} on {booking_date} at {time_slot}."
+        else:
+            error_message = f"Another user already booked {pc.name} on {booking_date} at {time_slot}."
+        return jsonify({"ok": False, "error": error_message}), 409
+
+    new_booking = Booking(user_id=user.id, pc_id=pc.id, booking_date=booking_date, time_slot=time_slot)
+    db.session.add(new_booking)
+    db.session.commit()
+    return jsonify({
+        "ok": True,
+        "message": "Booking successful",
+        "booking": serialize_mobile_booking(new_booking, now_dt=now_dt)
+    }), 201
+
+
+@app.route('/api/mobile/topup', methods=['POST'])
+def api_mobile_topup():
+    user, error = get_mobile_user_from_request()
+    if error:
+        return error
+
+    amount = parse_topup_amount(get_request_value("amount"))
+    if amount is None:
+        return jsonify({"ok": False, "error": "Invalid top-up amount"}), 400
+
+    tx = create_online_payment_request(user, amount, source="mobile")
+    return jsonify({
+        "ok": True,
+        "message": f"Top-up request saved: {tx.external_id}. Waiting for admin confirmation.",
+        "payment_id": tx.id,
+        "external_id": tx.external_id,
+        "amount": round(float(tx.amount or 0.0), 2),
+        "balance": round(float(user.pondo or 0.0), 2)
+    }), 201
+
+
+@app.route('/api/mobile/ai-chat', methods=['POST'])
+def api_mobile_ai_chat():
+    user, error = get_mobile_user_from_request()
+    if error:
+        return error
+
+    message = str(get_request_value("message", "")).strip()
+    if not message:
+        return jsonify({"ok": False, "error": "message is required"}), 400
+
+    return jsonify({
+        "ok": True,
+        "response": build_mobile_assistant_response(user, message)
+    }), 200
+
+
+@app.route('/api/charge-balance', methods=['POST'])
+@login_required
+def api_charge_balance():
+    if current_user.is_admin:
+        return jsonify(ok=False, message='Admins are not charged.'), 403
+    if not user_has_positive_balance(current_user):
+        return jsonify(ok=False, message='Insufficient balance.'), 402
+
+    active_session = Session.query.filter_by(user_id=current_user.id, end_time=None).order_by(Session.start_time.desc()).first()
+    if not active_session:
+        active_session = Session(user_id=current_user.id, last_charged_at=datetime.now())
+        db.session.add(active_session)
+        db.session.commit()
+        return jsonify(ok=True, charge=0.0, balance=current_user.pondo, message='Session started.')
+
+    charge = charge_elapsed_for_session(active_session, datetime.now())
+    db.session.commit()
+    return jsonify(ok=True, charge=charge, balance=current_user.pondo)
+
+
+@app.route('/api/session-status', methods=['GET'])
+@login_required
+def api_session_status():
+    if current_user.is_admin:
+        return jsonify(ok=False, message='Admins do not have sessions.'), 403
+
+    active_session = Session.query.filter_by(user_id=current_user.id, end_time=None).order_by(Session.start_time.desc()).first()
+
+    if not active_session:
+        return jsonify(ok=True, has_session=False, balance=current_user.pondo, cost=0.0, start_time=None)
+
+    # Calculate current cost
+    now = datetime.now()
+    if active_session.last_charged_at:
+        elapsed_seconds = (now - active_session.last_charged_at).total_seconds()
+        additional_cost = (elapsed_seconds / 3600.0) * HOURLY_RATE
+        current_cost = (active_session.cost or 0.0) + additional_cost
+    else:
+        current_cost = active_session.cost or 0.0
+
+    return jsonify(
+        ok=True,
+        has_session=True,
+        balance=current_user.pondo,
+        cost=round(current_cost, 2),
+        start_time=active_session.start_time.isoformat() if active_session.start_time else None,
+        last_charged_at=active_session.last_charged_at.isoformat() if active_session.last_charged_at else None
+    )
 
 
 @app.route('/favicon.ico')
@@ -1505,6 +2032,12 @@ def login():
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
             login_user(user)
+            if not user.is_admin and user_has_positive_balance(user):
+                active_session = Session.query.filter_by(user_id=user.id, end_time=None).order_by(Session.start_time.desc()).first()
+                if not active_session:
+                    new_session = Session(user_id=user.id, last_charged_at=datetime.now())
+                    db.session.add(new_session)
+                    db.session.commit()
             safe_next = resolve_safe_next_url()
             if safe_next:
                 return redirect(safe_next)
@@ -1554,7 +2087,8 @@ def client_desktop():
         'client_desktop.html',
         active_session=active_session,
         recent_payments=recent_payments,
-        kiosk_mode=is_kiosk_mode_enabled()
+        kiosk_mode=is_kiosk_mode_enabled(),
+        hourly_rate=HOURLY_RATE
     )
 
 
@@ -1564,7 +2098,9 @@ def client_bookings():
     if current_user.is_admin:
         return redirect(url_for('view_bookings'))
 
+    now_dt = datetime.now()
     pcs = PC.query.order_by(PC.id.asc()).all()
+    annotate_booking_usage_for_pcs(pcs, now_dt=now_dt)
     my_bookings = Booking.query.filter_by(user_id=current_user.id).order_by(Booking.id.desc()).all()
     recent_payments = get_recent_payment_requests(current_user.id)
     return render_template(
@@ -1572,7 +2108,9 @@ def client_bookings():
         pcs=pcs,
         bookings=my_bookings,
         recent_payments=recent_payments,
-        today_date=datetime.now().strftime("%Y-%m-%d"),
+        today_date=now_dt.strftime("%Y-%m-%d"),
+        booking_lead_minutes=BOOKING_LEAD_MINUTES,
+        hourly_rate=HOURLY_RATE,
         kiosk_mode=is_kiosk_mode_enabled()
     )
 
@@ -1600,6 +2138,7 @@ def index():
         return redirect(url_for('client_bookings'))
 
     pcs = PC.query.all()
+    android_apk_ready = is_android_apk_ready() if current_user.is_admin else False
     users = User.query.all() if current_user.is_admin else [current_user]
     active_sessions = Session.query.filter_by(end_time=None).order_by(Session.start_time.asc()).all()
     recent_payments = get_recent_payment_requests(current_user.id)
@@ -1613,8 +2152,13 @@ def index():
     pending_statuses = {"queued", "sent"}
     pending_counts = {}
     active_session_by_pc = {}
+    active_session_user_by_id = {}
     for session in active_sessions:
         active_session_by_pc.setdefault(session.pc_id, session)
+    if active_sessions:
+        session_user_ids = sorted({session.user_id for session in active_sessions if session.user_id})
+        for user in User.query.filter(User.id.in_(session_user_ids)).all():
+            active_session_user_by_id[user.id] = user
 
     for pc in pcs:
         active_session = active_session_by_pc.get(pc.id)
@@ -1632,6 +2176,12 @@ def index():
             usage_source = "occupied"
 
         pc.dashboard_session = active_session
+        pc.dashboard_session_user = active_session_user_by_id.get(active_session.user_id) if active_session else None
+        pc.dashboard_session_username = (
+            active_session_user_by_id.get(active_session.user_id).username
+            if active_session and active_session_user_by_id.get(active_session.user_id) else None
+        )
+        pc.dashboard_session_current_cost = get_session_current_cost(active_session, now_dt) if active_session else None
         pc.dashboard_online = online_now
         pc.dashboard_in_use = effective_in_use
         pc.dashboard_usage_source = usage_source
@@ -1693,7 +2243,18 @@ def index():
         gateway_scan=gateway_scan,
         assigned_ips=assigned_ips,
         agent_status=agent_status,
-        today_date=datetime.now().strftime("%Y-%m-%d")
+        android_apk_ready=android_apk_ready,
+        android_download_label="DOWNLOAD APK" if android_apk_ready else "DOWNLOAD BUILD KIT",
+        android_download_note=(
+            "Android APK is ready for direct download."
+            if android_apk_ready else
+            "APK is not built yet. This downloads the Android build kit with WSL/Linux build scripts."
+        ),
+        combined_download_label="DOWNLOAD DESKTOP + PHONE" if android_apk_ready else "DOWNLOAD DESKTOP + ANDROID KIT",
+        today_date=datetime.now().strftime("%Y-%m-%d"),
+        booking_lead_minutes=BOOKING_LEAD_MINUTES,
+        hourly_rate=HOURLY_RATE,
+        auto_charge_enabled=AUTO_CHARGE_ENABLED
     )
 
 
@@ -1708,19 +2269,12 @@ def admin_download_app():
     desktop_artifact = get_desktop_download_artifact()
     if desktop_artifact:
         apk_path = get_latest_apk_path()
-        if apk_path:
-            return send_file(
-                build_combined_download_bundle(desktop_artifact, apk_path),
-                as_attachment=True,
-                download_name="PyPondo-desktop-and-phone.zip",
-                mimetype="application/zip"
-            )
-
-        latest_path, latest_name = desktop_artifact
+        bundle_name = "PyPondo-desktop-and-phone.zip" if apk_path else "PyPondo-desktop-and-android-build-kit.zip"
         return send_file(
-            latest_path,
+            build_combined_download_bundle(desktop_artifact, apk_path),
             as_attachment=True,
-            download_name=latest_name
+            download_name=bundle_name,
+            mimetype="application/zip"
         )
 
     flash("No app bundle found. Build first using build_desktop_exe.bat.", "error")
@@ -1741,8 +2295,12 @@ def admin_download_android_app():
             download_name="PyPondo-Android.apk"
         )
 
-    flash("No Android APK found. Build first using build_android.bat or buildozer android debug.", "error")
-    return redirect(url_for('index'))
+    return send_file(
+        build_android_build_kit_bundle(),
+        as_attachment=True,
+        download_name="PyPondo-Android-build-kit.zip",
+        mimetype="application/zip"
+    )
 
 
 @app.route('/add_pc')
@@ -1880,6 +2438,64 @@ def auto_assign_ips():
     return redirect(url_for('index'))
 
 
+@app.route('/admin/refresh_ips')
+@login_required
+def refresh_ips():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    discovered_ipv4 = get_assignable_pc_ipv4_addresses(online_only=True)
+    detected_for_sync = set(discovered_ipv4)
+    cleared = clear_undetected_pc_ips(detected_for_sync)
+
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action=f"IP refresh scan: cleared {len(cleared)} offline/stale IP(s), found {len(discovered_ipv4)} online IP(s)"
+    ))
+    db.session.commit()
+
+    flash(f'IP refresh complete. Cleared {len(cleared)} offline/stale IP(s). Found {len(discovered_ipv4)} online IP(s) available for assignment.', 'info')
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/auto_charge/enable')
+@login_required
+def enable_auto_charge():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    global AUTO_CHARGE_ENABLED
+    AUTO_CHARGE_ENABLED = True
+
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action="Enabled automatic charging for active sessions"
+    ))
+    db.session.commit()
+
+    flash('Automatic charging enabled. Users will now be charged automatically for active sessions.', 'success')
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/auto_charge/disable')
+@login_required
+def disable_auto_charge():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    global AUTO_CHARGE_ENABLED
+    AUTO_CHARGE_ENABLED = False
+
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action="Disabled automatic charging for active sessions"
+    ))
+    db.session.commit()
+
+    flash('Automatic charging disabled. Users will not be charged automatically.', 'warning')
+    return redirect(url_for('index'))
+
+
 @app.route('/admin/set_pc_ip/<int:pc_id>', methods=['POST'])
 @login_required
 def set_pc_ip(pc_id):
@@ -1916,6 +2532,105 @@ def set_pc_ip(pc_id):
     db.session.add(AdminLog(admin_name=current_user.username, action=f"Set LAN IP for {pc.name} to {ip}"))
     db.session.commit()
     flash(f'{pc.name} mapped to {ip}.', 'success')
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/request_connect', methods=['POST'])
+@login_required
+def admin_request_connect():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    pc_id = request.form.get('pc_id', type=int)
+    pc = db.session.get(PC, pc_id) if pc_id else None
+    if not pc:
+        flash('Invalid PC selected.', 'error')
+        return redirect(url_for('index'))
+
+    raw_ip = (request.form.get('connect_ip') or '').strip()
+    connect_ip = normalize_lan_ip(raw_ip)
+    if not connect_ip:
+        flash('Invalid target LAN IP.', 'error')
+        return redirect(url_for('index'))
+    if ":" not in connect_ip and connect_ip in get_gateway_ipv4_set():
+        flash('Gateway IP cannot be assigned to a PC target.', 'error')
+        return redirect(url_for('index'))
+
+    raw_port = (request.form.get('connect_port') or '').strip()
+    connect_port = normalize_agent_port(raw_port) if raw_port else None
+    if raw_port and connect_port is None:
+        flash('Invalid agent port.', 'error')
+        return redirect(url_for('index'))
+
+    pc.lan_ip = connect_ip
+    if connect_port is not None:
+        pc.lan_port = connect_port
+
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action=(
+            f"Saved/connect target for {pc.name}: "
+            f"{connect_ip}" + (f":{connect_port}" if connect_port else "")
+        )
+    ))
+    db.session.commit()
+
+    payload = {
+        "requested_by": current_user.username,
+        "target_ip": connect_ip,
+        "target_port": connect_port or pc.lan_port or normalize_agent_port(os.getenv("LAN_AGENT_DEFAULT_PORT", "5001")) or 5001,
+        "skip_user_approval": True,
+    }
+    ok, message = send_lan_command(pc.name, "connect_request", payload)
+
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action=f"Connect request for {pc.name}: {message}"
+    ))
+    db.session.commit()
+
+    flash(
+        f"{pc.name} target saved to {connect_ip}" + (f":{connect_port}" if connect_port else "") + f". {message}",
+        'success' if ok else 'error'
+    )
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/clear_pc_commands/<int:pc_id>', methods=['POST'])
+@login_required
+def admin_clear_pc_commands(pc_id):
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    pc = db.session.get(PC, pc_id)
+    if not pc:
+        flash('PC not found.', 'error')
+        return redirect(url_for('index'))
+
+    pending_commands = LanCommand.query.filter(
+        LanCommand.pc_name == pc.name,
+        LanCommand.status.in_(["queued", "sent"])
+    ).all()
+
+    if not pending_commands:
+        flash(f'No pending commands for {pc.name}.', 'info')
+        return redirect(url_for('index'))
+
+    now_dt = datetime.now()
+    cleared_count = 0
+    for cmd in pending_commands:
+        cmd.status = "cancelled"
+        cmd.completed_at = now_dt
+        cmd.result_message = "Cancelled by admin"
+        cleared_count += 1
+
+    db.session.add(AdminLog(
+        admin_name=current_user.username,
+        action=f"Cleared {cleared_count} pending LAN command(s) for {pc.name}"
+    ))
+    db.session.commit()
+
+    flash(f'Cleared {cleared_count} pending command(s) for {pc.name}.', 'success')
     return redirect(url_for('index'))
 
 
@@ -1959,27 +2674,57 @@ def manage_pondo():
 @app.route('/book', methods=['POST'])
 @login_required
 def book_pc():
-    pc_id = request.form['pc_id']
-    booking_date = (request.form.get('booking_date') or '').strip()
-    if not booking_date:
-        booking_date = datetime.now().strftime("%Y-%m-%d")
-    else:
-        try:
-            booking_date = datetime.strptime(booking_date, "%Y-%m-%d").strftime("%Y-%m-%d")
-        except ValueError:
-            flash('Invalid booking date.', 'error')
-            if current_user.is_admin:
-                return redirect(url_for('index'))
-            return redirect(url_for('client_bookings'))
-    time_slot = request.form['time_slot']
+    pc_id = request.form.get('pc_id', type=int)
+    if not pc_id:
+        flash('Select a PC first.', 'error')
+        return redirect_for_current_user_page()
 
-    # Check if already booked for that slot (Optional logic improvement)
-    # existing = Booking.query.filter_by(pc_id=pc_id, time_slot=time_slot).first()
-    # if existing: flash('Slot taken', 'error'); return ...
+    pc = db.session.get(PC, pc_id)
+    if not pc:
+        flash('Selected PC was not found.', 'error')
+        return redirect_for_current_user_page()
+
+    booking_date = normalize_booking_date_value(request.form.get('booking_date'))
+    if not booking_date:
+        flash('Invalid booking date.', 'error')
+        return redirect_for_current_user_page()
+
+    time_slot = normalize_time_slot_value(request.form.get('time_slot'))
+    if not time_slot:
+        flash('Invalid booking time.', 'error')
+        return redirect_for_current_user_page()
+
+    booking_dt = parse_booking_datetime(booking_date, time_slot)
+    if not booking_dt:
+        flash('Invalid booking schedule.', 'error')
+        return redirect_for_current_user_page()
+
+    now_dt = datetime.now()
+    lead_cutoff = now_dt + timedelta(minutes=BOOKING_LEAD_MINUTES)
+    usage_state = get_pc_booking_usage_state(pc, now_dt=now_dt)
+
+    if booking_dt < lead_cutoff:
+        if usage_state["in_use"]:
+            flash(
+                f'{pc.name} is currently in use. Choose a booking time at least {BOOKING_LEAD_MINUTES} minutes from now.',
+                'error'
+            )
+        else:
+            flash(f'Bookings must be scheduled at least {BOOKING_LEAD_MINUTES} minutes ahead.', 'error')
+        return redirect_for_current_user_page()
+
+    conflicting_booking = find_conflicting_booking(pc.id, booking_date, time_slot)
+    if conflicting_booking:
+        conflict_owner = "You already have" if conflicting_booking.user_id == current_user.id else "Another user already has"
+        flash(
+            f'{conflict_owner} a booking for {pc.name} on {booking_date} at {time_slot}.',
+            'error'
+        )
+        return redirect_for_current_user_page()
 
     new_booking = Booking(
         user_id=current_user.id,
-        pc_id=pc_id,
+        pc_id=pc.id,
         booking_date=booking_date,
         time_slot=time_slot
     )
@@ -2622,14 +3367,16 @@ _billing_thread_started = False
 
 def start_periodic_billing():
     global _billing_thread_started
-    if _billing_thread_started:
+    if _billing_thread_started or BILLING_DISABLED:
         return
     _billing_thread_started = True
 
     def billing_loop():
         with app.app_context():
             while True:
-                time.sleep(600)  # 10 minutes
+                time.sleep(3)  # Live charging every 3 seconds
+                if not AUTO_CHARGE_ENABLED:
+                    continue
                 try:
                     now = datetime.now()
                     active_sessions = Session.query.filter_by(end_time=None).all()

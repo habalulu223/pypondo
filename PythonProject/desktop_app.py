@@ -115,7 +115,6 @@ if os.name == 'nt':
                     'left windows',
                     'right windows',
                     'windows',
-                    'alt',
                 )
                 hotkeys = (
                     'alt+tab',
@@ -984,11 +983,138 @@ def launch_browser_control_window(url):
     root.mainloop()
 
 
+def normalize_timer_started_at(raw_value):
+    default_value = int(time.time() * 1000)
+    try:
+        return max(int(float(str(raw_value).strip())), 0)
+    except Exception:
+        return default_value
+
+
+def get_timer_launch_command(started_at_ms):
+    started_at_ms = str(normalize_timer_started_at(started_at_ms))
+    if is_frozen_bundle():
+        return [sys.executable, "--timer-window", started_at_ms]
+
+    pythonw_path = sys.executable
+    lower_exec = pythonw_path.lower()
+    if lower_exec.endswith("python.exe"):
+        pythonw_candidate = pythonw_path[:-10] + "pythonw.exe"
+        if os.path.exists(pythonw_candidate):
+            pythonw_path = pythonw_candidate
+
+    return [pythonw_path, os.path.abspath(__file__), "--timer-window", started_at_ms]
+
+
+def run_timer_window(started_at_ms=None):
+    import tkinter as tk
+
+    started_at_ms = normalize_timer_started_at(started_at_ms)
+    timer_rate = float(getattr(server, "HOURLY_RATE", 15.0))
+
+    timer_window = tk.Tk()
+    timer_window.title("PyPondo Timer")
+    timer_window.geometry("320x160")
+    timer_window.resizable(False, False)
+    timer_window.configure(bg="black")
+    timer_window.overrideredirect(True)
+    timer_window.protocol("WM_DELETE_WINDOW", lambda: None)
+
+    try:
+        timer_window.attributes("-topmost", True)
+    except Exception:
+        pass
+
+    def set_alpha(alpha_value):
+        try:
+            timer_window.attributes("-alpha", alpha_value)
+        except Exception:
+            pass
+
+    time_label = tk.Label(
+        timer_window,
+        text="00:00:00",
+        font=("Arial", 18, "bold"),
+        fg="cyan",
+        bg="black"
+    )
+    time_label.pack(pady=(16, 8))
+
+    cost_label = tk.Label(
+        timer_window,
+        text="Cost: PHP 0.00",
+        font=("Arial", 11),
+        fg="yellow",
+        bg="black"
+    )
+    cost_label.pack(pady=4)
+
+    status_label = tk.Label(
+        timer_window,
+        text="Drag to move. Click to close the timer.",
+        font=("Arial", 8),
+        fg="white",
+        bg="black"
+    )
+    status_label.pack(pady=(6, 10))
+
+    drag_state = {"offset_x": 0, "offset_y": 0, "moved": False}
+
+    def update_timer():
+        elapsed_seconds = max((time.time() * 1000 - started_at_ms) / 1000.0, 0.0)
+        hours = int(elapsed_seconds // 3600)
+        minutes = int((elapsed_seconds % 3600) // 60)
+        seconds = int(elapsed_seconds % 60)
+        time_label.config(text=f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+        cost_label.config(text=f"Cost: PHP {(elapsed_seconds / 3600.0) * timer_rate:.2f}")
+        timer_window.after(1000, update_timer)
+
+    def start_drag(event):
+        set_alpha(1.0)
+        drag_state["offset_x"] = event.x_root - timer_window.winfo_x()
+        drag_state["offset_y"] = event.y_root - timer_window.winfo_y()
+        drag_state["moved"] = False
+
+    def do_drag(event):
+        next_x = event.x_root - drag_state["offset_x"]
+        next_y = event.y_root - drag_state["offset_y"]
+        if abs(next_x - timer_window.winfo_x()) > 2 or abs(next_y - timer_window.winfo_y()) > 2:
+            drag_state["moved"] = True
+        timer_window.geometry(f"+{next_x}+{next_y}")
+
+    def stop_drag(_event):
+        if not drag_state["moved"]:
+            timer_window.destroy()
+            return
+        drag_state["moved"] = False
+
+    def on_enter(_event):
+        set_alpha(1.0)
+
+    def on_leave(_event):
+        set_alpha(0.4)
+
+    for widget in (timer_window, time_label, cost_label, status_label):
+        widget.bind("<Button-1>", start_drag)
+        widget.bind("<B1-Motion>", do_drag)
+        widget.bind("<ButtonRelease-1>", stop_drag)
+        widget.bind("<Enter>", on_enter)
+        widget.bind("<Leave>", on_leave)
+
+    timer_window.update_idletasks()
+    screen_width = timer_window.winfo_screenwidth()
+    screen_height = timer_window.winfo_screenheight()
+    window_width = timer_window.winfo_width() or 320
+    window_height = timer_window.winfo_height() or 160
+    timer_window.geometry(f"+{screen_width - window_width - 20}+{screen_height - window_height - 50}")
+    set_alpha(1.0)
+    update_timer()
+    timer_window.mainloop()
+
+
 def launch_ui(url):
     try:
         import webview  # type: ignore
-        import tkinter as tk
-        from tkinter import ttk
 
         # Install lock immediately so it is active even before JS bridge is ready.
         if kiosk_lock_enabled():
@@ -998,29 +1124,66 @@ def launch_ui(url):
                 if is_verbose_logging_enabled():
                     print(f"[WARN] Failed to pre-enable kiosk lock: {exc}")
 
-        # Timer window variables
-        timer_thread = None
+        timer_process = None
+        timer_process_lock = threading.Lock()
+        window_obj = None
 
-        def create_timer_window():
-            try:
-                import subprocess
-                script_path = os.path.join(os.path.dirname(__file__), "timer_window.py")
-                subprocess.Popen([sys.executable, script_path], 
-                               creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
-            except Exception as e:
-                print(f"Failed to start timer: {e}")
+        def start_timer_window(started_at=None):
+            nonlocal timer_process
+
+            with timer_process_lock:
+                if timer_process is not None and timer_process.poll() is None:
+                    return True
+                try:
+                    timer_process = subprocess.Popen(
+                        get_timer_launch_command(started_at),
+                        cwd=get_runtime_base_dir()
+                    )
+                    return True
+                except Exception as exc:
+                    if is_verbose_logging_enabled():
+                        print(f"Failed to start timer: {exc}")
+                    timer_process = None
+                    return False
+
+        def stop_timer_window():
+            nonlocal timer_process
+
+            with timer_process_lock:
+                if timer_process is None:
+                    return True
+                try:
+                    if timer_process.poll() is None:
+                        timer_process.terminate()
+                        try:
+                            timer_process.wait(timeout=2)
+                        except Exception:
+                            timer_process.kill()
+                except Exception:
+                    pass
+                timer_process = None
+                return True
 
         try:
             class Api:
                 def minimize(self):
                     try:
-                        webview.windows[0].minimize()
-                        # Start timer in a separate thread
-                        import threading
-                        timer_thread = threading.Thread(target=create_timer_window, daemon=True)
-                        timer_thread.start()
+                        if window_obj is not None:
+                            window_obj.minimize()
+                        elif webview.windows:
+                            webview.windows[0].minimize()
+                        return True
                     except Exception:
-                        pass
+                        return False
+                    
+                def start_timer(self, started_at=None):
+                    try:
+                        return start_timer_window(started_at)
+                    except Exception:
+                        return False
+
+                def stop_timer(self):
+                    return stop_timer_window()
                 
                 def enable_kiosk_lock(self):
                     """Enable keyboard blocking (Alt+Tab, etc.) for logged-in users"""
@@ -1048,6 +1211,10 @@ def launch_ui(url):
                     # Secret key to terminate the client app
                     if secret_key == "PYPONDO_TERMINATE_2026":
                         try:
+                            stop_timer_window()
+                        except Exception:
+                            pass
+                        try:
                             # remove the keyboard hook so it doesn't linger after exit
                             uninstall_windows_key_blocker()
                         except Exception:
@@ -1071,6 +1238,7 @@ def launch_ui(url):
                 easy_drag=False,
                 js_api=Api()
             )
+            window_obj = window
             if kiosk_lock_enabled():
                 def prevent_close():
                     return True
@@ -1080,6 +1248,7 @@ def launch_ui(url):
                 except Exception:
                     pass
             webview.start()
+            stop_timer_window()
             return True
         except Exception as exc:
             if is_verbose_logging_enabled():
@@ -1103,6 +1272,11 @@ def launch_ui(url):
 
 
 def main():
+    argv = sys.argv[1:]
+    if argv and argv[0] == "--timer-window":
+        run_timer_window(argv[1] if len(argv) > 1 else None)
+        return 0
+
     headless_mode = str(os.getenv("PYPONDO_HEADLESS", "")).strip().lower() in {"1", "true", "yes"}
 
     # Kiosk lock is pre-enabled when client UI launches. API calls can still

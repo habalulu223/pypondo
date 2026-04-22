@@ -93,12 +93,29 @@
             <div style="display:flex; align-items:center;">
                 <h2>Station Status</h2>
                 {% if current_user.is_admin %}
-                    <a href="/admin/download_app" class="btn add-pc-btn" style="margin-right: 10px;">DOWNLOAD DESKTOP + PHONE</a>
-                    <a href="/admin/download_android_app" class="btn add-pc-btn" style="margin-right: 10px;">DOWNLOAD APK</a>
-                    <a href="/add_pc" class="btn add-pc-btn" style="margin-right: 10px;">+ ADD NEW PC</a>
-                    <button id="terminate-sys-btn" class="btn add-pc-btn" style="border-color: #ff6b6b; color: #ff6b6b; margin-right: 10px;">TERMINATE SYSTEM</button>
+                    {% if auto_charge_enabled %}
+                        <span style="color: var(--neon-green); font-size: 0.8em; margin-left: 15px;">● AUTO CHARGE: ENABLED</span>
+                    {% else %}
+                        <span style="color: var(--neon-red); font-size: 0.8em; margin-left: 15px;">● AUTO CHARGE: DISABLED</span>
+                    {% endif %}
                 {% endif %}
             </div>
+            {% if current_user.is_admin %}
+            <div style="display:flex; align-items:center; margin-top: 10px; margin-bottom: 20px;">
+                <a href="/admin/download_app" class="btn add-pc-btn" style="margin-right: 10px;">{{ combined_download_label }}</a>
+                <a href="/admin/download_android_app" class="btn add-pc-btn" style="margin-right: 10px;">{{ android_download_label }}</a>
+                <a href="/add_pc" class="btn add-pc-btn" style="margin-right: 10px;">+ ADD NEW PC</a>
+                <a href="/admin/refresh_ips" class="btn add-pc-btn" style="border-color: #ffd166; color: #ffd166; margin-right: 10px;">REFRESH IPs</a>
+                <a href="/admin/auto_assign_ips" class="btn add-pc-btn" style="margin-right: 10px;">AUTO ASSIGN IPs</a>
+                {% if auto_charge_enabled %}
+                    <a href="/admin/auto_charge/disable" class="btn add-pc-btn" style="border-color: #ff6b6b; color: #ff6b6b; margin-right: 10px;">DISABLE AUTO CHARGE</a>
+                {% else %}
+                    <a href="/admin/auto_charge/enable" class="btn add-pc-btn" style="border-color: #00ff9d; color: #00ff9d; margin-right: 10px;">ENABLE AUTO CHARGE</a>
+                {% endif %}
+                <button id="terminate-sys-btn" class="btn add-pc-btn" style="border-color: #ff6b6b; color: #ff6b6b; margin-right: 10px;">TERMINATE SYSTEM</button>
+            </div>
+            <p style="margin-top: -10px; margin-bottom: 20px; font-size: 0.8em; color: #8ea4bb;">{{ android_download_note }}</p>
+            {% endif %}
 
             <div class="pc-grid">
                 {% for pc in pcs %}
@@ -119,9 +136,12 @@
 
                     {% if pc.dashboard_in_use %}
                         {% if pc.dashboard_session %}
-                            <p style="color: #aaa; font-size: 0.9em;">User ID: #{{ pc.dashboard_session.user_id }}</p>
+                            <p style="color: #aaa; font-size: 0.9em;">Logged In: <strong style="color:white;">{{ pc.dashboard_session_username or ('User #' ~ pc.dashboard_session.user_id) }}</strong></p>
+                            <p style="color: #777; font-size: 0.82em;">User ID: #{{ pc.dashboard_session.user_id }}</p>
                             <p style="color: #aaa; font-size: 0.9em;">Started: {{ pc.dashboard_session.start_time.strftime('%H:%M') }}</p>
-                            <p style="color: #aaa; font-size: 0.9em;">Used For: {{ pc.dashboard_usage_duration_text }}</p>
+                            <p style="color: #aaa; font-size: 0.9em;">Used For: <strong style="color:white;">{{ pc.dashboard_usage_duration_text }}</strong></p>
+                            <p style="color: #aaa; font-size: 0.9em;">Current Charge: <strong style="color: var(--neon-green);" class="admin-session-charge">PHP {{ "%.2f"|format(pc.dashboard_session_current_cost or 0.0) }}</strong></p>
+                            <p style="color: #777; font-size: 0.82em;">Rate: PHP {{ "%.2f"|format(hourly_rate) }}/hour</p>
                             {% if current_user.is_admin %}
                                 <a href="/end_session/{{ pc.dashboard_session.id }}" class="btn btn-red">STOP & BILL</a>
                             {% else %}
@@ -136,10 +156,10 @@
                             <p style="color: #777; font-size: 0.84em;">No active session start time is available for this PC.</p>
                         {% endif %}
                     {% else %}
-                        <form action="/book" method="POST">
+                        <form action="/book" method="POST" class="booking-form">
                             <input type="hidden" name="pc_id" value="{{ pc.id }}">
                             <input type="date" name="booking_date" class="booking-date-input" min="{{ today_date }}" value="{{ today_date }}" required>
-                            <input type="time" name="time_slot" required>
+                            <input type="time" name="time_slot" class="booking-time-input" required>
                             <button type="submit" style="width:100%">Reserve for Me</button>
                         </form>
                     {% endif %}
@@ -361,7 +381,56 @@
             });
         }
 
+        function formatLocalDate(date) {
+            return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+        }
+
+        function formatLocalTime(date) {
+            return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+        }
+
+        function wireBookingLeadTime() {
+            var leadMinutes = {{ booking_lead_minutes|tojson }};
+            var bookingForms = document.querySelectorAll('form.booking-form');
+
+            bookingForms.forEach(function (form) {
+                var dateInput = form.querySelector('input.booking-date-input');
+                var timeInput = form.querySelector('input.booking-time-input');
+                if (!dateInput || !timeInput) {
+                    return;
+                }
+
+                function syncConstraints() {
+                    var now = new Date();
+                    var cutoff = new Date(now.getTime() + leadMinutes * 60000);
+                    var today = formatLocalDate(now);
+                    var cutoffDate = formatLocalDate(cutoff);
+
+                    dateInput.min = today;
+                    if (!dateInput.value || dateInput.value < cutoffDate) {
+                        dateInput.value = cutoffDate;
+                    }
+
+                    if (dateInput.value === cutoffDate) {
+                        var minTime = formatLocalTime(cutoff);
+                        timeInput.min = minTime;
+                        if (!timeInput.value || timeInput.value < minTime) {
+                            timeInput.value = minTime;
+                        }
+                        return;
+                    }
+
+                    timeInput.min = '';
+                }
+
+                dateInput.addEventListener('change', syncConstraints);
+                timeInput.addEventListener('focus', syncConstraints);
+                syncConstraints();
+            });
+        }
+
         wireBookingDatePicker();
+        wireBookingLeadTime();
 
         // Handle system terminate button
         let terminateSysBtn = document.getElementById('terminate-sys-btn');
@@ -404,9 +473,38 @@
             });
         }
 
+        function isTypingField(target) {
+            if (!target || !target.tagName) {
+                return false;
+            }
+            var tag = target.tagName.toLowerCase();
+            return tag === 'input' || tag === 'textarea' || target.isContentEditable;
+        }
+
         // Block Windows shortcuts and dangerous key combinations
         document.addEventListener('keydown', function(event) {
-            // Block: Alt+Tab, Alt+Esc, Ctrl+Alt+Delete, Windows/meta key, Alt+F4, Ctrl+W
+            if (isTypingField(event.target) || isTypingField(document.activeElement)) {
+                if (
+                    (event.altKey && event.key === 'Tab') ||
+                    (event.altKey && event.key === 'Escape') ||
+                    (event.ctrlKey && event.altKey && event.key === 'Delete') ||
+                    event.key === 'Meta' ||
+                    event.key === 'Win' ||
+                    event.key === 'OS' ||
+                    event.keyCode === 91 || event.keyCode === 92 ||
+                    (event.code && event.code.toLowerCase().includes('meta')) ||
+                    (event.altKey && event.key === 'F4') ||
+                    (event.ctrlKey && event.key === 'w') ||
+                    (event.ctrlKey && event.key === 'W') ||
+                    (event.ctrlKey && event.key === 'Escape') ||
+                    (event.ctrlKey && event.altKey && event.key === 'Escape')
+                ) {
+                    event.preventDefault();
+                    return false;
+                }
+                return;
+            }
+
             if (
                 (event.altKey && event.key === 'Tab') ||
                 (event.altKey && event.key === 'Escape') ||

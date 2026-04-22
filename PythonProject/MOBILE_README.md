@@ -25,22 +25,45 @@ A mobile Android app for the PyPondo PC Cafe management system.
    wsl --install -d Ubuntu
    ```
 
-2. After reboot, run this inside Ubuntu from your project folder:
-   ```bash
-   sudo apt update && sudo apt install -y python3 python3-venv python3-pip openjdk-17-jdk git zip unzip
-   python3 -m venv .venv-android
-   source .venv-android/bin/activate
-   pip install --upgrade pip
-   pip install buildozer cython
-   buildozer android debug
+2. From Windows, the safest option is to run:
+   ```bat
+   build_android_safe.bat
+   ```
+   If it says WSL is not ready, open PowerShell as Administrator and run:
+   ```powershell
+   wsl --install -d Ubuntu
+   ```
+   Then reboot Windows, open Ubuntu once, finish the Linux first-user setup, and run `build_android_safe.bat` again.
+
+3. Or from Windows PowerShell in the project folder, run:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\build_android.ps1
    ```
 
-3. Or, if you are already in Linux/Ubuntu with the dependencies installed:
+4. If you are already inside Ubuntu/Linux in the project folder, run:
    ```bash
-   buildozer android debug
+   chmod +x build_android_wsl.sh
+   ./build_android_wsl.sh
    ```
 
-4. The APK will be created in `bin/pypondo_mobile-1.0.0-debug.apk`
+5. Do not run `build_android_wsl.sh` directly from PowerShell. That causes the `/usr/bin/env` error because it is a Linux shell script.
+
+6. The APK will be created in `bin/pypondo_mobile-1.0.0-debug.apk`
+
+### From the Admin Dashboard
+
+If an APK has not been built yet, the admin dashboard download button now gives you a `PyPondo-Android-build-kit.zip` bundle instead of failing.
+
+That bundle includes:
+
+- `main.py`
+- `buildozer.spec`
+- `buildozer_shim.py`
+- `build_android.bat`
+- `build_android_safe.bat`
+- `build_android.ps1`
+- `build_android_wsl.sh`
+- this README and the app icon assets
 
 ### Installing on Android
 

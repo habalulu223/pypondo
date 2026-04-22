@@ -26,7 +26,7 @@ Perfect for testing both admin and client on the same machine:
 
 ```powershell
 # Terminal 1: Admin app
-cd c:\Users\PC 8\PycharmProjects\pypondo\PythonProject
+cd C:\path\to\pypondo\PythonProject
 python app.py
 # Listens on http://127.0.0.1:5000
 
@@ -50,7 +50,7 @@ With admin on one PC and clients on other machines:
 
 ```powershell
 # Admin PC (e.g., 192.168.1.10)
-cd c:\Users\PC 8\PycharmProjects\pypondo\PythonProject
+cd C:\path\to\pypondo\PythonProject
 
 # Optional: Configure to accept remote connections
 $env:FLASK_HOST="0.0.0.0"
@@ -67,7 +67,7 @@ Admin will be accessible at:
 
 ```powershell
 # Client PC (e.g., 192.168.1.50)
-cd c:\Users\PC 8\PycharmProjects\pypondo\PythonProject
+cd C:\path\to\pypondo\PythonProject
 
 # Automatic discovery (default)
 python desktop_app.py

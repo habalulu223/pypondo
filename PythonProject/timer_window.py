@@ -8,7 +8,7 @@ def create_timer_window():
     timer_window.title("PyPondo Timer")
     timer_window.geometry("300x150")
     timer_window.resizable(False, False)
-    # Removed -topmost so it can go to background
+    timer_window.attributes("-topmost", True)  # Keep on top
     timer_window.overrideredirect(True)  # Remove window decorations (no close/minimize buttons)
     timer_window.protocol("WM_DELETE_WINDOW", lambda: None)  # Prevent closing
     
@@ -25,11 +25,11 @@ def create_timer_window():
     cost_label = ttk.Label(timer_window, text="Cost: PHP 0.00", style="Cost.TLabel")
     cost_label.pack(pady=5)
     
-    status_label = ttk.Label(timer_window, text="Click and hold to move, click to restore app\n(transparent immediately)", font=("Arial", 8), foreground="white", background="black")
+    status_label = ttk.Label(timer_window, text="Click and hold to move, click to restore app\n(transparent on leave)", font=("Arial", 8), foreground="white", background="black")
     status_label.pack(pady=5)
     
     start_time = time.time()
-    timer_window.attributes("-alpha", 0.4)  # Start transparent immediately
+    timer_window.attributes("-alpha", 1.0)  # Start fully visible
     
     # Drag functionality variables
     drag_data = {"x": 0, "y": 0, "dragging": False}

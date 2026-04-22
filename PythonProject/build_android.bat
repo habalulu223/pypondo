@@ -34,34 +34,39 @@ if errorlevel 2 (
     echo ERROR: Android APK build cannot run on native Windows.
     echo.
     echo WSL is required and not ready on this machine.
-    echo Install and reboot first:
+    echo Open PowerShell as Administrator and run:
     echo   wsl --install -d Ubuntu
     echo.
-    echo After reboot, run this inside Ubuntu from your project folder:
-    echo   sudo apt update ^&^& sudo apt install -y python3 python3-venv python3-pip openjdk-17-jdk git zip unzip
-    echo   python3 -m venv .venv-android
-    echo   source .venv-android/bin/activate
-    echo   pip install --upgrade pip
-    echo   pip install buildozer cython
-    echo   buildozer android debug
+    echo Then do these steps in order:
+    echo   1. Reboot Windows
+    echo   2. Open the Ubuntu app once
+    echo   3. Finish the Linux username/password setup
+    echo   4. Run build_android_safe.bat in this project folder
     echo.
     pause
     exit /b 1
   )
 
-  echo ERROR: Native Windows Android build is not supported by buildozer.
+  for /f "usebackq delims=" %%I in (`wsl.exe wslpath "%cd%"`) do set "WSL_PROJECT_DIR=%%I"
+  if not defined WSL_PROJECT_DIR (
+    echo ERROR: Could not resolve WSL project path.
+    pause
+    exit /b 1
+  )
+
+  echo [INFO] WSL detected. Starting Android build inside Ubuntu...
+  wsl.exe -e bash -lc "cd '!WSL_PROJECT_DIR!' && chmod +x build_android_wsl.sh && ./build_android_wsl.sh"
+  if errorlevel 1 (
+    echo.
+    echo ERROR: WSL Android build failed.
+    pause
+    exit /b 1
+  )
+
   echo.
-  echo WSL is available. Run the build in your Ubuntu distro:
-  echo   cd /mnt/c/Users/USER4/PycharmProjects/pypondo/PythonProject
-  echo   sudo apt update ^&^& sudo apt install -y python3 python3-venv python3-pip openjdk-17-jdk git zip unzip
-  echo   python3 -m venv .venv-android
-  echo   source .venv-android/bin/activate
-  echo   pip install --upgrade pip
-  echo   pip install buildozer cython
-  echo   buildozer android debug
-  echo.
+  echo [OK] WSL Android build finished.
   pause
-  exit /b 1
+  exit /b 0
 )
 
 REM Check if buildozer is installed

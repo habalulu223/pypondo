@@ -15,7 +15,7 @@ Both apps are now completely independent and can be run directly from command li
 
 ```powershell
 # Navigate to project directory
-cd c:\Users\PC 8\PycharmProjects\pypondo\PythonProject
+cd C:\path\to\pypondo\PythonProject
 
 # Run admin app (server)
 python app.py
@@ -43,7 +43,7 @@ python app.py
 
 ```powershell
 # In another terminal/PowerShell window
-cd c:\Users\PC 8\PycharmProjects\pypondo\PythonProject
+cd C:\path\to\pypondo\PythonProject
 
 # Run client app
 python desktop_app.py
@@ -174,7 +174,7 @@ The app checks sources in this order:
 ### Test Gateway Discovery
 
 ```powershell
-cd c:\Users\PC 8\PycharmProjects\pypondo\PythonProject
+cd C:\path\to\pypondo\PythonProject
 python test_independence.py
 ```
 
