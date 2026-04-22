@@ -1389,6 +1389,8 @@ def confirm_payment_transaction(tx, admin_user):
         return False, "Payment transaction not found."
     if tx.status == "paid":
         return False, "Payment is already confirmed."
+    if tx.status == "cancelled":
+        return False, "Payment is cancelled and cannot be confirmed."
 
     user = db.session.get(User, tx.user_id)
     if not user:

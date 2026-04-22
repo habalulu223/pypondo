@@ -44,7 +44,7 @@
         .summary { color: #9bb0c5; font-size: 0.9rem; }
         .confirm-btn { border-color: var(--gold); color: var(--gold); }
         .confirm-btn:hover { background: var(--gold); color: #000; box-shadow: 0 0 12px rgba(255, 209, 102, 0.35); }
-        .confirm-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+        .confirm-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; background: #666; color: #999; border-color: #666; }
         .empty { padding: 28px 0; color: #70839a; text-align: center; }
         input[type="radio"] { accent-color: var(--gold); }
         @media (max-width: 860px) {
@@ -105,7 +105,7 @@
                         {% for tx in payments %}
                         <tr class="selectable{% if loop.first %} selected{% endif %}" data-payment-row>
                             <td data-label="Select">
-                                <input type="radio" name="payment_id" value="{{ tx.id }}" {% if loop.first %}checked{% endif %} {% if tx.status == 'paid' %}data-paid="1"{% endif %}>
+                                <input type="radio" name="payment_id" value="{{ tx.id }}" {% if loop.first %}checked{% endif %} {% if tx.status == 'paid' %}data-paid="1"{% endif %} {% if tx.status == 'cancelled' %}data-cancelled="1"{% endif %}>
                             </td>
                             <td data-label="Created">{{ tx.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                             <td data-label="User" style="font-weight:700; color:#fff;">{{ tx.display_username }}</td>
@@ -150,7 +150,7 @@
                 }
 
                 var selected = radios.find(function(radio) { return radio.checked; });
-                confirmBtn.disabled = !selected || selected.getAttribute('data-paid') === '1';
+                confirmBtn.disabled = !selected || selected.getAttribute('data-paid') === '1' || selected.getAttribute('data-cancelled') === '1';
             }
 
             rows.forEach(function(row) {
