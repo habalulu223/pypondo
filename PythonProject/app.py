@@ -2309,6 +2309,19 @@ def admin_download_android_app():
     )
 
 
+@app.route('/download/apk')
+def download_apk():
+    apk_path = get_latest_apk_path()
+    if apk_path:
+        return send_file(
+            apk_path,
+            as_attachment=True,
+            download_name="PyPondo.apk"
+        )
+
+    return "APK not available yet. Please build the Android APK and place it in the bin/ or package_cache/ folder.", 404
+
+
 @app.route('/add_pc')
 @login_required
 def add_pc():
