@@ -2,6 +2,11 @@
 
 A mobile Android app for the PyPondo PC Cafe management system.
 
+> NOTE: The current Android app source is in `PyPondoMobile/pypondo-web/android`.
+> The legacy Kivy build kit is still present in the repository, but the installable
+> Android APK should be generated from the Capacitor project using a proper
+> Android toolchain.
+
 ## Features
 
 - Connect to PyPondo server
@@ -13,10 +18,14 @@ A mobile Android app for the PyPondo PC Cafe management system.
 
 ### Prerequisites
 
-1. Ubuntu via WSL on Windows, or a native Linux environment
-2. Python 3.8+
-3. Java JDK 17+
-4. Android SDK/NDK (automatically downloaded by buildozer)
+1. Node.js and npm/yarn
+2. Java JDK 17+ (Android Gradle plugin requires Java 11 or newer)
+3. Android SDK / Android Studio toolchain
+4. The Android app source is in `PyPondoMobile/pypondo-web/android`
+5. Use the helper builder scripts in `PyPondoMobile/pypondo-web`:
+   - `build_android.bat`
+   - `build_android.ps1`
+   - Or from the workspace root: `build_mobile_apk.bat`
 
 ### Build Steps
 

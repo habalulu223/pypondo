@@ -1550,6 +1550,27 @@ def build_combined_download_bundle(desktop_artifact, apk_path=None):
     return bundle_stream
 
 
+def apk_path_is_valid(apk_path):
+    if not os.path.isfile(apk_path):
+        return False
+    if os.path.getsize(apk_path) < 512 * 1024:
+        return False
+
+    try:
+        with zipfile.ZipFile(apk_path, 'r') as apk:
+            names = apk.namelist()
+            if 'AndroidManifest.xml' not in names or 'classes.dex' not in names:
+                return False
+            with apk.open('AndroidManifest.xml') as manifest_file:
+                header = manifest_file.read(16)
+                if header.startswith(b'<?xml') or b'<manifest' in header:
+                    return False
+    except (zipfile.BadZipFile, OSError):
+        return False
+
+    return True
+
+
 def get_latest_apk_path():
     candidates = []
 
@@ -1560,6 +1581,8 @@ def get_latest_apk_path():
             if not file_name.lower().endswith(".apk"):
                 continue
             full_path = os.path.join(folder, file_name)
+            if not apk_path_is_valid(full_path):
+                continue
             try:
                 mtime = os.path.getmtime(full_path)
             except OSError:
@@ -2319,7 +2342,11 @@ def download_apk():
             download_name="PyPondo.apk"
         )
 
-    return "APK not available yet. Please build the Android APK and place it in the bin/ or package_cache/ folder.", 404
+    return (
+        "APK not available yet or the current package is not installable. "
+        "Build the Android APK using the Capacitor project in PyPondoMobile/pypondo-web/android "
+        "with JDK 11+ and place the resulting APK into bin/ or package_cache/."
+    ), 404
 
 
 @app.route('/add_pc')
