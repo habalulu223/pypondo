@@ -2034,9 +2034,13 @@ def login():
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
             login_user(user)
-            if not user.is_admin and user_has_positive_balance(user):
+            if not user.is_admin:
                 active_session = Session.query.filter_by(user_id=user.id, end_time=None).order_by(Session.start_time.desc()).first()
-                if not active_session:
+                if active_session:
+                    cost = finalize_session(active_session)
+                    db.session.commit()
+                    flash(f'Previous session ended. Cost: ₱{cost:.2f}.', 'info')
+                if user_has_positive_balance(user):
                     new_session = Session(user_id=user.id, last_charged_at=datetime.now())
                     db.session.add(new_session)
                     db.session.commit()
