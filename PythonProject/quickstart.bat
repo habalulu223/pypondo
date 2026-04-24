@@ -81,19 +81,21 @@ echo ============================================================
 echo.
 echo  1. Run Admin App (python app.py)
 echo  2. Run Client App (python desktop_app.py)
-echo  3. Run Both (in separate windows)
-echo  4. View Documentation
-echo  5. Test Gateway Discovery Only
-echo  6. Exit
+echo  3. Configure Admin IP (independence mode)
+echo  4. Run Both (in separate windows)
+echo  5. View Documentation
+echo  6. Test Gateway Discovery Only
+echo  7. Exit
 echo.
-set /p choice=Enter choice [1-6]: 
+set /p choice=Enter choice [1-7]: 
 
 if "!choice!"=="1" goto run_admin
 if "!choice!"=="2" goto run_client
-if "!choice!"=="3" goto run_both
-if "!choice!"=="4" goto docs
-if "!choice!"=="5" goto test_gateway
-if "!choice!"=="6" exit /b 0
+if "!choice!"=="3" goto configure_ip
+if "!choice!"=="4" goto run_both
+if "!choice!"=="5" goto docs
+if "!choice!"=="6" goto test_gateway
+if "!choice!"=="7" exit /b 0
 echo Invalid choice, please try again.
 goto menu
 
@@ -111,6 +113,14 @@ echo Client will auto-discover admin app via gateway
 echo.
 set PYPONDO_VERBOSE=1
 "%PYTHON_CMD%" %PYTHON_ARGS% desktop_app.py
+goto menu
+
+:configure_ip
+echo.
+echo Configuring Admin Server IP (Independence Mode)...
+echo This allows you to set the admin IP without the server running.
+echo.
+"%PYTHON_CMD%" %PYTHON_ARGS% desktop_app.py --independence
 goto menu
 
 :run_both

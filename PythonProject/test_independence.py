@@ -182,6 +182,7 @@ def main():
         print("\nYou can now run:")
         print("  python app.py          # Admin app")
         print("  python desktop_app.py  # Client app (auto-discovers admin)")
+        print("  python desktop_app.py --independence  # Configure IP without server")
         return 0
     else:
         print("[FAIL] Some tests failed. See above for details.")

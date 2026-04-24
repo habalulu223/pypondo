@@ -39,14 +39,31 @@ $env:LAN_AGENT_TOKEN="your-secret-key"
 python app.py
 ```
 
-## 2. Run Client App (Desktop)
+### 2.5 Configure Admin Server IP (Independence Mode)
+
+If you want to configure the admin server IP without the server running:
 
 ```powershell
-# In another terminal/PowerShell window
-cd C:\path\to\pypondo\PythonProject
+# Configure IP in independence mode (server doesn't need to be running)
+python desktop_app.py --independence
 
-# Run client app
-python desktop_app.py
+# Or use the shorter alias
+python desktop_app.py --configure-ip
+```
+
+This will:
+- Prompt you to enter the admin server IP/hostname
+- Save it to `server_host.txt` without trying to connect
+- Allow you to run the client normally later
+
+### Expected Output
+
+```
+PyPondo Independence Mode - Configure Admin Server IP
+=======================================================
+[OK] Saved admin server IP '192.168.1.100' to server_host.txt
+You can now run the client normally to connect to this server.
+Run: python desktop_app.py
 ```
 
 The client app will automatically:

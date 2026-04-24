@@ -1,2 +1,2 @@
 # Admin server host or IP
-192.168.2.117
+192.168.18.92

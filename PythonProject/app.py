@@ -20,6 +20,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import atexit
+from functools import wraps
 
 app = Flask(__name__)
 
@@ -35,6 +36,29 @@ db = SQLAlchemy(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+# --- Execution Time Tracking ---
+def track_execution_time(f):
+    """Decorator to track and record function execution time in response headers."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        start_time = time.time()
+        result = f(*args, **kwargs)
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        
+        # Add timing header to response
+        try:
+            if hasattr(result, 'headers'):
+                result.headers['X-Response-Time'] = str(elapsed_ms)
+            elif isinstance(result, tuple) and len(result) >= 2:
+                headers = result[1] if isinstance(result[1], dict) else {}
+                headers['X-Response-Time'] = str(elapsed_ms)
+                result = (result[0], headers) + result[2:] if len(result) > 2 else (result[0], headers)
+        except Exception:
+            pass
+        
+        return result
+    return decorated_function
 
 HOURLY_RATE = 15.0
 BOOKING_LEAD_MINUTES = 30

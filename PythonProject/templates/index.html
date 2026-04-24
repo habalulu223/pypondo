@@ -58,18 +58,35 @@
         tr:hover { background: #1f2430; }
         .pondo-btn { display: block; text-align: center; margin-bottom: 15px; background: linear-gradient(45deg, #00f3ff, #0066ff); color: white !important; border: none; font-weight: bold; }
         .wallet-box { border: 1px solid #2b3a4d; border-radius: 10px; padding: 14px; margin-bottom: 15px; background: linear-gradient(180deg, #121927, #0c111a); }
-        .wallet-balance { font-size: 2rem; color: var(--neon-green); margin: 6px 0 10px; font-family: 'Orbitron', sans-serif; }
-        .quick-amounts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
-        .quick-amounts button { margin-top: 0; padding: 8px 4px; font-size: 0.75rem; }
-        .pay-note { font-size: 0.8rem; color: #9db0c6; margin-top: 8px; }
+        .wallet-balance { font-size: 2.2rem; color: var(--neon-green); margin: 6px 0 10px; font-family: 'Orbitron', sans-serif; }
+        .quick-amounts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
+        .quick-amounts button { margin-top: 0; padding: 14px; font-size: 1rem; border-radius: 10px; background: rgba(0, 243, 255, 0.12); border: 1px solid rgba(0, 255, 157, 0.2); color: var(--text-main); }
+        .btn-big { width: 100%; padding: 16px 22px; font-size: 1rem; border-radius: 12px; }
+        .nav-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 18px; }
+        .big-action-card { border: 1px solid #253047; border-radius: 16px; padding: 18px; background: rgba(255,255,255,0.04); margin-bottom: 18px; }
+        .big-action-card p { margin: 8px 0 0; color: #9db0c6; font-size: 0.95rem; }
+        .user-guidance { background: rgba(0, 255, 157, 0.08); border: 1px solid rgba(0, 255, 157, 0.3); border-radius: 14px; padding: 16px; margin-bottom: 18px; color: #e8f7ef; }
+        .user-guidance strong { color: #ffffff; }
+        .friendly-note { font-size: 0.95rem; color: #c8f7de; line-height: 1.5; }
+        .status-badge { display: inline-block; padding: 8px 12px; border-radius: 999px; font-size: 0.9em; font-weight: bold; text-transform: uppercase; letter-spacing: 0.6px; }
+        .free .status-badge { background: rgba(0, 243, 255, 0.18); color: var(--neon-blue); }
+        .occupied .status-badge { background: rgba(255, 0, 85, 0.18); color: var(--neon-red); }
+        .card h3 { margin: 0 0 12px; font-size: 1.2rem; }
+        .card p, .card small { font-size: 0.92rem; }
+        .card button, .card .btn { border-radius: 12px; }
+        .card button[type="submit"] { font-size: 1rem; padding: 14px 0; }
+        .very-simple-label { display: block; font-size: 0.95rem; margin-bottom: 6px; color: #9db0c6; }
+        .booking-date-input, .booking-time-input { font-size: 1rem; padding: 14px 12px; border-radius: 10px; }
+        .booking-form button { margin-top: 12px; }
     </style>
 </head>
 <body>
     {% include '_animated_background.html' %}
     {% include '_startup_splash.html' %}
+    {% include '_loading_overlay.html' %}
 
     <div class="top-bar">
-        <h1>CyberCore // System Dashboard</h1>
+        <h1>{% if current_user.is_admin %}CyberCore // System Dashboard{% else %}Hello {{ current_user.username }} — Your Dashboard{% endif %}</h1>
         <div>
             <span style="color:#aaa; margin-right:15px; font-size: 0.9em;">
                 Logged in as: <strong style="color: white;">{{ current_user.username }}</strong>
@@ -158,9 +175,11 @@
                     {% else %}
                         <form action="/book" method="POST" class="booking-form">
                             <input type="hidden" name="pc_id" value="{{ pc.id }}">
-                            <input type="date" name="booking_date" class="booking-date-input" min="{{ today_date }}" value="{{ today_date }}" required>
-                            <input type="time" name="time_slot" class="booking-time-input" required>
-                            <button type="submit" style="width:100%">Reserve for Me</button>
+                            <label class="very-simple-label" for="booking_date_{{ pc.id }}">Pick a date</label>
+                            <input id="booking_date_{{ pc.id }}" type="date" name="booking_date" class="booking-date-input" min="{{ today_date }}" value="{{ today_date }}" required>
+                            <label class="very-simple-label" for="time_slot_{{ pc.id }}">Pick a time</label>
+                            <input id="time_slot_{{ pc.id }}" type="time" name="time_slot" class="booking-time-input" required>
+                            <button type="submit" class="btn btn-big" style="background: #00ff9d; color: #000; border: none;">Reserve this PC</button>
                         </form>
                     {% endif %}
 
@@ -287,6 +306,17 @@
                     </div>
                 </div>
             {% else %}
+                <div class="user-guidance">
+                    <strong>Hi {{ current_user.username }}!</strong>
+                    <p class="friendly-note">Pick a ready computer below and tap the big button to reserve time. If the card is red, the computer is busy. If it is green, it is ready.</p>
+                </div>
+                <div class="nav-grid">
+                    <a href="/pondo" class="btn btn-big" style="background: linear-gradient(135deg, #00f3ff, #0066ff); color: #000; border: none;">Load Credits</a>
+                    <a href="/bookings" class="btn btn-big" style="border-color: #00ff9d; color: #00ff9d;">My Bookings</a>
+                    <a href="/logs" class="btn btn-big" style="border-color: #fff; color: #fff;">History</a>
+                    <a href="/logout" class="btn btn-big" style="border-color: #ff6b6b; color: #ff6b6b;">Logout</a>
+                </div>
+
                 <div class="wallet-box">
                     <small style="color:#7992ac; text-transform:uppercase;">My Wallet</small>
                     <div class="wallet-balance">₱ {{ "%.2f"|format(current_user.pondo) }}</div>
@@ -298,22 +328,21 @@
                             <button type="button" onclick="setTopup(500)">₱500</button>
                             <button type="button" onclick="setTopup(1000)">₱1000</button>
                         </div>
-                        <button type="submit" style="width:100%; margin-top:10px;">Save Payment Request</button>
+                        <button type="submit" class="btn btn-big" style="background: #00ff9d; color: #000; border: none;">Save Payment Request</button>
                     </form>
                     <div class="pay-note">
-                        This only saves your online payment request in the database.
+                        Tap any amount to fill the box, then save your request.
                     </div>
                 </div>
             {% endif %}
 
+            {% if current_user.is_admin %}
             <table>
                 <thead>
                     <tr>
                         <th>Username</th>
                         <th>Credits (₱)</th>
-                        {% if current_user.is_admin %}
-                            <th>Action</th>
-                        {% endif %}
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -323,32 +352,26 @@
                         <td style="color: {{ 'var(--neon-green)' if user.pondo > 0 else 'var(--neon-red)' }}">
                             ₱ {{ "%.2f"|format(user.pondo) }}
                         </td>
-                        {% if current_user.is_admin %}
-                            <td>
-                                <a href="/force_stop_user/{{ user.id }}" class="btn btn-red" style="margin-top:0; padding:6px 10px;">
-                                    Force Stop
-                                </a>
-                            </td>
-                        {% endif %}
+                        <td>
+                            <a href="/force_stop_user/{{ user.id }}" class="btn btn-red" style="margin-top:0; padding:6px 10px;">Force Stop</a>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
-            {% if not current_user.is_admin %}
-                <div style="margin-top:15px; border:1px solid #333; border-radius:8px; padding:12px;">
+            {% else %}
+                <div style="margin-top:15px; border:1px solid #333; border-radius:8px; padding:18px; background: rgba(255,255,255,0.02);">
                     <small style="color:#666; text-transform:uppercase;">Recent Top-Ups</small>
-                    <div style="max-height:140px; overflow-y:auto; margin-top:8px;">
+                    <div style="max-height:140px; overflow-y:auto; margin-top:12px;">
                         {% if recent_payments %}
                             {% for tx in recent_payments %}
-                                <div style="display:flex; justify-content:space-between; font-size:0.85em; padding:4px 0; border-bottom:1px solid #222;">
-                                    <span style="color:#9db0c6;">{{ tx.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
-                                    <span style="color: {{ 'var(--neon-green)' if tx.status == 'paid' else '#d3a961' }};">
-                                        {{ tx.status|upper }} ₱{{ "%.2f"|format(tx.amount) }}
-                                    </span>
+                                <div style="display:flex; justify-content:space-between; font-size:0.95rem; padding:8px 0; border-bottom:1px solid #222;">
+                                    <span style="color:#9db0c6;">{{ tx.created_at.strftime('%b %d %H:%M') }}</span>
+                                    <span style="color: {{ 'var(--neon-green)' if tx.status == 'paid' else '#d3a961' }};">{{ tx.status|upper }} ₱{{ "%.2f"|format(tx.amount) }}</span>
                                 </div>
                             {% endfor %}
                         {% else %}
-                            <div style="font-size:0.85em; color:#666;">No top-up transactions yet.</div>
+                            <div style="font-size:0.95rem; color:#ccc;">No top-up history yet. Add credits to start using computers.</div>
                         {% endif %}
                     </div>
                 </div>

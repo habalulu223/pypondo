@@ -1,0 +1,192 @@
+<div id="pypondo-loading-overlay" class="pypondo-loading-hidden">
+    <div class="pypondo-loading-box">
+        <div class="pypondo-loading-spinner"></div>
+        <div id="pypondo-loading-message">Please wait while the action completes...</div>
+        <div id="pypondo-loading-timer" class="pypondo-loading-timer"></div>
+    </div>
+</div>
+<style>
+#pypondo-loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.82);
+}
+#pypondo-loading-overlay.pypondo-loading-show {
+    display: flex !important;
+}
+.pypondo-loading-box {
+    max-width: 340px;
+    padding: 22px 24px;
+    border-radius: 16px;
+    background: rgba(12, 17, 26, 0.96);
+    border: 1px solid rgba(0, 243, 255, 0.28);
+    box-shadow: 0 0 40px rgba(0, 243, 255, 0.18);
+    text-align: center;
+}
+.pypondo-loading-spinner {
+    width: 54px;
+    height: 54px;
+    margin: 0 auto 16px;
+    border: 5px solid rgba(0, 255, 157, 0.14);
+    border-top-color: #00ff9d;
+    border-radius: 50%;
+    animation: pypondo-spin 1s linear infinite;
+}
+#pypondo-loading-message {
+    color: #e0e6ed;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.95rem;
+    letter-spacing: 0.4px;
+    margin-bottom: 8px;
+}
+.pypondo-loading-timer {
+    color: #a0b0c0;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.85rem;
+    letter-spacing: 0.2px;
+    margin-top: 8px;
+    min-height: 16px;
+}
+@keyframes pypondo-spin {
+    to { transform: rotate(360deg); }
+}
+</style>
+<script>
+(function() {
+    var overlay = document.getElementById('pypondo-loading-overlay');
+    var message = document.getElementById('pypondo-loading-message');
+    var timer = document.getElementById('pypondo-loading-timer');
+    var startTime = null;
+    var timerInterval = null;
+
+    function formatTime(ms) {
+        var seconds = Math.floor(ms / 1000);
+        var minutes = Math.floor(seconds / 60);
+        seconds = seconds % 60;
+        if (minutes > 0) {
+            return minutes + 'm ' + seconds + 's';
+        }
+        return seconds + 's';
+    }
+
+    function updateTimer() {
+        if (!startTime) return;
+        var elapsed = Date.now() - startTime;
+        var timeStr = formatTime(elapsed);
+        if (timer) {
+            timer.textContent = 'Elapsed: ' + timeStr;
+        }
+    }
+
+    function showLoading(text) {
+        if (!overlay) return;
+        if (text) message.textContent = text;
+        
+        startTime = Date.now();
+        if (timerInterval) clearInterval(timerInterval);
+        if (timer) timer.textContent = 'Elapsed: 0s';
+        timerInterval = setInterval(updateTimer, 500);
+        
+        overlay.classList.add('pypondo-loading-show');
+    }
+
+    function hideLoading() {
+        if (!overlay) return;
+        overlay.classList.remove('pypondo-loading-show');
+        if (timerInterval) clearInterval(timerInterval);
+        startTime = null;
+        if (timer) timer.textContent = '';
+    }
+
+    function showLoadingWithTime(text, responseTimeMs) {
+        hideLoading();
+        if (text && responseTimeMs) {
+            message.textContent = text;
+            if (timer) {
+                timer.textContent = 'Completed in ' + formatTime(responseTimeMs);
+            }
+            overlay.classList.add('pypondo-loading-show');
+            setTimeout(hideLoading, 2000);
+        }
+    }
+
+    function shouldShowLink(anchor) {
+        if (!anchor.href) return false;
+        if (anchor.target && anchor.target !== '_self') return false;
+        if (anchor.dataset.noLoading !== undefined) return false;
+        if (anchor.href.startsWith('javascript:')) return false;
+        if (anchor.href.indexOf('#') === 0) return false;
+        return true;
+    }
+
+    function attachHandlers() {
+        document.querySelectorAll('form').forEach(function(form) {
+            form.addEventListener('submit', function(e) {
+                showLoading('Running request, please wait...');
+                var submit = form.querySelector('button[type=submit], input[type=submit]');
+                if (submit) submit.disabled = true;
+                
+                // Intercept form submission to capture timing
+                var originalAction = form.action;
+                var originalMethod = form.method || 'POST';
+                var originalTarget = form.target;
+                
+                setTimeout(function() {
+                    // Re-enable tracking on page reload
+                    window.addEventListener('beforeunload', function() {
+                        if (timerInterval) clearInterval(timerInterval);
+                    });
+                }, 100);
+            });
+        });
+
+        document.querySelectorAll('a').forEach(function(anchor) {
+            if (shouldShowLink(anchor)) {
+                anchor.addEventListener('click', function() {
+                    showLoading('Opening page, please wait...');
+                    var href = anchor.href;
+                    
+                    // For API calls, try to intercept and show timing
+                    if (href && href.includes('/api/')) {
+                        setTimeout(function() {
+                            fetch(href)
+                                .then(function(response) {
+                                    var timeHeader = response.headers.get('X-Response-Time');
+                                    if (timeHeader) {
+                                        showLoadingWithTime('Request completed', parseInt(timeHeader));
+                                    }
+                                })
+                                .catch(function() {
+                                    // Continue with normal navigation
+                                });
+                        }, 100);
+                    }
+                });
+            }
+        });
+
+        document.querySelectorAll('button').forEach(function(button) {
+            if (button.dataset.noLoading !== undefined) return;
+            if (button.type === 'button' || button.type === 'submit' || button.type === '') {
+                button.addEventListener('click', function() {
+                    showLoading('Processing, please wait...');
+                });
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', attachHandlers);
+    } else {
+        attachHandlers();
+    }
+
+    window.pypondoShowLoading = showLoading;
+    window.pypondoHideLoading = hideLoading;
+    window.pypondoShowLoadingWithTime = showLoadingWithTime;
+})();
+</script>

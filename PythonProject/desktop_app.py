@@ -1277,6 +1277,24 @@ def main():
         run_timer_window(argv[1] if len(argv) > 1 else None)
         return 0
 
+    # Check for independence mode (configure IP without server validation)
+    if argv and argv[0] in ("--independence", "--configure-ip", "--setup"):
+        print("PyPondo Independence Mode - Configure Admin Server IP")
+        print("=" * 55)
+        manual_host = prompt_manual_admin_host(headless_mode=False)
+        if manual_host:
+            if save_manual_admin_host(manual_host):
+                print(f"[OK] Saved admin server IP '{manual_host}' to server_host.txt")
+                print("You can now run the client normally to connect to this server.")
+                print(f"Run: python desktop_app.py")
+                return 0
+            else:
+                print("[ERROR] Failed to save server_host.txt")
+                return 1
+        else:
+            print("[CANCEL] No IP entered")
+            return 1
+
     headless_mode = str(os.getenv("PYPONDO_HEADLESS", "")).strip().lower() in {"1", "true", "yes"}
 
     # Kiosk lock is pre-enabled when client UI launches. API calls can still
@@ -1327,7 +1345,14 @@ def main():
                 os.environ["PYPONDO_ADMIN_IP"] = manual_host
                 save_manual_admin_host(manual_host)
                 had_manual_host = True
-                remote_base_url = discover_remote_server_base_url()
+                if is_verbose_logging_enabled():
+                    print(f"[INFO] Saved admin server IP '{manual_host}' to server_host.txt")
+                # In independence mode, don't require server validation - just save and continue to local mode
+                if env_flag("PYPONDO_INDEPENDENCE_MODE", default=False):
+                    if is_verbose_logging_enabled():
+                        print("[INFO] Independence mode: skipping server validation, saved IP for future use")
+                else:
+                    remote_base_url = discover_remote_server_base_url()
         if remote_base_url:
             launch_url = f"{remote_base_url}{get_start_path()}"
             if is_verbose_logging_enabled():
@@ -1347,7 +1372,7 @@ def main():
                     return 1
             return 0
 
-        if had_manual_host:
+        if had_manual_host and not env_flag("PYPONDO_INDEPENDENCE_MODE", default=False):
             # User provided an explicit admin host/IP but it is unreachable.
             error_msg = (
                 "Unable to connect to the configured admin server.\n\n"
