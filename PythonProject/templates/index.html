@@ -78,6 +78,18 @@
         .very-simple-label { display: block; font-size: 0.95rem; margin-bottom: 6px; color: #9db0c6; }
         .booking-date-input, .booking-time-input { font-size: 1rem; padding: 14px 12px; border-radius: 10px; }
         .booking-form button { margin-top: 12px; }
+        .pairing-card { margin-bottom: 18px; border: 1px solid rgba(0, 243, 255, 0.22); border-radius: 14px; padding: 14px; background: rgba(7, 12, 20, 0.82); }
+        .pairing-card h3 { margin: 6px 0 10px; font-size: 1rem; }
+        .pairing-card p { margin: 0 0 12px; color: #9db0c6; font-size: 0.9rem; line-height: 1.45; }
+        .pairing-grid { display: grid; gap: 14px; }
+        .pairing-qr { width: min(100%, 240px); aspect-ratio: 1; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: #fff; padding: 10px; box-sizing: border-box; }
+        .pairing-qr img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        .pairing-address { display: inline-block; padding: 8px 10px; border-radius: 10px; background: rgba(0, 243, 255, 0.12); border: 1px solid rgba(0, 243, 255, 0.18); color: #eafcff; font-family: Consolas, monospace; font-size: 0.9rem; word-break: break-all; }
+        .pairing-links { display: grid; gap: 8px; margin-top: 12px; }
+        .pairing-links a { margin-top: 0; text-align: center; }
+        .pairing-alt-list { margin-top: 12px; display: grid; gap: 8px; }
+        .pairing-alt-item { padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: #c8d6e5; font-size: 0.84rem; word-break: break-all; }
+        @media (min-width: 720px) { .pairing-grid { grid-template-columns: 240px minmax(0, 1fr); align-items: start; } }
     </style>
 </head>
 <body>
@@ -248,6 +260,32 @@
             <h2>User Profile</h2>
 
             {% if current_user.is_admin %}
+                {% if mobile_pairing_primary %}
+                <div class="pairing-card">
+                    <small style="color:#666; text-transform:uppercase;">Mobile LAN Pairing</small>
+                    <h3>Scan from the APK</h3>
+                    <p>Open the phone app, tap <strong style="color:white;">Scan LAN QR</strong>, and point the camera at this code. The APK will fetch this desktop system's LAN IP and connect to it directly.</p>
+                    <div class="pairing-grid">
+                        <div class="pairing-qr">
+                            <img src="{{ mobile_pairing_primary.qr_image_url }}" alt="PyPondo LAN QR code">
+                        </div>
+                        <div>
+                            <div class="pairing-address">{{ mobile_pairing_primary.address }}</div>
+                            <div class="pairing-links">
+                                <a href="{{ mobile_pairing_primary.pairing_url }}" class="btn" target="_blank" rel="noreferrer">OPEN PAIRING URL</a>
+                            </div>
+                            <p style="margin-top:12px; margin-bottom:0; font-size:0.82rem;">If the QR image does not load, enter <strong style="color:white;">{{ mobile_pairing_primary.address }}</strong> manually in the APK.</p>
+                            {% if mobile_pairing_targets|length > 1 %}
+                            <div class="pairing-alt-list">
+                                {% for target in mobile_pairing_targets[1:] %}
+                                <div class="pairing-alt-item">Alternate LAN path: {{ target.address }}</div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
                     <a href="/pondo" class="btn pondo-btn" style="grid-column: span 2;">+ LOAD CREDITS</a>
                     <a href="/bookings" class="btn" style="border-color: #00ff9d; color: #00ff9d; text-align:center;">BOOKINGS</a>

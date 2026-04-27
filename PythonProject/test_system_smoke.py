@@ -80,6 +80,13 @@ def main():
             server_payload = server_info.get_json()
             check(server_payload.get("ok") is True, "server info payload is marked ok")
             check(bool(server_payload.get("app_version")), "server info includes app version")
+            check(bool(server_payload.get("server_address")), "server info exposes a preferred server address")
+
+            pairing_response = client.get("/api/mobile/pairing")
+            check(pairing_response.status_code == 200, "mobile pairing endpoint responds")
+            pairing_payload = pairing_response.get_json()
+            check(pairing_payload.get("pairing_mode") == "lan_qr", "mobile pairing endpoint marks the LAN QR mode")
+            check(bool(pairing_payload.get("pairing_url")), "mobile pairing endpoint exposes a QR pairing URL")
 
             login_response = client.post(
                 "/api/mobile/login",
@@ -153,6 +160,7 @@ def main():
             check("Logged In:" in admin_html, "admin dashboard shows the active session user label")
             check("Current Charge:" in admin_html, "admin dashboard shows the live session charge label")
             check("smoke-user" in admin_html, "admin dashboard includes the session username")
+            check("Mobile LAN Pairing" in admin_html, "admin dashboard shows the mobile LAN pairing section")
 
             connect_response = client.post(
                 "/admin/request_connect",

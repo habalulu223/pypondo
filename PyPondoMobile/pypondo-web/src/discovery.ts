@@ -14,7 +14,6 @@ export type DiscoveredServer = {
 }
 
 const DISCOVERY_TIMEOUT_MS = 3000
-const SUBNET_SCAN_TIMEOUT_MS = 30000
 const DEFAULT_PORT = 5000
 const COMMON_PORTS = [5000, 8000, 8080, 3000]
 
@@ -67,7 +66,7 @@ export function detectLocalIpsViaWebRTC(): Promise<string[]> {
     const ips: Set<string> = new Set()
 
     const pc = new RTCPeerConnection({ iceServers: [] })
-    const timer = setTimeout(() => {
+    setTimeout(() => {
       pc.close()
       resolve(Array.from(ips))
     }, 1000)
@@ -198,7 +197,6 @@ export async function discoverViaGateway(): Promise<DiscoveredServer[]> {
 
   const probes = gateways.map(async (gateway) => {
     for (const port of COMMON_PORTS) {
-      const startTime = Date.now()
       const probe = await probeServer(gateway, port, 2000)
 
       if (probe.reachable) {

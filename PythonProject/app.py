@@ -14,6 +14,7 @@ import zipfile
 from decimal import Decimal, InvalidOperation
 from urllib import request as http_request
 from urllib import error as http_error
+from urllib import parse as http_parse
 from sqlalchemy import text
 import socket
 import time
@@ -1301,6 +1302,115 @@ def get_client_ip_from_request():
     return normalize_lan_ip(remote_addr)
 
 
+def get_request_server_port(default_port=5000):
+    host = (request.host or "").strip()
+    if host:
+        if host.startswith("[") and "]:" in host:
+            _, _, port_text = host.rpartition("]:")
+            try:
+                return int(port_text)
+            except Exception:
+                pass
+        elif host.count(":") == 1:
+            _, _, port_text = host.rpartition(":")
+            try:
+                return int(port_text)
+            except Exception:
+                pass
+
+    try:
+        return int(os.getenv("APP_PORT", str(default_port)))
+    except Exception:
+        return default_port
+
+
+def format_host_for_url(host):
+    value = str(host or "").strip()
+    if ":" in value and not value.startswith("["):
+        return f"[{value}]"
+    return value
+
+
+def get_primary_local_ipv4():
+    interfaces = parse_ipv4_interfaces()
+    for interface in interfaces:
+        ip = normalize_ipv4(interface.get("ipv4", ""))
+        if ip and interface.get("default_gateway"):
+            return ip
+
+    local_ipv4 = get_local_ipv4_addresses()
+    return local_ipv4[0] if local_ipv4 else None
+
+
+def get_mobile_pairing_targets(port=None):
+    if port is None:
+        port = get_request_server_port()
+
+    ordered_ips = []
+    primary_ipv4 = get_primary_local_ipv4()
+    if primary_ipv4:
+        ordered_ips.append(primary_ipv4)
+
+    for ip in get_local_lan_addresses():
+        normalized = normalize_lan_ip(ip)
+        if normalized and normalized not in ordered_ips:
+            ordered_ips.append(normalized)
+
+    fallback_ip = get_client_ip_from_request()
+    if fallback_ip and fallback_ip not in ordered_ips:
+        ordered_ips.append(fallback_ip)
+
+    targets = []
+    for ip in ordered_ips:
+        formatted_host = format_host_for_url(ip)
+        base_url = f"http://{formatted_host}:{port}"
+        pairing_url = f"{base_url}/api/mobile/pairing"
+        targets.append({
+            "ip": ip,
+            "address": f"{formatted_host}:{port}",
+            "base_url": base_url,
+            "pairing_url": pairing_url,
+            "qr_image_url": (
+                "https://api.qrserver.com/v1/create-qr-code/"
+                f"?size=240x240&margin=8&data={http_parse.quote(pairing_url, safe='')}"
+            ),
+        })
+
+    return targets
+
+
+def build_public_server_payload():
+    server_port = get_request_server_port()
+    pairing_targets = get_mobile_pairing_targets(server_port)
+    primary_target = pairing_targets[0] if pairing_targets else None
+
+    if primary_target is None:
+        fallback_ip = get_client_ip_from_request() or "127.0.0.1"
+        fallback_host = format_host_for_url(fallback_ip)
+        fallback_base_url = f"http://{fallback_host}:{server_port}"
+        primary_target = {
+            "ip": fallback_ip,
+            "address": f"{fallback_host}:{server_port}",
+            "base_url": fallback_base_url,
+            "pairing_url": f"{fallback_base_url}/api/mobile/pairing",
+        }
+        pairing_targets = [primary_target]
+
+    return {
+        "ok": True,
+        "app_version": APP_VERSION,
+        "server_hostname": socket.gethostname(),
+        "server_ip": primary_target["ip"],
+        "server_port": server_port,
+        "server_address": primary_target["address"],
+        "server_base_url": primary_target["base_url"],
+        "server_ips": [target["ip"] for target in pairing_targets],
+        "server_addresses": [target["address"] for target in pairing_targets],
+        "server_urls": [target["base_url"] for target in pairing_targets],
+        "pairing_url": primary_target["pairing_url"],
+    }
+
+
 def charge_elapsed_for_session(session, now=None):
     """Charge for elapsed time since last_charged_at (or start_time). Returns the charge amount."""
     if now is None:
@@ -1806,6 +1916,30 @@ def bootstrap_schema():
         app._schema_ready = True
 
 
+@app.before_request
+def allow_mobile_api_preflight():
+    normalized_path = (request.path or "").rstrip("/")
+    if request.method != "OPTIONS":
+        return None
+    if normalized_path == "/api/server-info" or normalized_path == "/api/mobile/pairing" or normalized_path.startswith("/api/mobile/"):
+        response = jsonify({"ok": True})
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Accept, X-Requested-With"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        return response
+    return None
+
+
+@app.after_request
+def add_mobile_api_cors_headers(response):
+    normalized_path = (request.path or "").rstrip("/")
+    if normalized_path == "/api/server-info" or normalized_path == "/api/mobile/pairing" or normalized_path.startswith("/api/mobile/"):
+        response.headers.setdefault("Access-Control-Allow-Origin", "*")
+        response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type, Accept, X-Requested-With")
+        response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    return response
+
+
 # --- Auth Routes ---
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -1829,26 +1963,14 @@ def register():
 @app.route('/api/server-info')
 def api_server_info():
     """Public API endpoint for clients to discover admin server information."""
-    try:
-        # Get local network IP
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            sock.connect(("8.8.8.8", 80))
-            server_ip = sock.getsockname()[0]
-        except Exception:
-            server_ip = "127.0.0.1"
-        finally:
-            sock.close()
-    except Exception:
-        server_ip = "127.0.0.1"
-    
-    return jsonify({
-        "ok": True,
-        "app_version": APP_VERSION,
-        "server_ip": server_ip,
-        "server_port": 5000,
-        "server_hostname": socket.gethostname()
-    }), 200
+    return jsonify(build_public_server_payload()), 200
+
+
+@app.route('/api/mobile/pairing')
+def api_mobile_pairing():
+    payload = build_public_server_payload()
+    payload["pairing_mode"] = "lan_qr"
+    return jsonify(payload), 200
 
 
 @app.route('/api/mobile/login', methods=['POST'])
@@ -2196,6 +2318,8 @@ def index():
     active_sessions = Session.query.filter_by(end_time=None).order_by(Session.start_time.asc()).all()
     recent_payments = get_recent_payment_requests(current_user.id)
     local_ips = get_local_lan_addresses() if current_user.is_admin else []
+    mobile_pairing_targets = get_mobile_pairing_targets() if current_user.is_admin else []
+    mobile_pairing_primary = mobile_pairing_targets[0] if mobile_pairing_targets else None
     lan_summary = build_primary_ipv4_network_summary() if current_user.is_admin else None
     gateway_scan = get_gateway_client_scan(non_blocking=True) if current_user.is_admin else None
     discovered_ips = [row.get("ip") for row in (gateway_scan.get("clients", []) if isinstance(gateway_scan, dict) else [])] if current_user.is_admin else []
@@ -2291,6 +2415,8 @@ def index():
         sessions=active_sessions,
         recent_payments=recent_payments,
         local_ips=local_ips,
+        mobile_pairing_targets=mobile_pairing_targets,
+        mobile_pairing_primary=mobile_pairing_primary,
         discovered_ips=discovered_ips,
         lan_summary=lan_summary,
         gateway_scan=gateway_scan,

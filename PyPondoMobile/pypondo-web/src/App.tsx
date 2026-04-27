@@ -1,5 +1,5 @@
-import { startTransition, useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import { startTransition, useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
 import './App.css'
 import { discoverServers, formatServerAddress, getSourceDescription, type DiscoveredServer } from './discovery'
 
@@ -9,6 +9,22 @@ type ServerInfo = {
   server_hostname: string
   server_ip: string
   server_port: number
+  server_address?: string
+  server_addresses?: string[]
+  server_base_url?: string
+}
+
+type PairingPayload = {
+  ok?: boolean
+  app_version?: string
+  pairing_mode?: string
+  pairing_url?: string
+  server_hostname?: string
+  server_ip?: string
+  server_port?: number
+  server_address?: string
+  server_addresses?: string[]
+  server_base_url?: string
 }
 
 type LoginPayload = {
@@ -91,10 +107,32 @@ type ChatMessage = {
   text: string
 }
 
+type ScannerStatus = 'idle' | 'starting' | 'active' | 'unsupported' | 'error'
+
+type DetectedBarcode = {
+  rawValue?: string
+}
+
+type BarcodeDetectorInstance = {
+  detect: (source: CanvasImageSource | ImageBitmap) => Promise<DetectedBarcode[]>
+}
+
+type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorInstance
+
+declare global {
+  interface Window {
+    BarcodeDetector?: BarcodeDetectorConstructor
+  }
+}
+
 const CONFIG_STORAGE_KEY = 'pypondo.mobile.config.v2'
 const SESSION_STORAGE_KEY = 'pypondo.mobile.session.v2'
 const DEFAULT_SERVER_ADDRESS = '192.168.1.100:5000'
+const DEFAULT_SERVER_PORT = 5000
 const QUICK_TOPUP_AMOUNTS = [100, 200, 500, 1000]
+const QR_PAIRING_PATH_PATTERN = /\/api\/mobile\/pairing\/?$/i
+const QR_SCAN_INTERVAL_MS = 300
+const DEFAULT_SCANNER_MESSAGE = 'Point the camera at the LAN QR from your desktop to pair this APK.'
 
 const currencyFormatter = new Intl.NumberFormat('en-PH', {
   currency: 'PHP',
@@ -109,10 +147,100 @@ function buildBaseUrl(serverAddress: string) {
 
   const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
   const url = new URL(withScheme)
+  if (!url.port) {
+    url.port = String(DEFAULT_SERVER_PORT)
+  }
   url.pathname = ''
   url.search = ''
   url.hash = ''
   return url.toString().replace(/\/$/, '')
+}
+
+function formatHostForUrl(host: string) {
+  const trimmed = host.trim()
+  if (trimmed.includes(':') && !trimmed.startsWith('[')) {
+    return `[${trimmed}]`
+  }
+  return trimmed
+}
+
+function normalizeServerAddress(rawValue: string) {
+  const trimmed = rawValue.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    const url = new URL(trimmed)
+    const port = Number(url.port || DEFAULT_SERVER_PORT)
+    return `${formatHostForUrl(url.hostname)}:${port}`
+  }
+
+  if (trimmed.startsWith('[')) {
+    return /\]:\d+$/.test(trimmed) ? trimmed : `${trimmed}:${DEFAULT_SERVER_PORT}`
+  }
+
+  const colonCount = (trimmed.match(/:/g) ?? []).length
+  if (colonCount > 1) {
+    return `${formatHostForUrl(trimmed)}:${DEFAULT_SERVER_PORT}`
+  }
+
+  return colonCount === 0 ? `${trimmed}:${DEFAULT_SERVER_PORT}` : trimmed
+}
+
+function resolveBaseUrlFromServerInfo(info: Partial<ServerInfo>, fallbackBaseUrl: string) {
+  const fallbackUrl = new URL(fallbackBaseUrl)
+  const scheme = fallbackUrl.protocol || 'http:'
+  const host = (info.server_ip || info.server_hostname || fallbackUrl.hostname || '').trim()
+  const port = Number(info.server_port || fallbackUrl.port || DEFAULT_SERVER_PORT)
+
+  if (!host) {
+    return fallbackBaseUrl
+  }
+
+  return `${scheme}//${formatHostForUrl(host)}:${port}`
+}
+
+async function resolveQrServerAddress(rawValue: string) {
+  const trimmed = rawValue.trim()
+  if (!trimmed) {
+    throw new Error('The QR code did not contain a server address.')
+  }
+
+  try {
+    const payload = JSON.parse(trimmed) as PairingPayload
+    const structuredAddress =
+      payload.server_address ||
+      payload.server_base_url ||
+      (payload.server_ip ? `${payload.server_ip}:${payload.server_port || DEFAULT_SERVER_PORT}` : '')
+
+    if (structuredAddress) {
+      return normalizeServerAddress(structuredAddress)
+    }
+  } catch {
+    // The QR payload may be a URL or raw address instead of JSON.
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    const url = new URL(trimmed)
+    if (QR_PAIRING_PATH_PATTERN.test(url.pathname)) {
+      const payload = await readJson<PairingPayload>(url.toString())
+      const pairedAddress =
+        payload.server_address ||
+        payload.server_base_url ||
+        (payload.server_ip ? `${payload.server_ip}:${payload.server_port || DEFAULT_SERVER_PORT}` : '')
+
+      if (!pairedAddress) {
+        throw new Error('The LAN QR connected, but the server did not return a usable address.')
+      }
+
+      return normalizeServerAddress(pairedAddress)
+    }
+
+    return normalizeServerAddress(trimmed)
+  }
+
+  return normalizeServerAddress(trimmed)
 }
 
 async function readJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
@@ -208,9 +336,19 @@ function App() {
   const [baseUrl, setBaseUrl] = useState('')
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [connectionMessage, setConnectionMessage] = useState(
-    'The APK already contains the app UI. Enter the PyPondo server address to link it to your system.',
+    'The APK already contains the app UI. Enter the PyPondo server address, discover it, or scan the desktop LAN QR.',
   )
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null)
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [scannerStatus, setScannerStatus] = useState<ScannerStatus>('idle')
+  const [scannerMessage, setScannerMessage] = useState(DEFAULT_SCANNER_MESSAGE)
+
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const scannerDetectorRef = useRef<BarcodeDetectorInstance | null>(null)
+  const scannerStreamRef = useRef<MediaStream | null>(null)
+  const scannerTimerRef = useRef<number | null>(null)
+  const scannerBusyRef = useRef(false)
+  const scannerRunningRef = useRef(false)
 
   // Discovery state
   const [discoveredServers, setDiscoveredServers] = useState<DiscoveredServer[]>([])
@@ -270,6 +408,207 @@ function App() {
     void refreshData()
   }, [baseUrl, session?.userId])
 
+  useEffect(() => {
+    return () => {
+      scannerRunningRef.current = false
+      scannerBusyRef.current = false
+      if (scannerTimerRef.current !== null) {
+        window.clearTimeout(scannerTimerRef.current)
+        scannerTimerRef.current = null
+      }
+      if (scannerStreamRef.current) {
+        scannerStreamRef.current.getTracks().forEach((track) => track.stop())
+        scannerStreamRef.current = null
+      }
+    }
+  }, [])
+
+  function stopScannerHardware() {
+    scannerRunningRef.current = false
+    scannerBusyRef.current = false
+
+    if (scannerTimerRef.current !== null) {
+      window.clearTimeout(scannerTimerRef.current)
+      scannerTimerRef.current = null
+    }
+
+    if (scannerStreamRef.current) {
+      scannerStreamRef.current.getTracks().forEach((track) => track.stop())
+      scannerStreamRef.current = null
+    }
+
+    if (videoRef.current) {
+      videoRef.current.pause()
+      videoRef.current.srcObject = null
+    }
+  }
+
+  function closeQrScanner() {
+    stopScannerHardware()
+    setScannerOpen(false)
+    setScannerStatus('idle')
+    setScannerMessage(DEFAULT_SCANNER_MESSAGE)
+  }
+
+  function scheduleScannerPass() {
+    if (!scannerRunningRef.current) {
+      return
+    }
+
+    scannerTimerRef.current = window.setTimeout(() => {
+      void detectQrFromVideo()
+    }, QR_SCAN_INTERVAL_MS)
+  }
+
+  async function applyScannedQr(rawValue: string) {
+    stopScannerHardware()
+    setScannerStatus('starting')
+    setScannerMessage('QR found. Loading the server details...')
+
+    try {
+      const resolvedAddress = await resolveQrServerAddress(rawValue)
+      setServerAddress(resolvedAddress)
+      setConnectionMessage(`QR found. Connecting to ${resolvedAddress}...`)
+      setScannerOpen(false)
+      setScannerStatus('idle')
+      setScannerMessage(DEFAULT_SCANNER_MESSAGE)
+      await connectToServer(resolvedAddress, false)
+    } catch (error) {
+      setScannerOpen(true)
+      setScannerStatus('error')
+      setScannerMessage(
+        error instanceof Error ? error.message : 'The QR code could not be used for pairing.',
+      )
+    }
+  }
+
+  async function detectQrFromVideo() {
+    if (!scannerRunningRef.current || !videoRef.current || !scannerDetectorRef.current) {
+      return
+    }
+
+    if (videoRef.current.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || scannerBusyRef.current) {
+      scheduleScannerPass()
+      return
+    }
+
+    scannerBusyRef.current = true
+
+    try {
+      const detections = await scannerDetectorRef.current.detect(videoRef.current)
+      const rawValue = detections.find((entry) => typeof entry.rawValue === 'string' && entry.rawValue.trim())
+        ?.rawValue
+
+      if (rawValue) {
+        await applyScannedQr(rawValue)
+        return
+      }
+    } catch (error) {
+      setScannerStatus('error')
+      setScannerMessage(
+        error instanceof Error ? error.message : 'The camera opened, but QR detection failed.',
+      )
+      stopScannerHardware()
+      return
+    } finally {
+      scannerBusyRef.current = false
+    }
+
+    scheduleScannerPass()
+  }
+
+  async function startQrScanner() {
+    const BarcodeDetectorImpl = window.BarcodeDetector
+    if (!navigator.mediaDevices?.getUserMedia || !BarcodeDetectorImpl) {
+      setScannerOpen(true)
+      setScannerStatus('unsupported')
+      setScannerMessage(
+        'This device WebView cannot live-scan QR codes. Use manual address entry or the discover button.',
+      )
+      return
+    }
+
+    stopScannerHardware()
+    setScannerOpen(true)
+    setScannerStatus('starting')
+    setScannerMessage('Allow camera access, then point it at the desktop LAN QR.')
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          height: { ideal: 1080 },
+          width: { ideal: 1920 },
+        },
+      })
+
+      scannerDetectorRef.current = new BarcodeDetectorImpl({ formats: ['qr_code'] })
+      scannerStreamRef.current = stream
+      scannerRunningRef.current = true
+
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+
+      if (!videoRef.current) {
+        throw new Error('The camera preview could not be prepared.')
+      }
+
+      videoRef.current.srcObject = stream
+      await videoRef.current.play()
+
+      setScannerStatus('active')
+      setScannerMessage('Scanning for the PyPondo LAN QR...')
+      scheduleScannerPass()
+    } catch (error) {
+      stopScannerHardware()
+      setScannerStatus('error')
+      setScannerMessage(
+        error instanceof Error
+          ? error.message
+          : 'Camera access was denied or is not available on this device.',
+      )
+    }
+  }
+
+  async function handleScannerImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file) {
+      return
+    }
+
+    const BarcodeDetectorImpl = window.BarcodeDetector
+    if (!BarcodeDetectorImpl) {
+      setScannerStatus('unsupported')
+      setScannerMessage('Photo scanning is not supported on this device.')
+      return
+    }
+
+    try {
+      const detector = scannerDetectorRef.current || new BarcodeDetectorImpl({ formats: ['qr_code'] })
+      const bitmap = await createImageBitmap(file)
+      const detections = await detector.detect(bitmap)
+      bitmap.close()
+
+      const rawValue = detections.find((entry) => typeof entry.rawValue === 'string' && entry.rawValue.trim())
+        ?.rawValue
+
+      if (!rawValue) {
+        setScannerStatus('error')
+        setScannerMessage('No QR code was detected in that photo. Try the live camera again.')
+        return
+      }
+
+      await applyScannedQr(rawValue)
+    } catch (error) {
+      setScannerStatus('error')
+      setScannerMessage(
+        error instanceof Error ? error.message : 'The selected image could not be scanned.',
+      )
+    }
+  }
+
   const availablePcs = pcs.filter((pc) => !pc.is_occupied)
   const connectionLabel =
     connectionStatus === 'connected'
@@ -291,14 +630,20 @@ function App() {
       }
 
       const info = await readJson<ServerInfo>(`${nextBaseUrl}/api/server-info`)
-      setBaseUrl(nextBaseUrl)
+      const resolvedBaseUrl = resolveBaseUrlFromServerInfo(info, nextBaseUrl)
+      const resolvedAddress = normalizeServerAddress(
+        info.server_address ||
+          `${formatHostForUrl(info.server_ip || new URL(resolvedBaseUrl).hostname)}:${info.server_port || DEFAULT_SERVER_PORT}`,
+      )
+
+      setBaseUrl(resolvedBaseUrl)
       setServerInfo(info)
       setConnectionStatus('connected')
       setConnectionMessage(
-        `Connected to ${info.server_hostname} at ${info.server_ip}:${info.server_port}.`,
+        `Connected to ${info.server_hostname} at ${resolvedAddress}.`,
       )
-      writeStoredConfig(candidateAddress)
-      setServerAddress(candidateAddress)
+      writeStoredConfig(resolvedAddress)
+      setServerAddress(resolvedAddress)
     } catch (error) {
       setBaseUrl('')
       setServerInfo(null)
@@ -601,8 +946,8 @@ function App() {
           <p className="eyebrow">PyPondo Mobile</p>
           <h1>Standalone APK, linked to your PyPondo system.</h1>
           <p className="hero-text">
-            The phone app now ships its own interface inside the APK. It no longer
-            depends on a PyCharm session or a web dev localhost server.
+            The phone app now ships its own interface inside the APK. Pair over LAN with a
+            desktop QR, a direct address, or automatic discovery.
           </p>
         </div>
 
@@ -654,6 +999,9 @@ function App() {
             type="text"
             value={serverAddress}
           />
+          <p className="helper-copy">
+            Use the desktop LAN QR for one-tap pairing, or enter the server address manually.
+          </p>
 
           <div className="button-row">
             <button
@@ -673,8 +1021,17 @@ function App() {
               {discoveringServers ? `Scanning... (${discoveryProgress.tested})` : 'Discover servers'}
             </button>
             <button
+              className="secondary-button"
+              disabled={scannerStatus === 'starting'}
+              onClick={() => void startQrScanner()}
+              type="button"
+            >
+              {scannerStatus === 'starting' ? 'Opening camera...' : 'Scan LAN QR'}
+            </button>
+            <button
               className="ghost-button"
               onClick={() => {
+                closeQrScanner()
                 setSession(null)
                 writeStoredSession(null)
                 window.localStorage.removeItem(CONFIG_STORAGE_KEY)
@@ -690,6 +1047,55 @@ function App() {
           </div>
 
           <p className="status-line">{connectionMessage}</p>
+
+          {scannerOpen && (
+            <div className="qr-scanner-panel">
+              <div className="scanner-head">
+                <div>
+                  <p className="section-label">Camera Pairing</p>
+                  <h3>Scan the desktop LAN QR</h3>
+                </div>
+                <button className="ghost-button scanner-close" onClick={closeQrScanner} type="button">
+                  Close
+                </button>
+              </div>
+
+              <div className="scanner-view">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  className={scannerStatus === 'active' ? 'scanner-video active' : 'scanner-video'}
+                  muted
+                  playsInline
+                />
+                {scannerStatus === 'active' ? <div className="scanner-target" aria-hidden="true" /> : null}
+                {scannerStatus !== 'active' ? (
+                  <div className="scanner-placeholder">
+                    <strong>
+                      {scannerStatus === 'unsupported'
+                        ? 'Live QR scan is not supported here.'
+                        : scannerStatus === 'error'
+                          ? 'The camera could not scan the QR yet.'
+                          : 'Preparing the camera viewer...'}
+                    </strong>
+                    <span>{scannerMessage}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              <p className="status-line">{scannerMessage}</p>
+
+              <div className="button-row scanner-actions">
+                <button className="secondary-button" onClick={() => void startQrScanner()} type="button">
+                  Restart camera
+                </button>
+                <label className="ghost-button file-picker-button">
+                  Use photo
+                  <input accept="image/*" capture="environment" onChange={handleScannerImage} type="file" />
+                </label>
+              </div>
+            </div>
+          )}
 
           {showDiscoveryList && discoveredServers.length > 0 && (
             <div className="discovered-servers-panel">
@@ -1002,7 +1408,8 @@ function App() {
             <form className="login-form" onSubmit={handleLogin}>
               <p className="login-copy">
                 Use a customer account from the existing PyPondo server. The phone app
-                connects over LAN and keeps the UI local inside the APK.
+                connects over LAN, keeps the UI local inside the APK, and can pair from
+                the desktop QR scanner flow.
               </p>
 
               <label className="field-label" htmlFor="username">

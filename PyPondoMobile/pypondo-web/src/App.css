@@ -141,6 +141,13 @@
   font-size: 0.85rem;
 }
 
+.helper-copy {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
 .text-field,
 .text-area,
 select.text-field {
@@ -359,6 +366,102 @@ select.text-field {
   background: rgba(72, 216, 255, 0.08);
   border: 1px solid rgba(72, 216, 255, 0.2);
   border-radius: 16px;
+}
+
+.qr-scanner-panel {
+  margin: 16px 0;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(133, 203, 255, 0.16);
+  display: grid;
+  gap: 12px;
+}
+
+.scanner-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.scanner-head h3 {
+  margin: 4px 0 0;
+}
+
+.scanner-close {
+  min-height: 42px;
+}
+
+.scanner-view {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(10, 16, 24, 0.94), rgba(4, 8, 12, 0.98)),
+    radial-gradient(circle at top right, rgba(255, 179, 71, 0.12), transparent 36%);
+  aspect-ratio: 4 / 5;
+}
+
+.scanner-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  background: #04080d;
+}
+
+.scanner-video.active {
+  opacity: 1;
+}
+
+.scanner-target {
+  position: absolute;
+  inset: 18% 14%;
+  border-radius: 28px;
+  border: 2px solid rgba(92, 225, 255, 0.95);
+  box-shadow:
+    0 0 0 999px rgba(3, 7, 13, 0.36),
+    0 0 22px rgba(92, 225, 255, 0.28);
+  pointer-events: none;
+}
+
+.scanner-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  color: var(--soft-text);
+}
+
+.scanner-placeholder strong {
+  color: var(--heading);
+}
+
+.scanner-actions {
+  margin-top: 0;
+}
+
+.file-picker-button {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-picker-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .discovered-servers-panel .section-label {
