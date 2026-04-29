@@ -262,9 +262,9 @@
             {% if current_user.is_admin %}
                 {% if mobile_pairing_primary %}
                 <div class="pairing-card">
-                    <small style="color:#666; text-transform:uppercase;">Mobile LAN Pairing</small>
+                    <small style="color:#666; text-transform:uppercase;">Mobile Pairing</small>
                     <h3>Scan from the APK</h3>
-                    <p>Open the phone app, tap <strong style="color:white;">Scan LAN QR</strong>, and point the camera at this code. The APK will fetch this desktop system's LAN IP and connect to it directly.</p>
+                    <p>Open the phone app, tap <strong style="color:white;">Scan LAN QR</strong>, and point the camera at this code. When the public route is active, the APK can connect from a different network through the internet instead of only over LAN.</p>
                     <div class="pairing-grid">
                         <div class="pairing-qr">
                             <img src="{{ mobile_pairing_primary.qr_image_url }}" alt="PyPondo LAN QR code">
@@ -274,11 +274,32 @@
                             <div class="pairing-links">
                                 <a href="{{ mobile_pairing_primary.pairing_url }}" class="btn" target="_blank" rel="noreferrer">OPEN PAIRING URL</a>
                             </div>
+                            <div class="pairing-links">
+                                <form action="/admin/public_route/start" method="POST">
+                                    <button type="submit" class="btn" style="width:100%; margin-top:0;">START PUBLIC ROUTE</button>
+                                </form>
+                                <form action="/admin/public_route/stop" method="POST">
+                                    <button type="submit" class="btn" style="width:100%; margin-top:0; border-color:#ff6b6b; color:#ff6b6b;">STOP PUBLIC ROUTE</button>
+                                </form>
+                            </div>
+                            {% if public_tunnel %}
+                            <p style="margin-top:12px; margin-bottom:0; font-size:0.82rem;">
+                                Public route status:
+                                <strong style="color:white;">{{ public_tunnel.status|upper }}</strong>
+                                {% if public_tunnel.url %}
+                                    <br>
+                                    <span style="word-break:break-all; color:#c8f7de;">{{ public_tunnel.url }}</span>
+                                {% elif public_tunnel.error %}
+                                    <br>
+                                    <span style="word-break:break-all; color:#ff9a9a;">{{ public_tunnel.error }}</span>
+                                {% endif %}
+                            </p>
+                            {% endif %}
                             <p style="margin-top:12px; margin-bottom:0; font-size:0.82rem;">If the QR image does not load, enter <strong style="color:white;">{{ mobile_pairing_primary.address }}</strong> manually in the APK.</p>
                             {% if mobile_pairing_targets|length > 1 %}
                             <div class="pairing-alt-list">
                                 {% for target in mobile_pairing_targets[1:] %}
-                                <div class="pairing-alt-item">Alternate LAN path: {{ target.address }}</div>
+                                <div class="pairing-alt-item">Alternate path: {{ target.address }}</div>
                                 {% endfor %}
                             </div>
                             {% endif %}

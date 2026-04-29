@@ -8,6 +8,7 @@ import json
 import os
 import re
 import ipaddress
+import shutil
 import subprocess
 import uuid
 import zipfile
@@ -81,6 +82,17 @@ NETWORK_CMD_CACHE = {}
 NETWORK_CMD_CACHE_LOCK = threading.Lock()
 HOSTNAME_CACHE = {}
 HOSTNAME_CACHE_LOCK = threading.Lock()
+PUBLIC_TUNNEL_LOCK = threading.Lock()
+PUBLIC_TUNNEL_URL_PATTERN = re.compile(r"https://[-a-zA-Z0-9.]+trycloudflare\.com(?:/[^\s]*)?", re.IGNORECASE)
+PUBLIC_TUNNEL_STATE = {
+    "process": None,
+    "status": "idle",
+    "url": "",
+    "error": "",
+    "binary_path": "",
+    "local_url": "",
+    "last_output": "",
+}
 
 # Global tracking for ping processes to prevent orphaned pings on exit
 ACTIVE_PING_PROCESSES = set()
@@ -102,6 +114,31 @@ def terminate_all_ping_processes():
 atexit.register(terminate_all_ping_processes)
 
 
+def terminate_public_tunnel():
+    with PUBLIC_TUNNEL_LOCK:
+        proc = PUBLIC_TUNNEL_STATE.get("process")
+        PUBLIC_TUNNEL_STATE["process"] = None
+        PUBLIC_TUNNEL_STATE["status"] = "idle"
+        PUBLIC_TUNNEL_STATE["url"] = ""
+        PUBLIC_TUNNEL_STATE["error"] = ""
+        os.environ.pop("PYPONDO_PUBLIC_BASE_URL", None)
+
+    if not proc:
+        return
+
+    try:
+        proc.terminate()
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+atexit.register(terminate_public_tunnel)
+
+
 def hidden_subprocess_kwargs():
     if os.name != "nt":
         return {}
@@ -121,6 +158,153 @@ def hidden_subprocess_kwargs():
         kwargs["startupinfo"] = startupinfo
 
     return kwargs
+
+
+def get_cloudflared_binary_candidates():
+    configured = str(os.getenv("PYPONDO_CLOUDFLARED_PATH", "")).strip()
+    candidates = []
+    if configured:
+        candidates.append(configured)
+
+    candidates.extend([
+        shutil.which("cloudflared"),
+        os.path.join(basedir, "bin", "cloudflared.exe"),
+        os.path.join(basedir, "tools", "cloudflared.exe"),
+        os.path.join(basedir, "cloudflared.exe"),
+    ])
+    return [path for path in candidates if path]
+
+
+def resolve_cloudflared_binary():
+    for candidate in get_cloudflared_binary_candidates():
+        if candidate and os.path.exists(candidate):
+            return os.path.abspath(candidate)
+    return ""
+
+
+def get_default_cloudflared_download_url():
+    if os.name == "nt":
+        return "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+    return "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+
+
+def ensure_cloudflared_binary():
+    resolved = resolve_cloudflared_binary()
+    if resolved:
+        return resolved
+
+    download_url = str(os.getenv("PYPONDO_CLOUDFLARED_DOWNLOAD_URL", "")).strip() or get_default_cloudflared_download_url()
+    target_dir = os.path.join(basedir, "bin")
+    os.makedirs(target_dir, exist_ok=True)
+    target_name = "cloudflared.exe" if os.name == "nt" else "cloudflared"
+    target_path = os.path.join(target_dir, target_name)
+
+    temp_path = target_path + ".download"
+    http_request.urlretrieve(download_url, temp_path)
+    os.replace(temp_path, target_path)
+    if os.name != "nt":
+        os.chmod(target_path, 0o755)
+    return os.path.abspath(target_path)
+
+
+def update_public_tunnel_state(**changes):
+    with PUBLIC_TUNNEL_LOCK:
+        PUBLIC_TUNNEL_STATE.update(changes)
+
+
+def get_public_tunnel_snapshot():
+    with PUBLIC_TUNNEL_LOCK:
+        proc = PUBLIC_TUNNEL_STATE.get("process")
+        alive = bool(proc and proc.poll() is None)
+        return {
+            "status": PUBLIC_TUNNEL_STATE.get("status", "idle"),
+            "url": PUBLIC_TUNNEL_STATE.get("url", ""),
+            "error": PUBLIC_TUNNEL_STATE.get("error", ""),
+            "binary_path": PUBLIC_TUNNEL_STATE.get("binary_path", ""),
+            "local_url": PUBLIC_TUNNEL_STATE.get("local_url", ""),
+            "last_output": PUBLIC_TUNNEL_STATE.get("last_output", ""),
+            "running": alive,
+        }
+
+
+def _public_tunnel_reader(proc):
+    try:
+        stream = proc.stdout
+        if stream is None:
+            return
+        for raw_line in stream:
+            line = str(raw_line or "").strip()
+            if not line:
+                continue
+            update_public_tunnel_state(last_output=line)
+            match = PUBLIC_TUNNEL_URL_PATTERN.search(line)
+            if match:
+                public_url = match.group(0).rstrip("/")
+                os.environ["PYPONDO_PUBLIC_BASE_URL"] = public_url
+                update_public_tunnel_state(status="ready", url=public_url, error="")
+    finally:
+        os.environ.pop("PYPONDO_PUBLIC_BASE_URL", None)
+        update_public_tunnel_state(process=None, status="stopped", url="")
+
+
+def start_public_tunnel(local_port):
+    snapshot = get_public_tunnel_snapshot()
+    if snapshot["running"] and snapshot["url"]:
+        return True, snapshot
+
+    try:
+        binary_path = ensure_cloudflared_binary()
+    except Exception as exc:
+        update_public_tunnel_state(status="error", error=f"cloudflared download failed: {exc}")
+        return False, get_public_tunnel_snapshot()
+
+    local_url = f"http://127.0.0.1:{int(local_port)}"
+    command = [binary_path, "tunnel", "--url", local_url, "--no-autoupdate"]
+
+    try:
+        proc = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            **hidden_subprocess_kwargs(),
+        )
+    except Exception as exc:
+        update_public_tunnel_state(
+            status="error",
+            error=f"cloudflared start failed: {exc}",
+            binary_path=binary_path,
+            local_url=local_url,
+        )
+        return False, get_public_tunnel_snapshot()
+
+    update_public_tunnel_state(
+        process=proc,
+        status="starting",
+        url="",
+        error="",
+        binary_path=binary_path,
+        local_url=local_url,
+        last_output="Launching cloudflared quick tunnel...",
+    )
+
+    threading.Thread(target=_public_tunnel_reader, args=(proc,), daemon=True).start()
+
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        snapshot = get_public_tunnel_snapshot()
+        if snapshot["url"]:
+            return True, snapshot
+        if not snapshot["running"] and snapshot["status"] in {"error", "stopped"}:
+            break
+        time.sleep(0.25)
+
+    terminate_public_tunnel()
+    update_public_tunnel_state(status="error", error="Timed out while waiting for a public route from cloudflared.")
+    return False, get_public_tunnel_snapshot()
 
 
 # --- Database Models ---
@@ -1324,6 +1508,34 @@ def get_request_server_port(default_port=5000):
         return default_port
 
 
+def split_host_and_port(value):
+    host_value = str(value or "").strip()
+    if not host_value:
+        return "", None
+
+    if host_value.startswith("["):
+        end_idx = host_value.find("]")
+        if end_idx != -1:
+            host = host_value[1:end_idx].strip()
+            remainder = host_value[end_idx + 1:]
+            if remainder.startswith(":"):
+                try:
+                    return host, int(remainder[1:])
+                except Exception:
+                    return host, None
+            return host, None
+
+    if host_value.count(":") == 1:
+        host, _, port_text = host_value.rpartition(":")
+        if host and port_text.isdigit():
+            try:
+                return host.strip(), int(port_text)
+            except Exception:
+                return host.strip(), None
+
+    return host_value, None
+
+
 def format_host_for_url(host):
     value = str(host or "").strip()
     if ":" in value and not value.startswith("["):
@@ -1342,9 +1554,139 @@ def get_primary_local_ipv4():
     return local_ipv4[0] if local_ipv4 else None
 
 
+def build_target_descriptor(base_url, *, host=None, port=None, display_address=None):
+    normalized_base_url = str(base_url or "").strip().rstrip("/")
+    if not normalized_base_url:
+        return None
+
+    try:
+        parsed = http_parse.urlsplit(normalized_base_url)
+    except Exception:
+        return None
+
+    normalized_host = str(host or parsed.hostname or "").strip()
+    if not normalized_host:
+        return None
+
+    pairing_url = f"{normalized_base_url}/api/mobile/pairing"
+    visible_address = str(display_address or "").strip()
+    if not visible_address:
+        if parsed.port:
+            visible_address = f"{format_host_for_url(normalized_host)}:{parsed.port}"
+        else:
+            visible_address = normalized_base_url
+
+    return {
+        "ip": normalized_host,
+        "address": visible_address,
+        "base_url": normalized_base_url,
+        "pairing_url": pairing_url,
+        "qr_image_url": (
+            "https://api.qrserver.com/v1/create-qr-code/"
+            f"?size=240x240&margin=8&data={http_parse.quote(pairing_url, safe='')}"
+        ),
+    }
+
+
+def get_public_server_targets(port=None):
+    if port is None:
+        port = get_request_server_port()
+
+    targets = []
+    seen = set()
+
+    def add_target(host_value, override_port=None):
+        normalized_host = str(host_value or "").strip()
+        if not normalized_host:
+            return
+        target_port = int(override_port or port)
+        key = (normalized_host.lower(), target_port)
+        if key in seen:
+            return
+        formatted_host = format_host_for_url(normalized_host)
+        base_url = f"http://{formatted_host}:{target_port}"
+        target = build_target_descriptor(
+            base_url,
+            host=normalized_host,
+            port=target_port,
+            display_address=f"{formatted_host}:{target_port}",
+        )
+        if target:
+            targets.append(target)
+            seen.add(key)
+
+    configured_base_url = str(os.getenv("PYPONDO_PUBLIC_BASE_URL", "")).strip()
+    if configured_base_url:
+        try:
+            parsed = http_parse.urlsplit(configured_base_url)
+            configured_host = (parsed.hostname or "").strip()
+            configured_port = parsed.port
+            key = (configured_host.lower(), int(configured_port or 0))
+            if configured_host and key not in seen:
+                target = build_target_descriptor(
+                    configured_base_url,
+                    host=configured_host,
+                    port=configured_port,
+                    display_address=configured_base_url.rstrip("/"),
+                )
+                if target:
+                    targets.append(target)
+                    seen.add(key)
+        except Exception:
+            pass
+
+    forwarded_host = request.headers.get("X-Forwarded-Host", "").strip()
+    if forwarded_host:
+        first_host = forwarded_host.split(",")[0].strip()
+        host_only, forwarded_port = split_host_and_port(first_host)
+        add_target(host_only, forwarded_port or port)
+
+    request_host = (request.host or "").strip()
+    if request_host:
+        host_only, request_port = split_host_and_port(request_host)
+        add_target(host_only, request_port or port)
+
+    return targets
+
+
 def get_mobile_pairing_targets(port=None):
     if port is None:
         port = get_request_server_port()
+
+    targets = []
+    seen = set()
+
+    def add_target(host_value, override_port=None):
+        normalized_host = str(host_value or "").strip()
+        if not normalized_host:
+            return
+        target_port = int(override_port or port)
+        key = (normalized_host.lower(), target_port)
+        if key in seen:
+            return
+        formatted_host = format_host_for_url(normalized_host)
+        base_url = f"http://{formatted_host}:{target_port}"
+        target = build_target_descriptor(
+            base_url,
+            host=normalized_host,
+            port=target_port,
+            display_address=f"{formatted_host}:{target_port}",
+        )
+        if target:
+            targets.append(target)
+            seen.add(key)
+
+    for target in get_public_server_targets(port):
+        target_port = 0
+        try:
+            parsed = http_parse.urlsplit(target.get("base_url", ""))
+            target_port = int(parsed.port or 0)
+        except Exception:
+            target_port = 0
+        key = (str(target.get("ip", "")).strip().lower(), target_port)
+        if key not in seen:
+            targets.append(target)
+            seen.add(key)
 
     ordered_ips = []
     primary_ipv4 = get_primary_local_ipv4()
@@ -1360,21 +1702,8 @@ def get_mobile_pairing_targets(port=None):
     if fallback_ip and fallback_ip not in ordered_ips:
         ordered_ips.append(fallback_ip)
 
-    targets = []
     for ip in ordered_ips:
-        formatted_host = format_host_for_url(ip)
-        base_url = f"http://{formatted_host}:{port}"
-        pairing_url = f"{base_url}/api/mobile/pairing"
-        targets.append({
-            "ip": ip,
-            "address": f"{formatted_host}:{port}",
-            "base_url": base_url,
-            "pairing_url": pairing_url,
-            "qr_image_url": (
-                "https://api.qrserver.com/v1/create-qr-code/"
-                f"?size=240x240&margin=8&data={http_parse.quote(pairing_url, safe='')}"
-            ),
-        })
+        add_target(ip, port)
 
     return targets
 
@@ -2320,6 +2649,7 @@ def index():
     local_ips = get_local_lan_addresses() if current_user.is_admin else []
     mobile_pairing_targets = get_mobile_pairing_targets() if current_user.is_admin else []
     mobile_pairing_primary = mobile_pairing_targets[0] if mobile_pairing_targets else None
+    public_tunnel = get_public_tunnel_snapshot() if current_user.is_admin else None
     lan_summary = build_primary_ipv4_network_summary() if current_user.is_admin else None
     gateway_scan = get_gateway_client_scan(non_blocking=True) if current_user.is_admin else None
     discovered_ips = [row.get("ip") for row in (gateway_scan.get("clients", []) if isinstance(gateway_scan, dict) else [])] if current_user.is_admin else []
@@ -2417,6 +2747,7 @@ def index():
         local_ips=local_ips,
         mobile_pairing_targets=mobile_pairing_targets,
         mobile_pairing_primary=mobile_pairing_primary,
+        public_tunnel=public_tunnel,
         discovered_ips=discovered_ips,
         lan_summary=lan_summary,
         gateway_scan=gateway_scan,
@@ -2435,6 +2766,32 @@ def index():
         hourly_rate=HOURLY_RATE,
         auto_charge_enabled=AUTO_CHARGE_ENABLED
     )
+
+
+@app.route('/admin/public_route/start', methods=['POST'])
+@login_required
+def admin_start_public_route():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    local_port = int(os.getenv("APP_PORT", "5000"))
+    ok, snapshot = start_public_tunnel(local_port)
+    if ok and snapshot.get("url"):
+        flash(f"Public mobile route ready: {snapshot['url']}", "success")
+    else:
+        flash(snapshot.get("error") or "Unable to create a public mobile route.", "error")
+    return redirect(url_for('index'))
+
+
+@app.route('/admin/public_route/stop', methods=['POST'])
+@login_required
+def admin_stop_public_route():
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+
+    terminate_public_tunnel()
+    flash("Public mobile route stopped.", "info")
+    return redirect(url_for('index'))
 
 
 # --- ADMIN FEATURES ---

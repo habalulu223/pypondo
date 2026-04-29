@@ -34,6 +34,8 @@
 .hero-copy {
   position: relative;
   z-index: 1;
+  display: grid;
+  gap: 14px;
 }
 
 .eyebrow,
@@ -52,6 +54,25 @@
   color: var(--soft-text);
 }
 
+.hero-highlights {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.hero-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--heading);
+  font-size: 0.82rem;
+}
+
 .hero-metrics,
 .summary-grid,
 .connection-meta {
@@ -59,9 +80,18 @@
   gap: 12px;
 }
 
+.operations-strip {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
 .metric-card,
 .summary-card,
-.mini-card {
+.mini-card,
+.ops-card,
+.guidance-item,
+.active-tab-banner {
   padding: 14px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.04);
@@ -146,6 +176,13 @@
   color: var(--muted);
   font-size: 0.84rem;
   line-height: 1.45;
+}
+
+.section-copy {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
 }
 
 .text-field,
@@ -242,6 +279,17 @@ select.text-field {
   margin-top: 12px;
 }
 
+.connection-guidance {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  margin-top: 16px;
+}
+
+.guidance-item strong {
+  color: var(--heading);
+}
+
 .connection-meta {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 16px;
@@ -256,6 +304,18 @@ select.text-field {
 
 .summary-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.active-tab-banner {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 180px) 1fr;
+  align-items: center;
+}
+
+.active-tab-banner p:last-child {
+  margin: 0;
+  color: var(--soft-text);
 }
 
 .tab-row {
@@ -329,6 +389,16 @@ select.text-field {
 
 .quick-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quick-actions-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.action-button {
+  min-height: 56px;
 }
 
 .chat-log {
@@ -475,6 +545,7 @@ select.text-field {
 }
 
 .server-item {
+  border: none;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -553,9 +624,12 @@ select.text-field {
 
   .summary-grid,
   .connection-meta,
+  .operations-strip,
   .tab-row,
   .two-column-grid.compact,
-  .quick-grid {
+  .quick-grid,
+  .quick-actions-grid,
+  .active-tab-banner {
     grid-template-columns: 1fr;
   }
 

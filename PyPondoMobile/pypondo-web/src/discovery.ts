@@ -17,6 +17,95 @@ const DISCOVERY_TIMEOUT_MS = 3000
 const DEFAULT_PORT = 5000
 const COMMON_PORTS = [5000, 8000, 8080, 3000]
 
+// Storage keys for persistent server info
+const STORED_CONFIG_KEY = 'pypondo_config'
+const STORED_SERVER_ADDRESS_KEY = 'serverAddress'
+
+/**
+ * Get previously saved server address from localStorage
+ * This allows the APK to reconnect using the last known server IP
+ * even when connecting from a different network
+ */
+export function getStoredServerAddress(): string | null {
+  try {
+    const stored = localStorage.getItem(STORED_CONFIG_KEY)
+    if (stored) {
+      const config = JSON.parse(stored)
+      if (config?.serverAddress) {
+        return config.serverAddress
+      }
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return null
+}
+
+/**
+ * Extract IP and port from a server address string
+ */
+function parseServerAddress(address: string): { ip: string; port: number } | null {
+  try {
+    // Handle formats like "192.168.1.100:5000" or "http://192.168.1.100:5000"
+    let cleanAddress = address.trim()
+    
+    // Remove http:// or https:// prefix
+    cleanAddress = cleanAddress.replace(/^https?:\/\//i, '')
+    
+    // Remove trailing slash
+    cleanAddress = cleanAddress.replace(/\/$/, '')
+    
+    // Split IP and port
+    const lastColonIndex = cleanAddress.lastIndexOf(':')
+    if (lastColonIndex > 0) {
+      const ip = cleanAddress.substring(0, lastColonIndex)
+      const port = parseInt(cleanAddress.substring(lastColonIndex + 1), 10)
+      if (!isNaN(port) && port > 0 && port < 65536) {
+        return { ip, port }
+      }
+    }
+    
+    // If no port specified, assume default
+    return { ip: cleanAddress, port: DEFAULT_PORT }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Try to connect to a previously saved server address
+ * This enables remote connections from different networks
+ */
+export async function tryStoredServerAddress(): Promise<DiscoveredServer | null> {
+  const storedAddress = getStoredServerAddress()
+  if (!storedAddress) {
+    return null
+  }
+
+  const parsed = parseServerAddress(storedAddress)
+  if (!parsed) {
+    return null
+  }
+
+  // Try the stored address with all common ports
+  for (const port of COMMON_PORTS) {
+    const probe = await probeServer(parsed.ip, port, 2000)
+    if (probe.reachable) {
+      return {
+        address: parsed.ip,
+        hostname: parsed.ip,
+        port,
+        ip: parsed.ip,
+        source: 'manual',
+        reachable: true,
+        responseTime: probe.responseTime,
+      }
+    }
+  }
+
+  return null
+}
+
 /**
  * Get all possible gateway IPs from the device
  * Uses common gateway addresses as fallbacks
@@ -36,6 +125,11 @@ export async function discoverGatewayIps(): Promise<string[]> {
   ]
 
   commonGateways.forEach((gw) => gateways.add(gw))
+
+  // CRITICAL: Add localhost as fallback for local testing
+  // This allows the APK to find server when running on same device
+  gateways.add('127.0.0.1')
+  gateways.add('localhost')
 
   // Try to detect local IP via WebRTC (if available)
   try {
@@ -171,17 +265,38 @@ export async function getServerInfo(address: string, port: number = DEFAULT_PORT
       headers: {
         'Accept': 'application/json',
       },
+      // Use no-cors mode to avoid CORS issues in mobile WebView
+      mode: 'no-cors',
     })
 
-    if (!response.ok) {
-      return null
-    }
-
-    const data = (await response.json()) as any
-    return {
-      hostname: data.server_hostname || address,
-      ip: data.server_ip || address,
-      port: data.server_port || port,
+    // In no-cors mode, response.ok is always true but response.json() will fail
+    // We need to use a different approach - try to parse the response body
+    try {
+      // Use text first, then parse if valid JSON
+      const text = await response.text()
+      if (!text || text.trim() === '') {
+        // Empty response but no-cors means server likely reachable
+        // Return minimal info - the connectToServer will get full info
+        return {
+          hostname: address,
+          ip: address,
+          port,
+        }
+      }
+      
+      const data = JSON.parse(text)
+      return {
+        hostname: data.server_hostname || address,
+        ip: data.server_ip || address,
+        port: data.server_port || port,
+      }
+    } catch {
+      // If we can't parse JSON but got no-cors response, server is reachable
+      return {
+        hostname: address,
+        ip: address,
+        port,
+      }
     }
   } catch {
     return null
@@ -229,12 +344,31 @@ export async function discoverViaSubnetScan(
   const servers: DiscoveredServer[] = []
   const localIps = await detectLocalIpsViaWebRTC()
 
-  if (localIps.length === 0) {
-    return servers
+  // If WebRTC fails to detect local IP, use fallback IPs
+  let subnetIps: string[] = []
+  
+  if (localIps.length > 0) {
+    // Use detected local IP to generate subnet
+    const baseIp = localIps[0]
+    subnetIps = generateSubnetIps(baseIp, scanCount)
+  } else {
+    // FALLBACK: When WebRTC fails (common in mobile WebView),
+    // scan common localhost and private IP ranges
+    subnetIps = [
+      // Localhost variants
+      '127.0.0.1',
+      'localhost',
+      // Common private ranges
+      '192.168.1.1', '192.168.1.100', '192.168.1.101', '192.168.1.102',
+      '192.168.1.103', '192.168.1.104', '192.168.1.105', '192.168.1.106',
+      '192.168.1.107', '192.168.1.108', '192.168.1.109', '192.168.1.110',
+      '192.168.0.1', '192.168.0.100', '192.168.0.101', '192.168.0.102',
+      '192.168.0.103', '192.168.0.104', '192.168.0.105',
+      '10.0.0.1', '10.0.0.100', '10.0.0.101', '10.0.0.102',
+      '10.0.1.1', '10.0.1.100',
+      '172.16.0.1', '172.16.0.100',
+    ]
   }
-
-  const baseIp = localIps[0]
-  const subnetIps = generateSubnetIps(baseIp, scanCount)
 
   let tested = 0
 
@@ -300,6 +434,7 @@ export async function discoverServers(
     includeSubnet?: boolean
     includeMdns?: boolean
     includeBroadcast?: boolean
+    includeStored?: boolean
     subnetScanCount?: number
     onProgress?: (found: number, tested: number) => void
   } = {},
@@ -309,13 +444,62 @@ export async function discoverServers(
     includeSubnet = true,
     includeMdns = false,
     includeBroadcast = false,
+    includeStored = true,
     subnetScanCount = 30,
     onProgress,
   } = options
 
   const allServers: Map<string, DiscoveredServer> = new Map()
 
-  // Run discovery methods in parallel
+  // STEP 1: Try previously saved server address FIRST
+  // This enables remote connections from different networks
+  // The APK will use the last connected server's IP
+  if (includeStored) {
+    const storedServer = await tryStoredServerAddress()
+    if (storedServer) {
+      const key = `${storedServer.ip}:${storedServer.port}`
+      allServers.set(key, storedServer)
+    }
+  }
+
+  // STEP 2: Try localhost as quick fallback
+  const localhostProbe = await probeServer('127.0.0.1', DEFAULT_PORT, 1000)
+  if (localhostProbe.reachable) {
+    const serverInfo = await getServerInfo('127.0.0.1', DEFAULT_PORT)
+    if (serverInfo) {
+      allServers.set(`127.0.0.1:${DEFAULT_PORT}`, {
+        address: '127.0.0.1',
+        hostname: serverInfo.hostname || 'localhost',
+        port: DEFAULT_PORT,
+        ip: serverInfo.ip || '127.0.0.1',
+        source: 'subnet',
+        reachable: true,
+        responseTime: localhostProbe.responseTime,
+      })
+    }
+  }
+
+  // Also try localhost with common alternative ports
+  for (const port of COMMON_PORTS) {
+    if (port === DEFAULT_PORT) continue
+    const probe = await probeServer('127.0.0.1', port, 500)
+    if (probe.reachable) {
+      const key = `127.0.0.1:${port}`
+      if (!allServers.has(key)) {
+        allServers.set(key, {
+          address: '127.0.0.1',
+          hostname: 'localhost',
+          port,
+          ip: '127.0.0.1',
+          source: 'subnet',
+          reachable: true,
+          responseTime: probe.responseTime,
+        })
+      }
+    }
+  }
+
+  // STEP 3: Run network discovery methods in parallel
   const discoveries: Promise<DiscoveredServer[]>[] = []
 
   if (includeGateway) {

@@ -133,6 +133,32 @@ const QUICK_TOPUP_AMOUNTS = [100, 200, 500, 1000]
 const QR_PAIRING_PATH_PATTERN = /\/api\/mobile\/pairing\/?$/i
 const QR_SCAN_INTERVAL_MS = 300
 const DEFAULT_SCANNER_MESSAGE = 'Point the camera at the LAN QR from your desktop to pair this APK.'
+const TAB_META: Record<TabKey, { label: string; hint: string }> = {
+  overview: {
+    label: 'Overview',
+    hint: 'Session status, bookings, and rollout notes.',
+  },
+  bookings: {
+    label: 'Bookings',
+    hint: 'Reserve a machine and track existing schedules.',
+  },
+  pcs: {
+    label: 'PCs',
+    hint: 'Live station availability and LAN registration.',
+  },
+  topup: {
+    label: 'Top-up',
+    hint: 'Create a balance request from the phone.',
+  },
+  assistant: {
+    label: 'Assistant',
+    hint: 'Ask about account activity and cafe operations.',
+  },
+  updates: {
+    label: 'Updates',
+    hint: 'Product notices and release history.',
+  },
+}
 
 const currencyFormatter = new Intl.NumberFormat('en-PH', {
   currency: 'PHP',
@@ -145,9 +171,11 @@ function buildBaseUrl(serverAddress: string) {
     throw new Error('Enter the PyPondo server address first.')
   }
 
-  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
+  const hasScheme = /^https?:\/\//i.test(trimmed)
+  const withScheme = hasScheme ? trimmed : `http://${trimmed}`
   const url = new URL(withScheme)
-  if (!url.port) {
+
+  if (!url.port && !hasScheme) {
     url.port = String(DEFAULT_SERVER_PORT)
   }
   url.pathname = ''
@@ -172,8 +200,10 @@ function normalizeServerAddress(rawValue: string) {
 
   if (/^https?:\/\//i.test(trimmed)) {
     const url = new URL(trimmed)
-    const port = Number(url.port || DEFAULT_SERVER_PORT)
-    return `${formatHostForUrl(url.hostname)}:${port}`
+    url.pathname = ''
+    url.search = ''
+    url.hash = ''
+    return url.toString().replace(/\/$/, '')
   }
 
   if (trimmed.startsWith('[')) {
@@ -191,13 +221,25 @@ function normalizeServerAddress(rawValue: string) {
 function resolveBaseUrlFromServerInfo(info: Partial<ServerInfo>, fallbackBaseUrl: string) {
   const fallbackUrl = new URL(fallbackBaseUrl)
   const scheme = fallbackUrl.protocol || 'http:'
-  const host = (info.server_ip || info.server_hostname || fallbackUrl.hostname || '').trim()
-  const port = Number(info.server_port || fallbackUrl.port || DEFAULT_SERVER_PORT)
+  const advertisedBaseUrl = typeof info.server_base_url === 'string' ? info.server_base_url.trim() : ''
 
-  if (!host) {
-    return fallbackBaseUrl
+  if (advertisedBaseUrl) {
+    try {
+      const parsedAdvertisedUrl = new URL(advertisedBaseUrl)
+      if (!parsedAdvertisedUrl.port) {
+        parsedAdvertisedUrl.port = String(info.server_port || fallbackUrl.port || DEFAULT_SERVER_PORT)
+      }
+      parsedAdvertisedUrl.pathname = ''
+      parsedAdvertisedUrl.search = ''
+      parsedAdvertisedUrl.hash = ''
+      return parsedAdvertisedUrl.toString().replace(/\/$/, '')
+    } catch {
+      // Fall through to the caller-provided origin when the advertised URL is malformed.
+    }
   }
 
+  const host = (fallbackUrl.hostname || '').trim()
+  const port = Number(info.server_port || fallbackUrl.port || DEFAULT_SERVER_PORT)
   return `${scheme}//${formatHostForUrl(host)}:${port}`
 }
 
@@ -610,6 +652,13 @@ function App() {
   }
 
   const availablePcs = pcs.filter((pc) => !pc.is_occupied)
+  const onlinePcCount = pcs.filter((pc) => pc.online).length
+  const nextBooking = bookings[0] ?? null
+  const latestUpdate = updates[0] ?? null
+  const serverAddressSummary = serverInfo
+    ? `${serverInfo.server_ip}:${serverInfo.server_port}`
+    : 'Waiting for address'
+  const activeTabMeta = TAB_META[activeTab]
   const connectionLabel =
     connectionStatus === 'connected'
       ? 'Connected'
@@ -944,11 +993,16 @@ function App() {
       <section className="hero-card">
         <div className="hero-copy">
           <p className="eyebrow">PyPondo Mobile</p>
-          <h1>Standalone APK, linked to your PyPondo system.</h1>
+          <h1>Customer operations rebuilt for a real cafe floor.</h1>
           <p className="hero-text">
-            The phone app now ships its own interface inside the APK. Pair over LAN with a
-            desktop QR, a direct address, or automatic discovery.
+            The APK carries the customer experience locally, then links it to the live
+            PyPondo stack over LAN by QR pairing, direct address, or network discovery.
           </p>
+          <div className="hero-highlights">
+            <span className="hero-pill">Bundled UI</span>
+            <span className="hero-pill">LAN QR pairing</span>
+            <span className="hero-pill">Cross-network discovery</span>
+          </div>
         </div>
 
         <div className="hero-metrics">
@@ -956,7 +1010,7 @@ function App() {
           <div className="metric-card">
             <span className="metric-label">Server</span>
             <strong>{serverInfo?.server_hostname || 'Not connected'}</strong>
-            <span>{serverInfo ? `${serverInfo.server_ip}:${serverInfo.server_port}` : 'Waiting for address'}</span>
+            <span>{serverAddressSummary}</span>
           </div>
           <div className="metric-card">
             <span className="metric-label">Balance</span>
@@ -968,6 +1022,31 @@ function App() {
             <strong>{lastSync ? formatTimestamp(lastSync) : 'Not synced yet'}</strong>
             <span>{refreshBusy ? 'Refreshing mobile data' : 'Local UI is bundled in the APK'}</span>
           </div>
+        </div>
+      </section>
+
+      <section className="operations-strip">
+        <div className="ops-card">
+          <span className="metric-label">Connection path</span>
+          <strong>{baseUrl || 'No active server link'}</strong>
+          <span>{connectionMessage}</span>
+        </div>
+        <div className="ops-card">
+          <span className="metric-label">Next booking</span>
+          <strong>{nextBooking ? `${nextBooking.pc_name} at ${nextBooking.time}` : 'No booking scheduled'}</strong>
+          <span>{nextBooking ? nextBooking.date : 'Create one from the booking tab.'}</span>
+        </div>
+        <div className="ops-card">
+          <span className="metric-label">Cafe floor</span>
+          <strong>
+            {onlinePcCount} online / {availablePcs.length} free
+          </strong>
+          <span>{pcs.length > 0 ? `${pcs.length} registered PCs visible to mobile.` : 'No mobile PC data yet.'}</span>
+        </div>
+        <div className="ops-card">
+          <span className="metric-label">Latest update</span>
+          <strong>{latestUpdate ? latestUpdate.title : 'No release notes yet'}</strong>
+          <span>{latestUpdate ? `v${latestUpdate.version} ${latestUpdate.update_type}` : 'Publish updates from the server.'}</span>
         </div>
       </section>
 
@@ -1002,6 +1081,21 @@ function App() {
           <p className="helper-copy">
             Use the desktop LAN QR for one-tap pairing, or enter the server address manually.
           </p>
+
+          <div className="connection-guidance">
+            <div className="guidance-item">
+              <strong>QR pairing</strong>
+              <span>Best when the desktop app is nearby and already connected.</span>
+            </div>
+            <div className="guidance-item">
+              <strong>Discover servers</strong>
+              <span>Scans common LAN paths and saved hosts across routers.</span>
+            </div>
+            <div className="guidance-item">
+              <strong>Manual address</strong>
+              <span>Fastest fallback when you already know the host and port.</span>
+            </div>
+          </div>
 
           <div className="button-row">
             <button
@@ -1111,7 +1205,7 @@ function App() {
                     <div className="server-info">
                       <strong>{server.hostname}</strong>
                       <span className="server-address">
-                        {server.ip}:{server.port}
+                        {formatServerAddress(server)}
                       </span>
                       <span className="server-source">{getSourceDescription(server.source)}</span>
                     </div>
@@ -1162,7 +1256,7 @@ function App() {
                 </div>
                 <div className="summary-card">
                   <span>Online PCs</span>
-                  <strong>{pcs.filter((pc) => pc.online).length}</strong>
+                  <strong>{onlinePcCount}</strong>
                 </div>
                 <div className="summary-card">
                   <span>Current balance</span>
@@ -1170,19 +1264,25 @@ function App() {
                 </div>
               </div>
 
+              <div className="active-tab-banner">
+                <div>
+                  <p className="section-label">Current workspace</p>
+                  <h3>{activeTabMeta.label}</h3>
+                </div>
+                <p>{activeTabMeta.hint}</p>
+              </div>
+
               <div className="tab-row" role="tablist" aria-label="Mobile app sections">
-                {(['overview', 'bookings', 'pcs', 'topup', 'assistant', 'updates'] as TabKey[]).map(
-                  (tab) => (
-                    <button
-                      key={tab}
-                      className={tab === activeTab ? 'tab-button active' : 'tab-button'}
-                      onClick={() => setActiveTab(tab)}
-                      type="button"
-                    >
-                      {tab}
-                    </button>
-                  ),
-                )}
+                {(['overview', 'bookings', 'pcs', 'topup', 'assistant', 'updates'] as TabKey[]).map((tab) => (
+                  <button
+                    key={tab}
+                    className={tab === activeTab ? 'tab-button active' : 'tab-button'}
+                    onClick={() => setActiveTab(tab)}
+                    type="button"
+                  >
+                    {TAB_META[tab].label}
+                  </button>
+                ))}
               </div>
 
               {activeTab === 'overview' ? (
@@ -1193,6 +1293,24 @@ function App() {
                   </div>
 
                   <div className="two-column-grid">
+                    <div className="content-card">
+                      <h3>Quick actions</h3>
+                      <div className="quick-actions-grid">
+                        <button className="ghost-button action-button" onClick={() => setActiveTab('bookings')} type="button">
+                          Book a station
+                        </button>
+                        <button className="ghost-button action-button" onClick={() => setActiveTab('topup')} type="button">
+                          Request top-up
+                        </button>
+                        <button className="ghost-button action-button" onClick={() => setActiveTab('pcs')} type="button">
+                          Check PCs
+                        </button>
+                        <button className="ghost-button action-button" onClick={() => setActiveTab('assistant')} type="button">
+                          Ask assistant
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="content-card">
                       <h3>Upcoming bookings</h3>
                       {bookings.length > 0 ? (
@@ -1234,6 +1352,9 @@ function App() {
                 <section className="content-stack">
                   <form className="content-card" onSubmit={submitBooking}>
                     <h3>Create booking</h3>
+                    <p className="section-copy">
+                      Only free PCs are shown here, so customers are choosing from stations that are ready now.
+                    </p>
                     <label className="field-label" htmlFor="pcSelect">
                       PC
                     </label>
@@ -1324,6 +1445,9 @@ function App() {
               {activeTab === 'topup' ? (
                 <form className="content-card" onSubmit={submitTopup}>
                   <h3>Create top-up request</h3>
+                  <p className="section-copy">
+                    Submit a balance request to the live server. The updated amount is written back to this device after approval.
+                  </p>
                   <label className="field-label" htmlFor="topupAmount">
                     Amount
                   </label>
@@ -1359,6 +1483,9 @@ function App() {
                 <section className="content-stack">
                   <div className="content-card chat-log">
                     <h3>Assistant</h3>
+                    <p className="section-copy">
+                      This assistant stays inside the existing PyPondo mobile API surface and can answer account and booking questions.
+                    </p>
                     {assistantMessages.map((message) => (
                       <div className={`chat-bubble ${message.role}`} key={message.id}>
                         <span>{message.role}</span>
