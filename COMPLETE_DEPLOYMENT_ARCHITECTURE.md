@@ -123,17 +123,18 @@ pypondo/
 - Health checks included
 
 **Configuration**:
-- `railway.json` (root) - Main config with `rootDirectory`
-- `Procfile` (root) - Startup command
+- `railway.json` (root) - Main deploy config
+- `requirements.txt` (root) - Points Railpack to `PythonProject/requirements.txt`
+- `Procfile` (root) - Fallback startup command
 - `PythonProject/railway.toml` - Project config
 
 **What It Does**:
 1. Clones repository
 2. Reads `railway.json`
-3. Sees `"rootDirectory": "PythonProject"`
-4. Builds from that directory
-5. Installs `requirements.txt`
-6. Runs `python app.py`
+3. Finds root Python markers (`requirements.txt`, `railway.json`, `Procfile`)
+4. Installs dependencies from `PythonProject/requirements.txt`
+5. Runs `python -m PythonProject.app`
+6. Uses the Railway-provided `PORT`
 7. Provides HTTPS URL
 
 ### 3. Database
@@ -224,19 +225,18 @@ But NOT finding:
 - app.py (was in PythonProject/)
 - requirements.txt (was in PythonProject/)
 
-**Solution**: `railway.json` with:
-```json
-"rootDirectory": "PythonProject"
+**Solution**: make the repo root deployable by adding root Python markers:
+```txt
+requirements.txt -> -r PythonProject/requirements.txt
+railway.json -> startCommand: python -m PythonProject.app
+Procfile -> web: python -m PythonProject.app
 ```
 
-This tells Railway: "The actual project is HERE, not at the repo root"
+This lets Railpack detect the app even when it scans the repository root.
 
-**Backup**: `Procfile` with:
-```
-web: cd PythonProject && python app.py
-```
-
-This also tells Railway where to find the app.
+**Optional dashboard setting**: if you want Railway to build directly from the subdirectory instead,
+set the service Root Directory to `PythonProject` in the Railway dashboard. That setting is
+dashboard-only and is not applied from `railway.json`.
 
 ## Cost Breakdown
 
@@ -289,8 +289,8 @@ railway.json (root)
     └─ Railway reads this first
 
 Procfile (root)
-    ├─ cd PythonProject
-    └─ Backup to railway.json
+    ├─ Uses web: python -m PythonProject.app
+    └─ Fallback startup path
 
 PythonProject/railway.toml
     ├─ Additional configuration
@@ -308,9 +308,10 @@ netlify.toml also specifies:
 ## Verification Checklist
 
 - [ ] `railway.json` exists at repo root
-- [ ] `railway.json` has `"rootDirectory": "PythonProject"`
+- [ ] `railway.json` starts with `python -m PythonProject.app`
+- [ ] `requirements.txt` exists at repo root
 - [ ] `Procfile` exists at repo root
-- [ ] `Procfile` has `cd PythonProject`
+- [ ] `Procfile` has `web: python -m PythonProject.app`
 - [ ] `PythonProject/railway.toml` exists
 - [ ] `PythonProject/app.py` exists
 - [ ] `PythonProject/requirements.txt` exists
@@ -352,15 +353,20 @@ python desktop_app.py
    git log --all --full-history -- railway.json
    ```
 
-2. Does it have correct rootDirectory?
+2. Does it start the app from the package root?
    ```json
-   "rootDirectory": "PythonProject"
+   "startCommand": "python -m PythonProject.app"
    ```
 
 3. Are files in PythonProject/?
    ```bash
    ls -la PythonProject/app.py
    ls -la PythonProject/requirements.txt
+   ```
+
+4. Is there a root `requirements.txt` that points to the subdirectory?
+   ```txt
+   -r PythonProject/requirements.txt
    ```
 
 4. Push and check Railway logs:

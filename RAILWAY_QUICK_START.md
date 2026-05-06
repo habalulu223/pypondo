@@ -2,14 +2,14 @@
 
 ## Problem Fixed ✅
 
-Railway now knows to build from `PythonProject/` subdirectory instead of scanning the repo root.
+Railway can now build from the repo root because the root exposes Python markers and starts the backend with `python -m PythonProject.app`.
 
 ## 1-Minute Setup
 
 ### Step 1: Push to GitHub
 ```bash
 cd c:\Users\PC\ 12\PycharmProjects\pypondo
-git add railway.json Procfile PythonProject/railway.toml
+git add railway.json Procfile requirements.txt PythonProject/__init__.py PythonProject/app.py
 git commit -m "Add Railway configuration"
 git push origin main
 ```
@@ -20,7 +20,7 @@ git push origin main
 3. Click "New Project"
 4. Select "Deploy from GitHub"
 5. Choose your `pypondo` repository
-6. Railway auto-detects `railway.json`
+6. Railway detects the root `requirements.txt` and `railway.json`
 7. Watch it build & deploy
 
 ### Step 3: Get Your URL
@@ -44,28 +44,29 @@ Update `netlify.toml`:
 
 | File | Purpose |
 |------|---------|
-| `railway.json` | Main Railway config (rootDirectory: PythonProject) |
-| `Procfile` | Startup script |
-| `PythonProject/railway.toml` | Project-level config |
+| `railway.json` | Main Railway config |
+| `Procfile` | Fallback startup script |
+| `requirements.txt` | Root Python dependency marker for Railpack |
+| `PythonProject/__init__.py` | Makes module startup work |
 | `RAILWAY_DEPLOYMENT_GUIDE.md` | Full documentation |
 
 ## Key Configuration
 
 **railway.json** tells Railway:
 ```json
-"rootDirectory": "PythonProject"
+"startCommand": "python -m PythonProject.app"
 ```
 
 **Procfile** tells Railway how to start:
 ```
-web: cd PythonProject && python app.py
+web: python -m PythonProject.app
 ```
 
 ## What Railway Does Automatically
 
-✅ Detects `PythonProject/` as root  
-✅ Installs from `requirements.txt`  
-✅ Runs `python app.py`  
+✅ Detects Python from the repo root  
+✅ Installs from root `requirements.txt`  
+✅ Runs `python -m PythonProject.app`  
 ✅ Provides HTTPS URL  
 ✅ Auto-deploys on GitHub push  
 ✅ Manages environment variables  
@@ -97,9 +98,9 @@ Should return API response (not 404).
 
 **Build fails?**
 1. Check Railway logs
-2. Verify `requirements.txt` exists in `PythonProject/`
-3. Verify `app.py` exists in `PythonProject/`
-4. Clear Railway cache and redeploy
+2. Verify root `requirements.txt` exists
+3. Verify `PythonProject/app.py` exists
+4. If you insist on subdirectory deploys, set Railway Root Directory to `PythonProject`
 
 **API returns 404?**
 1. Check app is listening on 0.0.0.0
@@ -113,17 +114,17 @@ Should return API response (not 404).
 ## Complete Flow
 
 ```
-Your GitHub repo (with railway.json)
+Your GitHub repo (with root requirements.txt and railway.json)
         ↓
 Railway detects push
         ↓
-Railway reads railway.json (finds PythonProject/)
+Railway sees a Python project at the repo root
         ↓
 Builds PythonProject/ as root
         ↓
 Installs requirements.txt
         ↓
-Runs: python app.py
+Runs: python -m PythonProject.app
         ↓
 HTTPS URL provided
         ↓

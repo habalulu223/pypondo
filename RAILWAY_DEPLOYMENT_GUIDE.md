@@ -2,19 +2,21 @@
 
 ## Overview
 
-Railway.app is a modern hosting platform that makes deploying PyPondo backend simple. This guide explains how to deploy your Flask app to Railway with the correct directory configuration.
+Railway.app can deploy the PyPondo backend directly from the repo root. This guide uses a root-level `requirements.txt` plus a module start command so Railpack recognizes Python without depending on a monorepo root-directory setting.
 
 ## Problem Solved
 
-**Previous Issue**: Railway was scanning the repo root and finding only documentation files, not the actual Flask app.
+**Previous Issue**: Railway was scanning the repo root and finding mostly documentation, so Railpack could not identify a Python app.
 
-**Solution**: Added configuration files that tell Railway the actual project is in the `PythonProject/` subdirectory.
+**Solution**: The repo root now exposes Python project markers and starts the backend with `python -m PythonProject.app`. If you still want Railway to deploy from the subdirectory itself, set the service Root Directory to `PythonProject` in the Railway dashboard.
 
 ## Files Added
 
-1. **`railway.json`** (repo root) - Main Railway configuration
-2. **`Procfile`** (repo root) - Specifies how to start the app
-3. **`PythonProject/railway.toml`** - Project-level configuration
+1. **`railway.json`** (repo root) - Railway deploy configuration
+2. **`Procfile`** (repo root) - Fallback start command
+3. **`requirements.txt`** (repo root) - Forwards dependency install to `PythonProject/requirements.txt`
+4. **`PythonProject/__init__.py`** - Lets Railway start the backend as a package module
+5. **`PythonProject/railway.toml`** - Optional project-level config if you use a Railway subdirectory setup
 
 ## Quick Deploy (3 Steps)
 
@@ -28,47 +30,45 @@ Railway.app is a modern hosting platform that makes deploying PyPondo backend si
 2. Select "Deploy from GitHub"
 3. Authorize Railway to access your GitHub
 4. Select your `pypondo` repository
-5. Railway automatically detects configuration from `railway.json`
+5. Railway automatically detects the root `requirements.txt` and `railway.json`
 
 ### Step 3: Deploy
 Railway will automatically:
-- ✅ Build from `PythonProject` directory
-- ✅ Install `requirements.txt` dependencies
-- ✅ Run `python app.py`
+- ✅ Detect Python from the repo root
+- ✅ Install dependencies from `requirements.txt` → `PythonProject/requirements.txt`
+- ✅ Run `python -m PythonProject.app`
 - ✅ Provide public HTTPS URL
 
 ## Configuration Details
 
-### railway.json (Root Directory)
+### railway.json (Repo Root)
 
 ```json
 {
-  "build": {
-    "builder": "paketo"
-  },
+  "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
-    "startCommand": "python app.py",
-    "rootDirectory": "PythonProject"
+    "startCommand": "python -m PythonProject.app",
+    "healthcheckPath": "/api/health"
   }
 }
 ```
 
 **Key Settings**:
-- `rootDirectory`: Tells Railway to work from `PythonProject/`
-- `startCommand`: How to start the app
-- `builder`: Uses Paketo buildpacks (best for Python)
+- `startCommand`: Starts the backend from the repo root
+- `healthcheckPath`: Lets Railway wait for a healthy HTTP response
+- `$schema`: Enables editor validation for Railway config
 
 ### Procfile (Root Directory)
 
 ```
-web: cd PythonProject && python app.py
+web: python -m PythonProject.app
 ```
 
-**Purpose**: Alternative config method that Railway recognizes
+**Purpose**: Fallback start command that Railpack recognizes
 
 ### PythonProject/railway.toml
 
-Configuration at project level for additional Railway settings like health checks.
+This file is optional if you deploy from the repo root. Keep it only if you choose to deploy `PythonProject` as a dedicated Railway root directory from the dashboard.
 
 ## Environment Variables
 
@@ -97,12 +97,11 @@ railway login
 # Initialize project (from repo root)
 railway init
 
-# Set root directory
-railway variables set RAILWAY_BUILD_DIR=PythonProject
-
 # Deploy
 railway up
 ```
+
+If you prefer deploying only the subdirectory permanently, set the service Root Directory to `PythonProject` in the Railway dashboard.
 
 ### Via GitHub Actions (Auto-Deploy)
 
@@ -168,8 +167,8 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 **Problem**: Railway still scans root directory
 
 **Solution**:
-1. Verify `railway.json` has `"rootDirectory": "PythonProject"`
-2. Verify `Procfile` exists at root with: `cd PythonProject &&`
+1. Verify the repo root has `requirements.txt`
+2. Verify `Procfile` exists at root with: `python -m PythonProject.app`
 3. Delete Railway cache:
    - Go to Settings → Variables
    - Clear all

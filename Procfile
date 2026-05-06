@@ -1,1 +1,1 @@
-web: cd PythonProject && python app.py
+web: python -m PythonProject.app

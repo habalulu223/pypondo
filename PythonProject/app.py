@@ -2313,6 +2313,15 @@ def api_server_info():
     return jsonify(build_public_server_payload()), 200
 
 
+@app.route('/api/health')
+def api_health():
+    return jsonify({
+        "ok": True,
+        "status": "healthy",
+        "app_version": APP_VERSION
+    }), 200
+
+
 @app.route('/api/mobile/pairing')
 def api_mobile_pairing():
     payload = build_public_server_payload()
@@ -3985,8 +3994,8 @@ if __name__ == '__main__':
         if seeded:
             print("DB Init: admin/admin123")
     
-    app_host = os.getenv("APP_HOST", "0.0.0.0").strip() or "0.0.0.0"
-    app_port = int(os.getenv("APP_PORT", "5000"))
+    app_host = (os.getenv("APP_HOST") or os.getenv("FLASK_HOST") or "0.0.0.0").strip() or "0.0.0.0"
+    app_port = int((os.getenv("APP_PORT") or os.getenv("PORT") or os.getenv("FLASK_PORT") or "5000").strip())
     app_debug = str(os.getenv("APP_DEBUG", "0")).strip().lower() in {"1", "true", "yes"}
     
     # Suppress banner and use_reloader to reduce console spam

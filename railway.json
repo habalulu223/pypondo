@@ -1,18 +1,9 @@
 {
-  "build": {
-    "builder": "paketo"
-  },
+  "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
-    "startCommand": "python app.py",
+    "startCommand": "python -m PythonProject.app",
+    "healthcheckPath": "/api/health",
     "restartPolicyMaxRetries": 5,
-    "restartPolicyWindowSeconds": 60,
-    "rootDirectory": "PythonProject"
-  },
-  "modules": {
-    "pypondo-backend": {
-      "rootDirectory": "PythonProject",
-      "buildCommand": "pip install -r requirements.txt",
-      "startCommand": "python app.py"
-    }
+    "restartPolicyWindowSeconds": 60
   }
 }
