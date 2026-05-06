@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import io
@@ -25,6 +26,23 @@ import atexit
 from functools import wraps
 
 app = Flask(__name__)
+
+# --- CORS Configuration ---
+# Allow requests from:
+# - Netlify deployment
+# - Local development
+# - Mobile/Desktop apps
+allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5000,http://127.0.0.1:5000').split(',')
+
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [origin.strip() for origin in allowed_origins],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "supports_credentials": True,
+        "max_age": 3600
+    }
+})
 
 # --- Config ---
 basedir = os.path.abspath(os.path.dirname(__file__))

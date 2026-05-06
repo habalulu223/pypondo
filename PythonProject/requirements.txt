@@ -1,0 +1,26 @@
+# PyPondo Backend Dependencies
+
+# Core Flask
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.5
+Flask-Login==0.6.2
+Flask-Cors==4.0.0
+
+# Database
+SQLAlchemy==2.0.21
+
+# Security
+Werkzeug==2.3.7
+
+# HTTP/Request handling
+requests==2.31.0
+
+# Utilities
+python-dotenv==1.0.0
+
+# Optional: Kivy for desktop app
+# Kivy==2.2.1
+
+# Optional: Build tools
+# PyInstaller==6.0.0
+# buildozer==1.5.0
