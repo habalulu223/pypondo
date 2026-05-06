@@ -2,7 +2,7 @@
 
 ## Problem Fixed ✅
 
-Railway can now build from the repo root because the root exposes Python markers and starts the backend with `python -m PythonProject.app`.
+Railway can now build from the repo root because the root exposes Python markers and starts the backend with `python app.py`.
 
 ## 1-Minute Setup
 
@@ -54,19 +54,19 @@ Update `netlify.toml`:
 
 **railway.json** tells Railway:
 ```json
-"startCommand": "python -m PythonProject.app"
+"startCommand": "python app.py"
 ```
 
 **Procfile** tells Railway how to start:
 ```
-web: python -m PythonProject.app
+web: python app.py
 ```
 
 ## What Railway Does Automatically
 
 ✅ Detects Python from the repo root  
 ✅ Installs from root `requirements.txt`  
-✅ Runs `python -m PythonProject.app`  
+✅ Runs `python app.py`  
 ✅ Provides HTTPS URL  
 ✅ Auto-deploys on GitHub push  
 ✅ Manages environment variables  
@@ -124,7 +124,7 @@ Builds PythonProject/ as root
         ↓
 Installs requirements.txt
         ↓
-Runs: python -m PythonProject.app
+Runs: python app.py
         ↓
 HTTPS URL provided
         ↓

@@ -133,7 +133,7 @@ pypondo/
 2. Reads `railway.json`
 3. Finds root Python markers (`requirements.txt`, `railway.json`, `Procfile`)
 4. Installs dependencies from `PythonProject/requirements.txt`
-5. Runs `python -m PythonProject.app`
+5. Runs `python app.py`
 6. Uses the Railway-provided `PORT`
 7. Provides HTTPS URL
 
@@ -228,8 +228,8 @@ But NOT finding:
 **Solution**: make the repo root deployable by adding root Python markers:
 ```txt
 requirements.txt -> -r PythonProject/requirements.txt
-railway.json -> startCommand: python -m PythonProject.app
-Procfile -> web: python -m PythonProject.app
+railway.json -> startCommand: python app.py
+Procfile -> web: python app.py
 ```
 
 This lets Railpack detect the app even when it scans the repository root.
@@ -289,7 +289,7 @@ railway.json (root)
     └─ Railway reads this first
 
 Procfile (root)
-    ├─ Uses web: python -m PythonProject.app
+    ├─ Uses web: python app.py
     └─ Fallback startup path
 
 PythonProject/railway.toml
@@ -308,10 +308,10 @@ netlify.toml also specifies:
 ## Verification Checklist
 
 - [ ] `railway.json` exists at repo root
-- [ ] `railway.json` starts with `python -m PythonProject.app`
+- [ ] `railway.json` starts with `python app.py`
 - [ ] `requirements.txt` exists at repo root
 - [ ] `Procfile` exists at repo root
-- [ ] `Procfile` has `web: python -m PythonProject.app`
+- [ ] `Procfile` has `web: python app.py`
 - [ ] `PythonProject/railway.toml` exists
 - [ ] `PythonProject/app.py` exists
 - [ ] `PythonProject/requirements.txt` exists
@@ -355,7 +355,7 @@ python desktop_app.py
 
 2. Does it start the app from the package root?
    ```json
-   "startCommand": "python -m PythonProject.app"
+   "startCommand": "python app.py"
    ```
 
 3. Are files in PythonProject/?

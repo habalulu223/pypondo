@@ -16,7 +16,7 @@ The repo root is now deployable as a Python service, so Railway no longer has to
 {
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
-    "startCommand": "python -m PythonProject.app",
+    "startCommand": "python app.py",
     "healthcheckPath": "/api/health",
     "restartPolicyMaxRetries": 5,
     "restartPolicyWindowSeconds": 60
@@ -27,7 +27,7 @@ The repo root is now deployable as a Python service, so Railway no longer has to
 `Procfile`
 
 ```procfile
-web: python -m PythonProject.app
+web: python app.py
 ```
 
 `requirements.txt`
@@ -38,7 +38,7 @@ web: python -m PythonProject.app
 
 ### App changes
 
-- `PythonProject/__init__.py` was added so `python -m PythonProject.app` works.
+- Root `app.py` was added as a wrapper so `python app.py` works from either the repo root or `PythonProject`.
 - `PythonProject/app.py` now exposes `/api/health`.
 - `PythonProject/app.py` now respects Railway's `PORT` environment variable.
 
@@ -48,7 +48,7 @@ web: python -m PythonProject.app
 2. Sees root `requirements.txt`.
 3. Detects a Python project from the repo root.
 4. Installs dependencies from `PythonProject/requirements.txt`.
-5. Starts the backend with `python -m PythonProject.app`.
+5. Starts the backend with `python app.py`.
 6. Waits for `/api/health` to return `200`.
 
 ## Dashboard Note
@@ -66,7 +66,7 @@ git push origin main
 ## Verification Checklist
 
 - Root `requirements.txt` exists.
-- Root `railway.json` uses `python -m PythonProject.app`.
-- Root `Procfile` uses `python -m PythonProject.app`.
+- Root `railway.json` uses `python app.py`.
+- Root `Procfile` uses `python app.py`.
 - `PythonProject/app.py` reads `PORT`.
 - `PythonProject/app.py` exposes `/api/health`.

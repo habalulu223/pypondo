@@ -8,7 +8,7 @@ Railway.app can deploy the PyPondo backend directly from the repo root. This gui
 
 **Previous Issue**: Railway was scanning the repo root and finding mostly documentation, so Railpack could not identify a Python app.
 
-**Solution**: The repo root now exposes Python project markers and starts the backend with `python -m PythonProject.app`. If you still want Railway to deploy from the subdirectory itself, set the service Root Directory to `PythonProject` in the Railway dashboard.
+**Solution**: The repo root now exposes Python project markers and starts the backend with `python app.py`. A root wrapper delegates to `PythonProject/app.py`, so the same start command also works if Railway is pointed directly at `PythonProject`.
 
 ## Files Added
 
@@ -36,7 +36,7 @@ Railway.app can deploy the PyPondo backend directly from the repo root. This gui
 Railway will automatically:
 - ✅ Detect Python from the repo root
 - ✅ Install dependencies from `requirements.txt` → `PythonProject/requirements.txt`
-- ✅ Run `python -m PythonProject.app`
+- ✅ Run `python app.py`
 - ✅ Provide public HTTPS URL
 
 ## Configuration Details
@@ -47,7 +47,7 @@ Railway will automatically:
 {
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
-    "startCommand": "python -m PythonProject.app",
+    "startCommand": "python app.py",
     "healthcheckPath": "/api/health"
   }
 }
@@ -61,7 +61,7 @@ Railway will automatically:
 ### Procfile (Root Directory)
 
 ```
-web: python -m PythonProject.app
+web: python app.py
 ```
 
 **Purpose**: Fallback start command that Railpack recognizes
@@ -168,7 +168,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 
 **Solution**:
 1. Verify the repo root has `requirements.txt`
-2. Verify `Procfile` exists at root with: `python -m PythonProject.app`
+2. Verify `Procfile` exists at root with: `python app.py`
 3. Delete Railway cache:
    - Go to Settings → Variables
    - Clear all
