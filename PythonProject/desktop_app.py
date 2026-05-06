@@ -678,9 +678,10 @@ def discover_remote_server_base_url():
         if probe_server_base_url(candidate):
             return candidate.rstrip("/")
 
-    # When manual host is configured but unreachable, do not auto-switch to random LAN hosts.
+    # When manual host is configured, use it even if currently unreachable
+    # This allows the app to run in local mode while retrying connection in background
     if manual_candidates:
-        return None
+        return manual_candidates[0].rstrip("/")
 
     for candidate in build_server_base_url_candidates():
         if candidate not in candidates:
@@ -1336,23 +1337,9 @@ def main():
     if is_client_mode() and not env_flag("PYPONDO_FORCE_LOCAL_SERVER", default=False):
         if is_verbose_logging_enabled():
             print("[INFO] Client mode: searching for remote admin server...")
-        had_manual_host = bool(get_manual_host_candidates())
+        manual_candidates = get_manual_host_candidates()
         remote_base_url = discover_remote_server_base_url()
-        if not remote_base_url:
-            manual_host = prompt_manual_admin_host(headless_mode=headless_mode)
-            if manual_host:
-                os.environ["PYPONDO_SERVER_HOST"] = manual_host
-                os.environ["PYPONDO_ADMIN_IP"] = manual_host
-                save_manual_admin_host(manual_host)
-                had_manual_host = True
-                if is_verbose_logging_enabled():
-                    print(f"[INFO] Saved admin server IP '{manual_host}' to server_host.txt")
-                # In independence mode, don't require server validation - just save and continue to local mode
-                if env_flag("PYPONDO_INDEPENDENCE_MODE", default=False):
-                    if is_verbose_logging_enabled():
-                        print("[INFO] Independence mode: skipping server validation, saved IP for future use")
-                else:
-                    remote_base_url = discover_remote_server_base_url()
+        
         if remote_base_url:
             launch_url = f"{remote_base_url}{get_start_path()}"
             if is_verbose_logging_enabled():
@@ -1372,30 +1359,16 @@ def main():
                     return 1
             return 0
 
-        if had_manual_host and not env_flag("PYPONDO_INDEPENDENCE_MODE", default=False):
-            # User provided an explicit admin host/IP but it is unreachable.
-            error_msg = (
-                "Unable to connect to the configured admin server.\n\n"
-                "Check the admin IP/hostname in server_host.txt and ensure the admin app is running on port 5000.\n"
-                "Also allow Python/app through Windows Firewall on the admin PC."
-            )
-            print(error_msg)
-            if not headless_mode:
-                try:
-                    import tkinter as tk
-                    from tkinter import messagebox
-                    root = tk.Tk()
-                    root.withdraw()
-                    messagebox.showerror("PyPondo Client Connection Error", error_msg)
-                    root.destroy()
-                except Exception:
-                    pass
-            return 1
-
-        # Could not find remote server - ALWAYS allow local fallback for App Independence
-        if is_verbose_logging_enabled():
-            print("[WARNING] Could not locate admin server, starting local server")
-        # Continue to local server mode (below)
+        # If manual server is configured in server_host.txt but not currently reachable,
+        # fall back to local mode instead of prompting user
+        if manual_candidates:
+            if is_verbose_logging_enabled():
+                print("[WARNING] Configured server unavailable, starting local server as fallback")
+            # Continue to local server mode (below)
+        else:
+            if is_verbose_logging_enabled():
+                print("[WARNING] Could not locate admin server, starting local server")
+            # Continue to local server mode (below)
 
     # Local server mode (standalone or fallback)
     ensure_seed_data()
