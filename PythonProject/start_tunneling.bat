@@ -1,37 +1,33 @@
-@REM PyPondo Backend Tunneling Setup Script
-@REM This script helps expose your local PyPondo backend to the internet using ngrok
+@REM PyPondo public route helper for phone access
+@REM This exposes the local backend over a Cloudflare quick tunnel.
 
 @echo off
 setlocal enabledelayedexpansion
 
+set "SCRIPT_DIR=%~dp0"
+set "LOCAL_PORT=%APP_PORT%"
+if "%LOCAL_PORT%"=="" set "LOCAL_PORT=5000"
+set "LOCAL_URL=http://127.0.0.1:%LOCAL_PORT%"
+set "CLOUDFLARED_BIN="
+
 echo ============================================
-echo PyPondo Backend Tunneling Setup
+echo PyPondo Phone Public Route
 echo ============================================
 echo.
 
-REM Check if ngrok is installed
-where ngrok >nul 2>nul
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] ngrok is not installed or not in PATH
-    echo.
-    echo To install ngrok:
-    echo 1. Download from https://ngrok.com/download
-    echo 2. Extract the executable
-    echo 3. Add to your PATH or place in this directory
-    echo.
-    pause
-    exit /b 1
+if exist "%SCRIPT_DIR%bin\cloudflared.exe" (
+    set "CLOUDFLARED_BIN=%SCRIPT_DIR%bin\cloudflared.exe"
+) else (
+    for /f "delims=" %%I in ('where cloudflared 2^>nul') do (
+        if not defined CLOUDFLARED_BIN set "CLOUDFLARED_BIN=%%I"
+    )
 )
 
-echo [OK] ngrok found
-echo.
-
-REM Check if Flask is running
-powershell -Command "try { $response = Invoke-WebRequest -Uri 'http://localhost:5000' -TimeoutSec 2 -ErrorAction Stop; Write-Host '[OK] Flask app is running on localhost:5000' } catch { Write-Host '[ERROR] Flask app not running on localhost:5000'; exit 1 }"
+powershell -Command "try { $response = Invoke-WebRequest -Uri '%LOCAL_URL%/api/server-info' -TimeoutSec 2 -ErrorAction Stop; Write-Host '[OK] Flask app is running on %LOCAL_URL%' } catch { Write-Host '[ERROR] Flask app not running on %LOCAL_URL%'; exit 1 }"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo Please start the Flask app first:
+    echo Please start the backend first:
     echo   cd PythonProject
     echo   python app.py
     echo.
@@ -39,20 +35,38 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
+if not defined CLOUDFLARED_BIN (
+    echo [INFO] cloudflared was not found. Downloading it into PythonProject\bin...
+    if not exist "%SCRIPT_DIR%bin" mkdir "%SCRIPT_DIR%bin"
+    powershell -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '%SCRIPT_DIR%bin\cloudflared.exe'"
+    if exist "%SCRIPT_DIR%bin\cloudflared.exe" (
+        set "CLOUDFLARED_BIN=%SCRIPT_DIR%bin\cloudflared.exe"
+    )
+)
+
+if not defined CLOUDFLARED_BIN (
+    echo [ERROR] cloudflared could not be found or downloaded.
+    echo Download it manually from:
+    echo   https://github.com/cloudflare/cloudflared/releases
+    echo.
+    pause
+    exit /b 1
+)
+
+echo [OK] cloudflared ready: %CLOUDFLARED_BIN%
 echo.
-echo Starting ngrok tunnel to http://localhost:5000...
+echo Starting public route to %LOCAL_URL% ...
 echo.
-echo When ngrok starts:
-echo 1. Look for the "Forwarding" line
-echo 2. Copy the public URL (e.g., https://abc123.ngrok.io)
-echo 3. Use this URL in your Netlify deployment
+echo When the tunnel prints an https://...trycloudflare.com URL:
+echo 1. Copy that URL
+echo 2. Paste it into the phone app server address field
+echo 3. Or use the dashboard pairing QR after the public route is active
 echo.
-echo To keep ngrok running in background, minimize this window.
-echo Close this window to stop the tunnel.
+echo Keep this window open while the phone is connected.
+echo Close this window to stop the public route.
 echo.
 pause
 
-REM Start ngrok
-ngrok http 5000
+"%CLOUDFLARED_BIN%" tunnel --url %LOCAL_URL% --no-autoupdate
 
 pause

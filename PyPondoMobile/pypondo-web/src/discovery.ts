@@ -18,8 +18,17 @@ const DEFAULT_PORT = 5000
 const COMMON_PORTS = [5000, 8000, 8080, 3000]
 
 // Storage keys for persistent server info
-const STORED_CONFIG_KEY = 'pypondo_config'
+const CURRENT_CONFIG_STORAGE_KEY = 'pypondo.mobile.config.v2'
+const LEGACY_CONFIG_STORAGE_KEY = 'pypondo_config'
 const STORED_SERVER_ADDRESS_KEY = 'serverAddress'
+
+function isAbsoluteServerUrl(value: string) {
+  return /^https?:\/\//i.test(value.trim())
+}
+
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/$/, '')
+}
 
 /**
  * Get previously saved server address from localStorage
@@ -28,11 +37,15 @@ const STORED_SERVER_ADDRESS_KEY = 'serverAddress'
  */
 export function getStoredServerAddress(): string | null {
   try {
-    const stored = localStorage.getItem(STORED_CONFIG_KEY)
-    if (stored) {
+    for (const storageKey of [CURRENT_CONFIG_STORAGE_KEY, LEGACY_CONFIG_STORAGE_KEY]) {
+      const stored = localStorage.getItem(storageKey)
+      if (!stored) {
+        continue
+      }
+
       const config = JSON.parse(stored)
-      if (config?.serverAddress) {
-        return config.serverAddress
+      if (config?.[STORED_SERVER_ADDRESS_KEY]) {
+        return String(config[STORED_SERVER_ADDRESS_KEY]).trim()
       }
     }
   } catch {
@@ -46,6 +59,14 @@ export function getStoredServerAddress(): string | null {
  */
 function parseServerAddress(address: string): { ip: string; port: number } | null {
   try {
+    if (isAbsoluteServerUrl(address)) {
+      const url = new URL(address.trim())
+      return {
+        ip: url.hostname,
+        port: url.port ? parseInt(url.port, 10) : url.protocol === 'https:' ? 443 : 80,
+      }
+    }
+
     // Handle formats like "192.168.1.100:5000" or "http://192.168.1.100:5000"
     let cleanAddress = address.trim()
     
@@ -72,6 +93,20 @@ function parseServerAddress(address: string): { ip: string; port: number } | nul
   }
 }
 
+function buildServerInfoUrl(address: string, port: number = DEFAULT_PORT) {
+  const trimmed = address.trim()
+
+  if (isAbsoluteServerUrl(trimmed)) {
+    const url = new URL(trimTrailingSlash(trimmed))
+    url.pathname = '/api/server-info'
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  }
+
+  return `http://${trimmed}:${port}/api/server-info`
+}
+
 /**
  * Try to connect to a previously saved server address
  * This enables remote connections from different networks
@@ -80,6 +115,24 @@ export async function tryStoredServerAddress(): Promise<DiscoveredServer | null>
   const storedAddress = getStoredServerAddress()
   if (!storedAddress) {
     return null
+  }
+
+  if (isAbsoluteServerUrl(storedAddress)) {
+    const probe = await probeServer(storedAddress, DEFAULT_PORT, 2000)
+    if (!probe.reachable) {
+      return null
+    }
+
+    const parsedUrl = new URL(storedAddress)
+    return {
+      address: trimTrailingSlash(storedAddress),
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port ? parseInt(parsedUrl.port, 10) : parsedUrl.protocol === 'https:' ? 443 : 80,
+      ip: parsedUrl.hostname,
+      source: 'manual',
+      reachable: true,
+      responseTime: probe.responseTime,
+    }
   }
 
   const parsed = parseServerAddress(storedAddress)
@@ -225,7 +278,7 @@ export async function probeServer(
   timeoutMs: number = DISCOVERY_TIMEOUT_MS,
 ): Promise<{ reachable: boolean; responseTime: number }> {
   const startTime = Date.now()
-  const url = `http://${address}:${port}/api/server-info`
+  const url = buildServerInfoUrl(address, port)
 
   try {
     const controller = new AbortController()
@@ -257,7 +310,7 @@ export async function probeServer(
  * Get server info from a reachable server
  */
 export async function getServerInfo(address: string, port: number = DEFAULT_PORT) {
-  const url = `http://${address}:${port}/api/server-info`
+  const url = buildServerInfoUrl(address, port)
 
   try {
     const response = await fetch(url, {
@@ -537,6 +590,9 @@ export async function discoverServers(
  * Format server address for display
  */
 export function formatServerAddress(server: DiscoveredServer): string {
+  if (isAbsoluteServerUrl(server.address)) {
+    return server.address
+  }
   return `${server.hostname || server.address}:${server.port}`
 }
 

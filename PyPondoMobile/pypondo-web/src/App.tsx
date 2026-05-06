@@ -127,12 +127,13 @@ declare global {
 
 const CONFIG_STORAGE_KEY = 'pypondo.mobile.config.v2'
 const SESSION_STORAGE_KEY = 'pypondo.mobile.session.v2'
-const DEFAULT_SERVER_ADDRESS = '192.168.1.100:5000'
+const DEFAULT_SERVER_ADDRESS = ''
 const DEFAULT_SERVER_PORT = 5000
 const QUICK_TOPUP_AMOUNTS = [100, 200, 500, 1000]
 const QR_PAIRING_PATH_PATTERN = /\/api\/mobile\/pairing\/?$/i
 const QR_SCAN_INTERVAL_MS = 300
-const DEFAULT_SCANNER_MESSAGE = 'Point the camera at the LAN QR from your desktop to pair this APK.'
+const DEFAULT_SCANNER_MESSAGE =
+  'Point the camera at the pairing QR from your desktop to connect over LAN or a public route.'
 const TAB_META: Record<TabKey, { label: string; hint: string }> = {
   overview: {
     label: 'Overview',
@@ -273,7 +274,7 @@ async function resolveQrServerAddress(rawValue: string) {
         (payload.server_ip ? `${payload.server_ip}:${payload.server_port || DEFAULT_SERVER_PORT}` : '')
 
       if (!pairedAddress) {
-        throw new Error('The LAN QR connected, but the server did not return a usable address.')
+        throw new Error('The pairing QR connected, but the server did not return a usable address.')
       }
 
       return normalizeServerAddress(pairedAddress)
@@ -378,7 +379,7 @@ function App() {
   const [baseUrl, setBaseUrl] = useState('')
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [connectionMessage, setConnectionMessage] = useState(
-    'The APK already contains the app UI. Enter the PyPondo server address, discover it, or scan the desktop LAN QR.',
+    'The APK already contains the app UI. Enter the PyPondo server address, discover it, or scan the desktop pairing QR.',
   )
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null)
   const [scannerOpen, setScannerOpen] = useState(false)
@@ -573,7 +574,7 @@ function App() {
     stopScannerHardware()
     setScannerOpen(true)
     setScannerStatus('starting')
-    setScannerMessage('Allow camera access, then point it at the desktop LAN QR.')
+    setScannerMessage('Allow camera access, then point it at the desktop pairing QR.')
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -599,7 +600,7 @@ function App() {
       await videoRef.current.play()
 
       setScannerStatus('active')
-      setScannerMessage('Scanning for the PyPondo LAN QR...')
+      setScannerMessage('Scanning for the PyPondo pairing QR...')
       scheduleScannerPass()
     } catch (error) {
       stopScannerHardware()
@@ -656,7 +657,7 @@ function App() {
   const nextBooking = bookings[0] ?? null
   const latestUpdate = updates[0] ?? null
   const serverAddressSummary = serverInfo
-    ? `${serverInfo.server_ip}:${serverInfo.server_port}`
+    ? serverInfo.server_address || `${serverInfo.server_ip}:${serverInfo.server_port}`
     : 'Waiting for address'
   const activeTabMeta = TAB_META[activeTab]
   const connectionLabel =
@@ -1000,7 +1001,7 @@ function App() {
           </p>
           <div className="hero-highlights">
             <span className="hero-pill">Bundled UI</span>
-            <span className="hero-pill">LAN QR pairing</span>
+            <span className="hero-pill">QR pairing</span>
             <span className="hero-pill">Cross-network discovery</span>
           </div>
         </div>
@@ -1074,12 +1075,12 @@ function App() {
             id="serverAddress"
             className="text-field"
             onChange={(event) => setServerAddress(event.target.value)}
-            placeholder="192.168.1.10:5000"
+            placeholder="192.168.1.10:5000 or https://name.trycloudflare.com"
             type="text"
             value={serverAddress}
           />
           <p className="helper-copy">
-            Use the desktop LAN QR for one-tap pairing, or enter the server address manually.
+            Use the desktop pairing QR for one-tap setup, or enter a LAN/public server address manually.
           </p>
 
           <div className="connection-guidance">
@@ -1120,7 +1121,7 @@ function App() {
               onClick={() => void startQrScanner()}
               type="button"
             >
-              {scannerStatus === 'starting' ? 'Opening camera...' : 'Scan LAN QR'}
+              {scannerStatus === 'starting' ? 'Opening camera...' : 'Scan Pairing QR'}
             </button>
             <button
               className="ghost-button"
@@ -1147,7 +1148,7 @@ function App() {
               <div className="scanner-head">
                 <div>
                   <p className="section-label">Camera Pairing</p>
-                  <h3>Scan the desktop LAN QR</h3>
+                  <h3>Scan the desktop pairing QR</h3>
                 </div>
                 <button className="ghost-button scanner-close" onClick={closeQrScanner} type="button">
                   Close
