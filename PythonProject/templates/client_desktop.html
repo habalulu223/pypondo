@@ -216,7 +216,7 @@
         var dashboardTimer = (function () {
             var storageKey = 'pypondo.timer.started_at.user.{{ current_user.id }}';
             var hourlyRate = {{ hourly_rate|tojson }};
-            var hasDesktopAccess = {{ (current_user.pondo > 0)|tojson }};
+            var hasDesktopAccess = {{ (current_user.pondo >= 1)|tojson }};
             // Expose a global flag to reliably check access from other helpers
             window._pypondo_has_desktop_access = Boolean(hasDesktopAccess);
             var timeNode = document.getElementById('dashboard-timer-time');
@@ -370,7 +370,7 @@
             });
         }
 
-        {% if current_user.pondo > 0 %}
+        {% if current_user.pondo >= 1 %}
         setTimeout(chargeBalance, 5000);
         setInterval(chargeBalance, 60000);
         {% endif %}
@@ -406,11 +406,11 @@
                     });
 
                     if (dashboardTimer && typeof dashboardTimer.setAccessState === 'function') {
-                        dashboardTimer.setAccessState(result.balance > 0);
-                        try { updateDesktopAccessUI(result.balance > 0); } catch (e) {}
+                        dashboardTimer.setAccessState(Number(result.balance) >= 1);
+                        try { updateDesktopAccessUI(Number(result.balance) >= 1); } catch (e) {}
                     }
 
-                    if (result.balance > 0) {
+                    if (Number(result.balance) >= 1) {
                         startTimerIfAvailable();
                     } else if (window.pywebview && window.pywebview.api && window.pywebview.api.stop_timer) {
                         dashboardTimer.clear();

@@ -74,7 +74,7 @@
     <div class="top">
         <h1>Client Bookings</h1>
         <div>
-            {% if current_user.pondo > 0 %}
+            {% if current_user.pondo >= 1 %}
             <a class="btn ok" id="desktop-access-link" href="{{ url_for('client_desktop') }}">Go To Desktop</a>
             {% else %}
             <a class="btn ok" id="desktop-access-link" href="#wallet-card">Top Up to Unlock Desktop</a>
@@ -97,12 +97,12 @@
     <div class="card" style="margin-bottom:16px;">
         Logged in as <strong>{{ current_user.username }}</strong> |
         Balance:
-        <span class="{{ 'balance-ok' if current_user.pondo > 0 else 'balance-low' }}" data-balance-display>
+        <span class="{{ 'balance-ok' if current_user.pondo >= 1 else 'balance-low' }}" data-balance-display>
             PHP {{ "%.2f"|format(current_user.pondo) }}
         </span>
         | Timer: <strong id="dashboard-timer-time">00:00:00</strong>
         | Estimated Cost: <strong id="dashboard-timer-cost">PHP 0.00</strong>
-        {% if current_user.pondo <= 0 %}
+        {% if current_user.pondo < 1 %}
             | Add balance to unlock desktop access.
         {% endif %}
         <div class="subtle" id="dashboard-timer-note" style="margin-top:8px;">
@@ -115,7 +115,7 @@
             <h2>Wallet &amp; Top Up</h2>
             <p>
                 Balance:
-                <span class="{{ 'balance-ok' if current_user.pondo > 0 else 'balance-low' }}" data-balance-display>
+                <span class="{{ 'balance-ok' if current_user.pondo >= 1 else 'balance-low' }}" data-balance-display>
                     PHP {{ "%.2f"|format(current_user.pondo) }}
                 </span>
             </p>
@@ -288,7 +288,7 @@
         var dashboardTimer = (function () {
             var storageKey = 'pypondo.timer.started_at.user.{{ current_user.id }}';
             var hourlyRate = {{ hourly_rate|tojson }};
-            var hasDesktopAccess = {{ (current_user.pondo > 0)|tojson }};
+            var hasDesktopAccess = {{ (current_user.pondo >= 1)|tojson }};
             var timeNode = document.getElementById('dashboard-timer-time');
             var costNode = document.getElementById('dashboard-timer-cost');
             var noteNode = document.getElementById('dashboard-timer-note');
@@ -395,10 +395,10 @@
                 });
 
                 if (dashboardTimer && typeof dashboardTimer.setAccessState === 'function') {
-                    dashboardTimer.setAccessState(result.balance > 0);
+                    dashboardTimer.setAccessState(Number(result.balance) >= 1);
                 }
 
-                if (result.balance > 0) {
+                if (Number(result.balance) >= 1) {
                     dashboardTimer.ensureStartedAt();
                     withPywebviewApi(function (api) {
                         if (api.start_timer) {

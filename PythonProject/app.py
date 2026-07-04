@@ -25,7 +25,12 @@ import threading
 import atexit
 from functools import wraps
 
-app = Flask(__name__)
+basedir = os.path.abspath(os.path.dirname(__file__))
+app = Flask(
+    __name__,
+    template_folder=os.path.join(basedir, 'templates'),
+    static_folder=os.path.join(basedir, 'assets')
+)
 
 # --- CORS Configuration ---
 # Allow requests from:
@@ -45,7 +50,6 @@ CORS(app, resources={
 })
 
 # --- Config ---
-basedir = os.path.abspath(os.path.dirname(__file__))
 assets_dir = os.path.join(basedir, 'assets')
 default_db_path = os.path.join(basedir, 'pccafe.db')
 database_path = os.path.abspath(os.getenv("PYPONDO_DB_PATH", default_db_path))
@@ -2085,7 +2089,7 @@ def is_kiosk_mode_enabled():
 
 def user_has_positive_balance(user):
     try:
-        return float(getattr(user, "pondo", 0.0)) > 0.0
+        return float(getattr(user, "pondo", 0.0)) >= 1.0
     except Exception:
         return False
 
