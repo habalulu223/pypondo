@@ -91,6 +91,16 @@
         if (timer) timer.textContent = 'Elapsed: 0s';
         timerInterval = setInterval(updateTimer, 500);
         
+            // Enforce a maximum visible loading time (10 seconds) then refresh
+            if (window._pypondoLoadingMaxTimeout) clearTimeout(window._pypondoLoadingMaxTimeout);
+            window._pypondoLoadingMaxTimeout = setTimeout(function() {
+                try {
+                    message.textContent = 'Taking too long — refreshing the page.';
+                } catch (e) {}
+                // Give a short moment for message to render, then reload
+                setTimeout(function() { window.location.reload(true); }, 800);
+            }, 10000);
+
         overlay.classList.add('pypondo-loading-show');
     }
 
@@ -99,6 +109,10 @@
         overlay.classList.remove('pypondo-loading-show');
         if (timerInterval) clearInterval(timerInterval);
         startTime = null;
+            if (window._pypondoLoadingMaxTimeout) {
+                clearTimeout(window._pypondoLoadingMaxTimeout);
+                window._pypondoLoadingMaxTimeout = null;
+            }
         if (timer) timer.textContent = '';
     }
 

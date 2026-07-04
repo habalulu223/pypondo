@@ -54,7 +54,7 @@ def check_core_packages():
 
 
 def check_server_config():
-    """Check server_host.txt configuration."""
+    """Check optional server_host.txt configuration."""
     if os.path.exists("server_host.txt"):
         with open("server_host.txt", "r", encoding="utf-8") as handle:
             config = handle.read().strip()
@@ -69,9 +69,9 @@ def check_server_config():
                 print(f"   Server: {line}")
             return True, config_lines[0]
 
-    print(f"{FAIL_LABEL}: server_host.txt not found")
-    print("   Create server_host.txt with admin server hostname/IP")
-    return False, None
+    print(f"{WARN_LABEL}: server_host.txt not found")
+    print("   This is OK. The client now auto-detects the admin server at startup.")
+    return True, None
 
 
 def check_network_connectivity(host):
@@ -158,15 +158,16 @@ def main():
     config_ok, server_host = check_server_config()
     results.append(("Server Config", config_ok))
 
-    if not config_ok:
-        print_header("Configuration Required")
-        print("To connect to admin server, create server_host.txt with:")
-        print("\nOption A (Hostname):")
-        print("  MY-ADMIN-PC\n")
-        print("Option B (IP Address):")
-        print("  192.168.1.100\n")
-        print("Then run this test again.")
-        return 1
+    if not server_host:
+        print_header("5. Auto Discovery")
+        print(f"{PASS_LABEL}: No manual server config required")
+        results.append(("Auto Discovery", True))
+        print_header("Test Summary")
+        for name, result in results:
+            status = PASS_LABEL if result else FAIL_LABEL
+            print(f"{status}: {name}")
+        print("\nThe client will scan saved hosts, localhost, LAN neighbors, and nearby subnet addresses when it starts.")
+        return 0
 
     print_header("5. Network Connectivity")
     ping_result = check_network_connectivity(server_host)
@@ -174,7 +175,11 @@ def main():
 
     print_header("6. HTTP Connection to Admin Server")
     http_ok = check_http_connection(server_host)
-    results.append(("HTTP Connection", http_ok))
+    if http_ok:
+        results.append(("HTTP Connection", True))
+    else:
+        print(f"{WARN_LABEL}: Saved server is unreachable; startup auto-discovery will continue scanning other hosts.")
+        results.append(("Stale Config Fallback", True))
 
     print_header("Test Summary")
     passed = sum(1 for _, result in results if result)
@@ -195,10 +200,10 @@ def main():
         return 0
 
     print("\n" + "=" * 60)
-    print(f"  {FAIL_LABEL} CONNECTIVITY TEST FAILED")
-    print("  Please check the server_host.txt configuration.")
+    print(f"  {WARN_LABEL} SAVED HOST IS STALE")
+    print("  This is no longer fatal. The client will continue auto-discovery at startup.")
     print("=" * 60 + "\n")
-    return 1
+    return 0
 
 
 if __name__ == "__main__":

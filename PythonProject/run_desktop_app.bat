@@ -1,22 +1,36 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 cd /d "%~dp0"
 
-set "PYTHON_CMD=python"
-set "PYTHON_ARGS="
-if exist ".\.venv\Scripts\python.exe" (
-  set "PYTHON_CMD=.\.venv\Scripts\python.exe"
-) else if exist "..\.venv\Scripts\python.exe" (
-  set "PYTHON_CMD=..\.venv\Scripts\python.exe"
-)
+set "PYTHON_CMD=py"
+set "PYTHON_ARGS=-3"
 
-if "%PYTHON_CMD%"=="python" (
-  python --version >nul 2>&1
+where py >nul 2>&1
+if errorlevel 1 (
+  set "PYTHON_CMD=python"
+  set "PYTHON_ARGS="
+  where python >nul 2>&1
   if errorlevel 1 (
-    py -3 --version >nul 2>&1
-    if not errorlevel 1 (
-      set "PYTHON_CMD=py"
-      set "PYTHON_ARGS=-3"
+    if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" (
+      set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" (
+      set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+      set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+      set "PYTHON_CMD=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    ) else if exist "%PROGRAMFILES%\Python314\python.exe" (
+      set "PYTHON_CMD=%PROGRAMFILES%\Python314\python.exe"
+    ) else if exist "%PROGRAMFILES%\Python313\python.exe" (
+      set "PYTHON_CMD=%PROGRAMFILES%\Python313\python.exe"
+    ) else if exist "%PROGRAMFILES%\Python312\python.exe" (
+      set "PYTHON_CMD=%PROGRAMFILES%\Python312\python.exe"
+    ) else if exist "%PROGRAMFILES%\Python311\python.exe" (
+      set "PYTHON_CMD=%PROGRAMFILES%\Python311\python.exe"
+    ) else (
+      echo Python was not found. Please install Python 3 and try again.
+      pause >nul
+      exit /b 1
     )
   )
 )
@@ -27,54 +41,21 @@ echo PyPondo Client Application
 echo ============================================================
 echo.
 
-REM Check if server_host.txt exists for client mode
-if exist "server_host.txt" (
-  echo [INFO] Found server_host.txt - Running in CLIENT mode
-  echo.
-  for /f "tokens=*" %%A in (server_host.txt) do (
-    if not "%%A"=="" if not "%%A:~0,1%"=="#" (
-      echo [INFO] Server host configured: %%A
-      set "PYPONDO_SERVER_HOST=%%A"
-      goto :server_found
-    )
-  )
-  :server_found
-)
-
-echo Checking required packages...
-"%PYTHON_CMD%" %PYTHON_ARGS% -c "import flask, flask_sqlalchemy, flask_login" >nul 2>&1
-if errorlevel 1 (
-  echo [INFO] Installing core dependencies...
-  "%PYTHON_CMD%" %PYTHON_ARGS% -m pip install flask flask-sqlalchemy flask-login werkzeug
-  if errorlevel 1 (
-    echo ERROR: Failed to install dependencies.
-    pause
-    exit /b 1
-  )
-)
-
-echo [OK] Core packages available
-
-"%PYTHON_CMD%" %PYTHON_ARGS% -c "import webview" >nul 2>&1
-if errorlevel 1 (
-  echo.
-  echo [INFO] Installing optional UI dependencies (pywebview)...
-  "%PYTHON_CMD%" %PYTHON_ARGS% -m pip install --pre pythonnet
-  if not errorlevel 1 (
-    "%PYTHON_CMD%" %PYTHON_ARGS% -m pip install pywebview
-  )
-  "%PYTHON_CMD%" %PYTHON_ARGS% -c "import webview" >nul 2>&1
-  if errorlevel 1 (
-    echo [WARNING] pywebview not available. App will use browser mode.
-  ) else (
-    echo [OK] Desktop UI available
-  )
+echo Running client auto-discovery and launching desktop app...
+echo.
+if /I "%PYTHON_CMD%"=="py" (
+  py -3 configure_client.py --launch
+) else if /I "%PYTHON_CMD%"=="python" (
+  python configure_client.py --launch
 ) else (
-  echo [OK] Desktop UI available
+  "%PYTHON_CMD%" configure_client.py --launch
 )
 
-echo.
-echo Starting application...
-echo.
-"%PYTHON_CMD%" %PYTHON_ARGS% desktop_app.py
+if errorlevel 1 (
+  echo.
+  echo The desktop app exited with a non-zero status.
+  echo Press any key to close this window.
+  pause >nul
+)
+
 endlocal

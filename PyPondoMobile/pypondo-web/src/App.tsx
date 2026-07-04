@@ -379,7 +379,7 @@ function App() {
   const [baseUrl, setBaseUrl] = useState('')
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [connectionMessage, setConnectionMessage] = useState(
-    'The APK already contains the app UI. Enter the PyPondo server address, discover it, or scan the desktop pairing QR.',
+    'Auto-detecting the PyPondo server on this network...',
   )
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null)
   const [scannerOpen, setScannerOpen] = useState(false)
@@ -436,6 +436,8 @@ function App() {
     if (storedConfig?.serverAddress) {
       setServerAddress(storedConfig.serverAddress)
       void connectToServer(storedConfig.serverAddress, true)
+    } else {
+      void startServerDiscovery(true)
     }
 
     if (storedSession) {
@@ -706,7 +708,7 @@ function App() {
     }
   }
 
-  async function startServerDiscovery() {
+  async function startServerDiscovery(autoLaunch = false) {
     setDiscoveringServers(true)
     setDiscoveryProgress({ found: 0, tested: 0 })
     setConnectionMessage('Searching for PyPondo servers across your network...')
@@ -725,18 +727,20 @@ function App() {
 
       if (servers.length === 0) {
         setConnectionMessage(
-          'No PyPondo servers found. Try entering the address manually or check your network connection.',
+          autoLaunch
+            ? 'No PyPondo server was found automatically. Check that the desktop/server app is open, then scan again.'
+            : 'No PyPondo server was found. Check the network connection or use the optional address fallback.',
         )
         setShowDiscoveryList(false)
-      } else if (servers.length === 1) {
-        // Auto-connect if only one server found
-        setConnectionMessage(
-          `Found ${servers.length} server! Attempting to connect automatically...`,
-        )
-        await connectToServer(formatServerAddress(servers[0]), false)
       } else {
-        setConnectionMessage(`Found ${servers.length} PyPondo servers! Choose one to connect.`)
-        setShowDiscoveryList(true)
+        const bestServer = servers[0]
+        setShowDiscoveryList(!autoLaunch && servers.length > 1)
+        setConnectionMessage(
+          servers.length === 1
+            ? 'Found 1 server. Opening it automatically...'
+            : `Found ${servers.length} servers. Opening the fastest reachable server automatically...`,
+        )
+        await connectToServer(formatServerAddress(bestServer), false)
       }
     } catch (error) {
       setConnectionMessage(
@@ -1056,7 +1060,7 @@ function App() {
           <div className="panel-head">
             <div>
               <p className="section-label">Connection</p>
-              <h2>Link this phone to the live PyPondo server</h2>
+              <h2>PyPondo server auto-detect</h2>
             </div>
             <button
               className="ghost-button"
@@ -1080,7 +1084,7 @@ function App() {
             value={serverAddress}
           />
           <p className="helper-copy">
-            Use the desktop pairing QR for one-tap setup, or enter a LAN/public server address manually.
+            The app opens the fastest detected server automatically. This field stays available as a fallback for unusual networks.
           </p>
 
           <div className="connection-guidance">
@@ -1089,12 +1093,12 @@ function App() {
               <span>Best when the desktop app is nearby and already connected.</span>
             </div>
             <div className="guidance-item">
-              <strong>Discover servers</strong>
-              <span>Scans common LAN paths and saved hosts across routers.</span>
+              <strong>Auto-detect</strong>
+              <span>Runs at launch and opens the fastest reachable server.</span>
             </div>
             <div className="guidance-item">
-              <strong>Manual address</strong>
-              <span>Fastest fallback when you already know the host and port.</span>
+              <strong>Fallback address</strong>
+              <span>Available only for networks where scanning is blocked.</span>
             </div>
           </div>
 
@@ -1113,7 +1117,7 @@ function App() {
               onClick={() => void startServerDiscovery()}
               type="button"
             >
-              {discoveringServers ? `Scanning... (${discoveryProgress.tested})` : 'Discover servers'}
+              {discoveringServers ? `Scanning... (${discoveryProgress.tested})` : 'Scan again'}
             </button>
             <button
               className="secondary-button"

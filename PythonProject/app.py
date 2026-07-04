@@ -1788,7 +1788,7 @@ def finalize_session(session):
     now = datetime.now()
     charge = charge_elapsed_for_session(session, now)
     session.end_time = now
-    pc = db.session.get(PC, session.pc_id)
+    pc = db.session.get(PC, session.pc_id) if session.pc_id is not None else None
     if pc:
         pc.is_occupied = False
     return charge
@@ -2609,7 +2609,7 @@ def client_desktop():
     if current_user.is_admin:
         return redirect(url_for('index'))
     if not user_has_positive_balance(current_user):
-        flash('Insufficient balance. Please reserve first or top up.', 'error')
+        flash('Insufficient balance. Add credits to unlock desktop access and start the timer.', 'error')
         return redirect(url_for('client_bookings'))
 
     active_session = Session.query.filter_by(user_id=current_user.id, end_time=None).order_by(Session.start_time.desc()).first()

@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """
-PyPondo Configuration Helper
-Helps set up client app to connect to admin app on another PC
+PyPondo client auto-configuration helper.
+
+Scans for the admin app, writes server_host.txt when a reachable server is
+found, and optionally launches the desktop client with --launch.
 """
 
 import os
-import sys
-import subprocess
+import re
 import socket
-from urllib import request as http_request
+import subprocess
+import sys
 from urllib import error as http_error
+from urllib import request as http_request
+
 
 def hidden_subprocess_kwargs():
     """Return kwargs to hide subprocess windows on Windows."""
@@ -32,6 +36,7 @@ def hidden_subprocess_kwargs():
 
     return kwargs
 
+
 def get_local_ip():
     """Get this machine's local IP address."""
     try:
@@ -43,11 +48,12 @@ def get_local_ip():
     except Exception:
         return None
 
+
 def get_gateway_ip():
     """Get default gateway IP."""
     if os.name != "nt":
         return None
-    
+
     try:
         output = subprocess.check_output(
             ["ipconfig"],
@@ -55,11 +61,11 @@ def get_gateway_ip():
             encoding="utf-8",
             errors="ignore",
             timeout=4,
-            **hidden_subprocess_kwargs()
+            **hidden_subprocess_kwargs(),
         )
     except Exception:
         return None
-    
+
     for line in output.splitlines():
         if "Default Gateway" not in line:
             continue
@@ -70,12 +76,40 @@ def get_gateway_ip():
                 return ip_str
     return None
 
+
+def get_arp_hosts():
+    """Return active IPv4 neighbors from the local ARP cache."""
+    if os.name != "nt":
+        return []
+
+    try:
+        output = subprocess.check_output(
+            ["arp", "-a"],
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=4,
+            **hidden_subprocess_kwargs(),
+        )
+    except Exception:
+        return []
+
+    hosts = []
+    for match in re.finditer(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", output):
+        ip = match.group(0)
+        if ip.startswith(("127.", "169.254.", "224.", "239.", "255.")):
+            continue
+        if ip not in hosts:
+            hosts.append(ip)
+    return hosts
+
+
 def test_connection(host, port=5000):
-    """Test if admin app is running on given host."""
-    for path in ["/login", "/api/agent/register-lan"]:
+    """Test if admin app is running on the given host."""
+    for path in ("/api/server-info", "/login", "/api/agent/register-lan"):
         target = f"http://{host}:{port}{path}"
         try:
-            with http_request.urlopen(target, timeout=1.5):
+            with http_request.urlopen(target, timeout=1.2):
                 return True
         except http_error.HTTPError as exc:
             if 200 <= exc.code < 500:
@@ -84,94 +118,97 @@ def test_connection(host, port=5000):
             continue
     return False
 
+
+def add_candidate(candidates, host):
+    host = str(host or "").strip()
+    if host and host not in candidates:
+        candidates.append(host)
+
+
+def build_auto_candidates():
+    candidates = []
+
+    for env_name in ("PYPONDO_SERVER_HOST", "PYPONDO_ADMIN_IP", "LAN_SERVER_HOST"):
+        add_candidate(candidates, os.getenv(env_name, ""))
+
+    if os.path.exists("server_host.txt"):
+        try:
+            with open("server_host.txt", "r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if line and not line.startswith("#"):
+                        add_candidate(candidates, line)
+        except Exception:
+            pass
+
+    add_candidate(candidates, "127.0.0.1")
+    add_candidate(candidates, "localhost")
+    add_candidate(candidates, get_gateway_ip())
+
+    local_ip = get_local_ip()
+    add_candidate(candidates, local_ip)
+    if local_ip:
+        parts = local_ip.split(".")
+        if len(parts) == 4:
+            prefix = ".".join(parts[:3])
+            try:
+                local_suffix = int(parts[3])
+            except ValueError:
+                local_suffix = 0
+            suffixes = list(range(max(1, local_suffix - 8), min(254, local_suffix + 8) + 1))
+            suffixes.extend([1, 2, 10, 50, 100, 101, 102, 150, 200, 254])
+            for suffix in suffixes:
+                if suffix != local_suffix:
+                    add_candidate(candidates, f"{prefix}.{suffix}")
+
+    for host in get_arp_hosts():
+        add_candidate(candidates, host)
+
+    return candidates
+
+
+def save_server_host(host):
+    with open("server_host.txt", "w", encoding="utf-8") as handle:
+        handle.write("# Auto-detected admin app location\n")
+        handle.write(f"{host}\n")
+
+
 def main():
-    """Interactive configuration wizard."""
     print("\n" + "=" * 60)
-    print("PyPondo Configuration Helper")
+    print("PyPondo Auto Configuration Helper")
     print("=" * 60)
     print()
-    
-    # Detect local info
-    local_ip = get_local_ip()
-    gateway_ip = get_gateway_ip()
-    
+
     print("Detected Configuration:")
-    print(f"  Your Local IP: {local_ip}")
-    print(f"  Network Gateway: {gateway_ip}")
+    print(f"  Your Local IP: {get_local_ip()}")
+    print(f"  Network Gateway: {get_gateway_ip()}")
     print()
-    
-    # Menu
-    print("Configuration Options:")
-    print("  1. Specify admin app IP address")
-    print("  2. Test admin app connection")
-    print("  3. Create server_host.txt")
-    print("  4. Run client app with configuration")
-    print("  5. Exit")
-    print()
-    
-    choice = input("Select option [1-5]: ").strip()
-    
-    if choice == "1":
-        admin_ip = input("\nEnter admin app IP address: ").strip()
-        print(f"Configuring client to use: {admin_ip}")
-        os.environ["PYPONDO_SERVER_HOST"] = admin_ip
-        print("✓ Configuration saved to environment")
-        print("\nRun client with:")
-        print(f'  $env:PYPONDO_SERVER_HOST="{admin_ip}"')
-        print("  python desktop_app.py")
-        
-    elif choice == "2":
-        admin_ip = input("\nEnter IP to test: ").strip()
-        print(f"\nTesting connection to {admin_ip}:5000...")
-        if test_connection(admin_ip, 5000):
-            print("✓ Admin app found and responding!")
-            print(f"\nRun client with:")
-            print(f'  $env:PYPONDO_SERVER_HOST="{admin_ip}"')
-            print("  python desktop_app.py")
-        else:
-            print("✗ Admin app not found on that IP")
-            print("  Make sure:")
-            print("    1. Admin IP is correct")
-            print("    2. Admin app is running (python app.py)")
-            print("    3. Firewall allows port 5000")
-    
-    elif choice == "3":
-        print("\nCreating server_host.txt...")
-        admin_ip = input("Enter admin app IP address: ").strip()
-        with open("server_host.txt", "w") as f:
-            f.write(f"# Admin app location\n{admin_ip}\n")
-        print("✓ server_host.txt created with admin IP")
-        print("\nNow run client with:")
-        print("  python desktop_app.py")
-    
-    elif choice == "4":
-        admin_ip = input("\nEnter admin app IP address: ").strip()
-        if not test_connection(admin_ip, 5000):
-            print(f"⚠ Warning: Cannot reach {admin_ip}:5000")
-            cont = input("Continue anyway? [y/N]: ").strip().lower()
-            if cont != 'y':
-                return
-        
-        print(f"\nStarting client app connecting to {admin_ip}...")
-        os.environ["PYPONDO_SERVER_HOST"] = admin_ip
-        os.environ["PYPONDO_VERBOSE"] = "1"
-        
-        try:
-            import desktop_app
-            sys.exit(desktop_app.main())
-        except Exception as e:
-            print(f"Error starting client app: {e}")
-    
-    elif choice == "5":
-        print("Goodbye!")
-        return
-    
-    else:
-        print("Invalid choice")
+
+    print("Scanning for the admin app...")
+    for host in build_auto_candidates():
+        print(f"  Trying {host}:5000...")
+        if test_connection(host, 5000):
+            save_server_host(host)
+            os.environ["PYPONDO_SERVER_HOST"] = host
+            print(f"[OK] Admin app found at {host}:5000")
+            print("[OK] server_host.txt updated automatically")
+            if "--launch" in sys.argv:
+                import desktop_app
+
+                return desktop_app.main()
+            return 0
+
+    print("[WARN] No reachable admin app found. The desktop client will keep auto-discovering at startup.")
+    if "--launch" in sys.argv:
+        import desktop_app
+
+        return desktop_app.main()
+    return 1
+
 
 if __name__ == "__main__":
     try:
-        main()
+        raise SystemExit(main())
     except KeyboardInterrupt:
         print("\n\nCancelled.")
-        sys.exit(0)
+        raise SystemExit(0)

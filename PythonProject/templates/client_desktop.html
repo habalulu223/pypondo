@@ -82,7 +82,7 @@
     <div class="top">
         <h1>Client Desktop // Unlocked</h1>
         <div>
-            <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
+            <button type="button" class="btn minimize-timer-btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
             <a class="btn" href="{{ url_for('client_bookings') }}">Bookings</a>
             <a class="btn warn" href="{{ url_for('logout') }}" onclick="clearDashboardTimerState()">Logout</a>
         </div>
@@ -98,7 +98,7 @@
 
     <div class="status">
         Logged in as <strong>{{ current_user.username }}</strong> |
-        Balance: <strong id="user-balance-top">PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
+        Balance: <strong id="user-balance-top" data-balance-display>PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
         {% if active_session %}
             | Active session started: <strong>{{ active_session.start_time.strftime('%Y-%m-%d %H:%M:%S') }}</strong>
         {% endif %}
@@ -112,7 +112,7 @@
     <div class="grid">
         <div class="desktop-tab">
             <h2>Desktop Access Panel</h2>
-            <p>Desktop is unlocked because your balance is greater than zero.</p>
+            <p id="desktop-access-note">Desktop is unlocked because your balance is greater than zero.</p>
             <p>Resize this tab from the lower-right corner based on client preference.</p>
             <p>Use "Minimize App (Timer)" to minimize and keep the floating timer visible on the desktop. The live timer above stays synced with the same start time.</p>
             <p>Keep this app open while the client is using the station.</p>
@@ -125,7 +125,7 @@
             <h2 style="margin-top:0; font-family: 'Orbitron', sans-serif; color: var(--line);">Wallet &amp; Top Up</h2>
             <p>
                 Available balance:
-                <strong id="user-balance-bottom">PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
+                <strong id="user-balance-bottom" data-balance-display>PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
             </p>
             <form action="{{ url_for('topup_online') }}" method="POST">
                 <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required style="width:100%; box-sizing:border-box; margin: 6px 0; padding: 10px; border-radius: 4px; border: 1px solid #37415f; background: #0e1422; color: #fff;">
@@ -169,7 +169,7 @@
 
     <div class="actions">
         <a class="btn" href="{{ url_for('client_bookings') }}">Manage Bookings</a>
-        <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
+        <button type="button" class="btn minimize-timer-btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
     </div>
 
     <!-- Hidden termination dialog -->
@@ -216,6 +216,9 @@
         var dashboardTimer = (function () {
             var storageKey = 'pypondo.timer.started_at.user.{{ current_user.id }}';
             var hourlyRate = {{ hourly_rate|tojson }};
+            var hasDesktopAccess = {{ (current_user.pondo > 0)|tojson }};
+            // Expose a global flag to reliably check access from other helpers
+            window._pypondo_has_desktop_access = Boolean(hasDesktopAccess);
             var timeNode = document.getElementById('dashboard-timer-time');
             var costNode = document.getElementById('dashboard-timer-cost');
 
@@ -225,7 +228,15 @@
                 return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
             }
 
+            function setAccessState(unlocked) {
+                hasDesktopAccess = Boolean(unlocked);
+                window._pypondo_has_desktop_access = Boolean(unlocked);
+            }
+
             function ensureStartedAt() {
+                if (!hasDesktopAccess) {
+                    return null;
+                }
                 var startedAt = readStartedAt();
                 if (!startedAt) {
                     startedAt = Date.now();
@@ -243,6 +254,20 @@
             }
 
             function render() {
+                if (!hasDesktopAccess) {
+                    window.localStorage.removeItem(storageKey);
+                    timeNode.textContent = '00:00:00';
+                    costNode.textContent = 'PHP 0.00';
+                    // Ensure desktop timer process is stopped when access revoked
+                    try {
+                        if (window.pywebview && window.pywebview.api && window.pywebview.api.stop_timer) {
+                            window.pywebview.api.stop_timer();
+                        }
+                    } catch (e) {}
+                    try { updateDesktopAccessUI(false); } catch (e) {}
+                    return;
+                }
+
                 var startedAt = ensureStartedAt();
                 var elapsedMs = Math.max(Date.now() - startedAt, 0);
                 timeNode.textContent = formatElapsed(elapsedMs);
@@ -254,6 +279,7 @@
 
             return {
                 ensureStartedAt: ensureStartedAt,
+                setAccessState: setAccessState,
                 clear: function () {
                     window.localStorage.removeItem(storageKey);
                     timeNode.textContent = '00:00:00';
@@ -262,17 +288,45 @@
             };
         })();
 
-        // Automatically start the timer when the desktop client loads and the user has balance.
-        {% if current_user.pondo > 0 %}
-        withPywebviewApi(function (api) {
-            if (api.start_timer) {
-                api.start_timer(dashboardTimer.ensureStartedAt());
+        function updateDesktopAccessUI(unlocked) {
+            var btns = document.querySelectorAll('.minimize-timer-btn');
+            btns.forEach(function(b) {
+                try {
+                    b.disabled = !unlocked;
+                    b.style.opacity = unlocked ? '' : '0.5';
+                    if (!unlocked) b.title = 'Disabled: zero balance';
+                    else b.title = '';
+                } catch (e) {}
+            });
+
+            var note = document.getElementById('desktop-access-note');
+            if (note) {
+                note.textContent = unlocked ? 'Desktop is unlocked because your balance is greater than zero.' : 'Desktop is locked because your balance is zero.';
             }
-        });
-        {% endif %}
+        }
+
+        // Initialize UI state based on initial server-rendered access
+        try { updateDesktopAccessUI(hasDesktopAccess); } catch (e) {}
+
+        function startTimerIfAvailable() {
+            var startedAt = dashboardTimer ? dashboardTimer.ensureStartedAt() : null;
+            if (!startedAt) {
+                return;
+            }
+            withPywebviewApi(function (api) {
+                if (api.start_timer) {
+                    api.start_timer(startedAt);
+                }
+            });
+        }
+
+        startTimerIfAvailable();
 
         function ensureTimerOnClose() {
-            var startedAt = dashboardTimer ? dashboardTimer.ensureStartedAt() : Date.now();
+            var startedAt = dashboardTimer ? dashboardTimer.ensureStartedAt() : null;
+            if (!startedAt) {
+                return;
+            }
             withPywebviewApi(function (api) {
                 if (api.start_timer) {
                     api.start_timer(startedAt);
@@ -338,11 +392,30 @@
                     var balanceText = 'PHP ' + result.balance.toFixed(2);
                     var topBalanceElement = document.getElementById('user-balance-top');
                     var bottomBalanceElement = document.getElementById('user-balance-bottom');
+                    var balanceElements = document.querySelectorAll('[data-balance-display]');
                     if (topBalanceElement) {
                         topBalanceElement.textContent = balanceText;
                     }
                     if (bottomBalanceElement) {
                         bottomBalanceElement.textContent = balanceText;
+                    }
+                    balanceElements.forEach(function (element) {
+                        if (element && element !== topBalanceElement && element !== bottomBalanceElement) {
+                            element.textContent = balanceText;
+                        }
+                    });
+
+                    if (dashboardTimer && typeof dashboardTimer.setAccessState === 'function') {
+                        dashboardTimer.setAccessState(result.balance > 0);
+                        try { updateDesktopAccessUI(result.balance > 0); } catch (e) {}
+                    }
+
+                    if (result.balance > 0) {
+                        startTimerIfAvailable();
+                    } else if (window.pywebview && window.pywebview.api && window.pywebview.api.stop_timer) {
+                        dashboardTimer.clear();
+                        window.pywebview.api.stop_timer();
+                        try { updateDesktopAccessUI(false); } catch (e) {}
                     }
 
                     // Update cost display if we have session data
@@ -365,6 +438,10 @@
         setTimeout(refreshSessionStatus, 1000);
 
         function minimizeClientApp() {
+            // Prevent minimizing if desktop access is revoked
+            if (!window._pypondo_has_desktop_access) {
+                return;
+            }
             withPywebviewApi(function (api) {
                 if (api.minimize) {
                     Promise.resolve(api.minimize())

@@ -160,7 +160,7 @@ def main():
             check("Logged In:" in admin_html, "admin dashboard shows the active session user label")
             check("Current Charge:" in admin_html, "admin dashboard shows the live session charge label")
             check("smoke-user" in admin_html, "admin dashboard includes the session username")
-            check("Mobile LAN Pairing" in admin_html, "admin dashboard shows the mobile LAN pairing section")
+            check("Mobile Pairing" in admin_html, "admin dashboard shows the mobile pairing section")
 
             connect_response = client.post(
                 "/admin/request_connect",
@@ -198,17 +198,20 @@ def main():
 
             android_download = client.get("/admin/download_android_app")
             check(android_download.status_code == 200, "admin Android download endpoint responds")
+            content_disposition = android_download.headers.get("Content-Disposition", "")
             check(
-                "PyPondo-Android-build-kit.zip" in android_download.headers.get("Content-Disposition", ""),
-                "admin Android download falls back to the build kit when no APK exists",
+                "PyPondo-Android.apk" in content_disposition
+                or "PyPondo-Android-build-kit.zip" in content_disposition,
+                "admin Android download returns an APK or the fallback build kit",
             )
-            check(android_download.data[:2] == b"PK", "admin Android build kit download is a zip file")
-            with zipfile.ZipFile(io.BytesIO(android_download.data), "r") as archive:
-                archive_names = set(archive.namelist())
-            check(
-                "PyPondo-Android-build-kit/build_android.ps1" in archive_names,
-                "admin Android build kit includes the PowerShell launcher",
-            )
+            check(android_download.data[:2] == b"PK", "admin Android download is a zip-format payload")
+            if "PyPondo-Android-build-kit.zip" in content_disposition:
+                with zipfile.ZipFile(io.BytesIO(android_download.data), "r") as archive:
+                    archive_names = set(archive.namelist())
+                check(
+                    "PyPondo-Android-build-kit/build_android.ps1" in archive_names,
+                    "admin Android build kit includes the PowerShell launcher",
+                )
         finally:
             with app.app_context():
                 db.session.remove()

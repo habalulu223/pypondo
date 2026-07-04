@@ -75,9 +75,11 @@
         <h1>Client Bookings</h1>
         <div>
             {% if current_user.pondo > 0 %}
-            <a class="btn ok" href="{{ url_for('client_desktop') }}">Go To Desktop</a>
-            <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
+            <a class="btn ok" id="desktop-access-link" href="{{ url_for('client_desktop') }}">Go To Desktop</a>
+            {% else %}
+            <a class="btn ok" id="desktop-access-link" href="#wallet-card">Top Up to Unlock Desktop</a>
             {% endif %}
+            <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
             {% if not kiosk_mode %}
             <a class="btn warn" href="{{ url_for('logout') }}" onclick="clearDashboardTimerState()">Logout</a>
             {% endif %}
@@ -95,25 +97,25 @@
     <div class="card" style="margin-bottom:16px;">
         Logged in as <strong>{{ current_user.username }}</strong> |
         Balance:
-        <span class="{{ 'balance-ok' if current_user.pondo > 0 else 'balance-low' }}">
+        <span class="{{ 'balance-ok' if current_user.pondo > 0 else 'balance-low' }}" data-balance-display>
             PHP {{ "%.2f"|format(current_user.pondo) }}
         </span>
         | Timer: <strong id="dashboard-timer-time">00:00:00</strong>
         | Estimated Cost: <strong id="dashboard-timer-cost">PHP 0.00</strong>
         {% if current_user.pondo <= 0 %}
-            | Add credits to unlock desktop access.
+            | Add balance to unlock desktop access.
         {% endif %}
         <div class="subtle" id="dashboard-timer-note" style="margin-top:8px;">
-            The timer shows here in the user dashboard once desktop use starts, and it continues in the floating desktop timer when the app is minimized.
+            {{ 'Desktop access is unlocked and the timer will keep running here and in the floating timer.' if current_user.pondo > 0 else 'Add credits below to unlock desktop access and start the timer.' }}
         </div>
     </div>
 
     <div class="grid">
-        <div class="card">
+        <div class="card" id="wallet-card">
             <h2>Wallet &amp; Top Up</h2>
             <p>
                 Balance:
-                <span class="{{ 'balance-ok' if current_user.pondo > 0 else 'balance-low' }}">
+                <span class="{{ 'balance-ok' if current_user.pondo > 0 else 'balance-low' }}" data-balance-display>
                     PHP {{ "%.2f"|format(current_user.pondo) }}
                 </span>
             </p>
@@ -290,11 +292,25 @@
             var timeNode = document.getElementById('dashboard-timer-time');
             var costNode = document.getElementById('dashboard-timer-cost');
             var noteNode = document.getElementById('dashboard-timer-note');
+            var desktopLinkNode = document.getElementById('desktop-access-link');
 
             function readStartedAt() {
                 var rawValue = window.localStorage.getItem(storageKey);
                 var parsedValue = parseInt(rawValue, 10);
                 return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
+            }
+
+            function setAccessState(unlocked) {
+                hasDesktopAccess = Boolean(unlocked);
+                if (desktopLinkNode) {
+                    if (hasDesktopAccess) {
+                        desktopLinkNode.textContent = 'Go To Desktop';
+                        desktopLinkNode.href = '{{ url_for('client_desktop') }}';
+                    } else {
+                        desktopLinkNode.textContent = 'Top Up to Unlock Desktop';
+                        desktopLinkNode.href = '#wallet-card';
+                    }
+                }
             }
 
             function ensureStartedAt() {
@@ -322,11 +338,11 @@
                     window.localStorage.removeItem(storageKey);
                     timeNode.textContent = '00:00:00';
                     costNode.textContent = 'PHP 0.00';
-                    noteNode.textContent = 'The timer starts after desktop access is unlocked and will continue when the app is minimized.';
+                    noteNode.textContent = 'Add credits below to unlock desktop access and start the timer.';
                     return;
                 }
 
-                var startedAt = readStartedAt();
+                var startedAt = ensureStartedAt();
                 if (!startedAt) {
                     timeNode.textContent = '00:00:00';
                     costNode.textContent = 'PHP 0.00';
@@ -345,6 +361,7 @@
 
             return {
                 ensureStartedAt: ensureStartedAt,
+                setAccessState: setAccessState,
                 clear: function () {
                     window.localStorage.removeItem(storageKey);
                     timeNode.textContent = '00:00:00';
@@ -352,6 +369,54 @@
                 }
             };
         })();
+
+        function refreshSessionStatus() {
+            fetch('/api/session-status', {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(function (response) {
+                return response.json();
+            })
+            .then(function (result) {
+                if (!result.ok) {
+                    return;
+                }
+
+                var balanceText = 'PHP ' + result.balance.toFixed(2);
+                var balanceElements = document.querySelectorAll('[data-balance-display]');
+                balanceElements.forEach(function (element) {
+                    if (element) {
+                        element.textContent = balanceText;
+                    }
+                });
+
+                if (dashboardTimer && typeof dashboardTimer.setAccessState === 'function') {
+                    dashboardTimer.setAccessState(result.balance > 0);
+                }
+
+                if (result.balance > 0) {
+                    dashboardTimer.ensureStartedAt();
+                    withPywebviewApi(function (api) {
+                        if (api.start_timer) {
+                            api.start_timer(dashboardTimer.ensureStartedAt());
+                        }
+                    });
+                } else if (window.pywebview && window.pywebview.api && window.pywebview.api.stop_timer) {
+                    dashboardTimer.clear();
+                    window.pywebview.api.stop_timer();
+                }
+            })
+            .catch(function (error) {
+                console.warn('Session status refresh failed:', error);
+            });
+        }
+
+        setInterval(refreshSessionStatus, 3000);
+        setTimeout(refreshSessionStatus, 1000);
 
         function clearDashboardTimerState() {
             if (dashboardTimer) {

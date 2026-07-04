@@ -366,32 +366,7 @@ def save_manual_admin_host(host_value):
 
 def prompt_manual_admin_host(headless_mode=False):
     preset = os.getenv("PYPONDO_ADMIN_IP", "").strip() or os.getenv("PYPONDO_SERVER_HOST", "").strip()
-    if headless_mode:
-        if preset:
-            return preset
-        try:
-            value = input("Enter admin server IP/host: ").strip()
-            return value or None
-        except Exception:
-            return None
-
-    try:
-        import tkinter as tk
-        from tkinter import simpledialog
-
-        root = tk.Tk()
-        root.withdraw()
-        value = simpledialog.askstring(
-            "Admin Server",
-            "Enter admin server IP or hostname:",
-            initialvalue=preset or ""
-        )
-        root.destroy()
-        if value and value.strip():
-            return value.strip()
-    except Exception:
-        pass
-    return None
+    return preset or None
 
 
 def discover_hosts_from_net_view():
@@ -540,7 +515,7 @@ def probe_server_base_url(base_url):
     for path in ("/login", "/api/agent/register-lan"):
         target = root + path
         try:
-            with http_request.urlopen(target, timeout=3):
+            with http_request.urlopen(target, timeout=1.2):
                 return True
         except http_error.HTTPError as exc:
             if 200 <= exc.code < 500:
@@ -566,6 +541,74 @@ def discover_server_ip_from_admin(base_url):
         return None
     
     return None
+
+
+def is_private_ipv4(host_value):
+    parts = str(host_value or "").strip().split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        octets = [int(part) for part in parts]
+    except ValueError:
+        return False
+    if any(octet < 0 or octet > 255 for octet in octets):
+        return False
+    return (
+        octets[0] == 10
+        or (octets[0] == 172 and 16 <= octets[1] <= 31)
+        or (octets[0] == 192 and octets[1] == 168)
+    )
+
+
+def discover_arp_neighbor_ips():
+    if os.name != "nt":
+        return []
+
+    try:
+        output = subprocess.check_output(
+            ["arp", "-a"],
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=4,
+            **hidden_subprocess_kwargs()
+        )
+    except Exception:
+        return []
+
+    found = []
+    for match in re.finditer(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", output):
+        ip_value = match.group(0)
+        if ip_value.startswith(("127.", "169.254.", "224.", "239.", "255.")):
+            continue
+        if is_private_ipv4(ip_value) and ip_value not in found:
+            found.append(ip_value)
+    return found
+
+
+def build_nearby_subnet_hosts(local_ips):
+    hosts = []
+    common_suffixes = (1, 2, 10, 20, 50, 100, 101, 102, 103, 104, 105, 110, 150, 200, 254)
+
+    for local_ip in local_ips:
+        parts = str(local_ip or "").strip().split(".")
+        if len(parts) != 4:
+            continue
+        try:
+            host_octet = int(parts[3])
+        except ValueError:
+            continue
+
+        prefix = ".".join(parts[:3])
+        nearby_suffixes = range(max(1, host_octet - 8), min(254, host_octet + 8) + 1)
+        for suffix in list(nearby_suffixes) + list(common_suffixes):
+            if suffix == host_octet:
+                continue
+            candidate = f"{prefix}.{suffix}"
+            if candidate not in hosts:
+                hosts.append(candidate)
+
+    return hosts
 
 
 def build_server_base_url_candidates():
@@ -598,9 +641,10 @@ def build_server_base_url_candidates():
                 host_candidates.append(parsed.hostname)
 
     host_candidates.extend(discover_hosts_from_net_view())
-    # DISABLED: Skip gateway IP discovery - prevents 192.168.x.x connection attempts
-    # host_candidates.extend(discover_default_gateway_ips())
-    host_candidates.extend(discover_local_network_ips())
+    local_network_ips = discover_local_network_ips()
+    host_candidates.extend(local_network_ips)
+    host_candidates.extend(discover_arp_neighbor_ips())
+    host_candidates.extend(build_nearby_subnet_hosts(local_network_ips))
 
     # ALWAYS prioritize localhost first for same-machine admin
     if "127.0.0.1" not in host_candidates and "localhost" not in host_candidates:
@@ -677,11 +721,6 @@ def discover_remote_server_base_url():
     for candidate in manual_candidates:
         if probe_server_base_url(candidate):
             return candidate.rstrip("/")
-
-    # When manual host is configured, use it even if currently unreachable
-    # This allows the app to run in local mode while retrying connection in background
-    if manual_candidates:
-        return manual_candidates[0].rstrip("/")
 
     for candidate in build_server_base_url_candidates():
         if candidate not in candidates:
@@ -1280,12 +1319,19 @@ def main():
 
     # Check for independence mode (configure IP without server validation)
     if argv and argv[0] in ("--independence", "--configure-ip", "--setup"):
-        print("PyPondo Independence Mode - Configure Admin Server IP")
+        print("PyPondo Auto Setup - Detect Admin Server")
         print("=" * 55)
-        manual_host = prompt_manual_admin_host(headless_mode=False)
-        if manual_host:
-            if save_manual_admin_host(manual_host):
-                print(f"[OK] Saved admin server IP '{manual_host}' to server_host.txt")
+        detected_base_url = discover_remote_server_base_url()
+        detected_host = None
+        if detected_base_url:
+            parsed_detected_url = http_parse.urlparse(detected_base_url)
+            detected_host = parsed_detected_url.hostname or detected_base_url
+        else:
+            detected_host = prompt_manual_admin_host(headless_mode=True)
+
+        if detected_host:
+            if save_manual_admin_host(detected_host):
+                print(f"[OK] Saved admin server '{detected_host}' to server_host.txt")
                 print("You can now run the client normally to connect to this server.")
                 print(f"Run: python desktop_app.py")
                 return 0
@@ -1293,7 +1339,7 @@ def main():
                 print("[ERROR] Failed to save server_host.txt")
                 return 1
         else:
-            print("[CANCEL] No IP entered")
+            print("[WARN] No admin server detected. Run the admin app, then start the client again.")
             return 1
 
     headless_mode = str(os.getenv("PYPONDO_HEADLESS", "")).strip().lower() in {"1", "true", "yes"}
