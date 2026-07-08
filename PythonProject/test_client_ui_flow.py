@@ -50,6 +50,7 @@ def test_zero_balance_client_bookings_prompts_for_top_up():
             html = bookings_response.get_data(as_text=True)
             assert "Add balance to unlock desktop access" in html
             assert "Top Up to Unlock Desktop" in html
+            assert "insuficient balance please top up" in html
         finally:
             with app.app_context():
                 db.session.remove()

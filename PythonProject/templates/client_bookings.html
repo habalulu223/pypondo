@@ -38,8 +38,19 @@
             border-color: var(--line);
             color: var(--line);
         }
-        .history-cancel:hover { background: var(--line); color: #000; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .history-cancel:hover { background: var(--line); color: #000; }        .btn:disabled, .btn.btn-disabled { 
+            opacity: 0.5; 
+            cursor: not-allowed; 
+            color: #888;
+            border-color: #666;
+            background: #1a1a1a;
+            box-shadow: none;
+        }
+        .btn:disabled:hover, .btn.btn-disabled:hover { 
+            background: #1a1a1a; 
+            color: #888; 
+            box-shadow: none;
+        }        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .card { border: 1px solid #2d3650; border-radius: 8px; background: var(--card); padding: 14px; }
         .card h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); font-size: 1rem; }
         .flash { margin-bottom: 12px; padding: 10px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(0, 255, 157, 0.08); color: var(--ok); font-weight: 700; }
@@ -74,12 +85,7 @@
     <div class="top">
         <h1>Client Bookings</h1>
         <div>
-            {% if current_user.pondo >= 1 %}
-            <a class="btn ok" id="desktop-access-link" href="{{ url_for('client_desktop') }}">Go To Desktop</a>
-            {% else %}
-            <a class="btn ok" id="desktop-access-link" href="#wallet-card">Top Up to Unlock Desktop</a>
-            {% endif %}
-            <button type="button" class="btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
+            <button type="button" class="btn" id="minimize-btn-bookings" onclick="handleMinimizeClick(event)">Minimize App (Timer)</button>
             {% if not kiosk_mode %}
             <a class="btn warn" href="{{ url_for('logout') }}" onclick="clearDashboardTimerState()">Logout</a>
             {% endif %}
@@ -217,6 +223,14 @@
     </div>
 
     <script>
+        function showDesktopAccessBlockedMessage() {
+            window.alert('insuficient balance please top up');
+            var walletCard = document.getElementById('wallet-card');
+            if (walletCard) {
+                walletCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
         function withPywebviewApi(callback) {
             if (window.pywebview && window.pywebview.api) {
                 callback(window.pywebview.api);
@@ -306,9 +320,16 @@
                     if (hasDesktopAccess) {
                         desktopLinkNode.textContent = 'Go To Desktop';
                         desktopLinkNode.href = '{{ url_for('client_desktop') }}';
+                        desktopLinkNode.dataset.enabled = 'true';
+                        desktopLinkNode.onclick = null;
                     } else {
                         desktopLinkNode.textContent = 'Top Up to Unlock Desktop';
-                        desktopLinkNode.href = '#wallet-card';
+                        desktopLinkNode.href = '#';
+                        desktopLinkNode.dataset.enabled = 'false';
+                        desktopLinkNode.onclick = function (event) {
+                            event.preventDefault();
+                            showDesktopAccessBlockedMessage();
+                        };
                     }
                 }
             }
@@ -370,6 +391,9 @@
             };
         })();
 
+        var lastLowBalanceWarningTime = 0;
+        var lastLowBalance = null;
+
         function refreshSessionStatus() {
             fetch('/api/session-status', {
                 method: 'GET',
@@ -409,6 +433,22 @@
                     dashboardTimer.clear();
                     window.pywebview.api.stop_timer();
                 }
+
+                // Update minimize button state
+                updateMinimizeButtonState();
+
+                // Low balance warning (max 1 warning per 30 seconds)
+                if (Number(result.balance) > 0 && Number(result.balance) < 5) {
+                    var now = Date.now();
+                    if (now - lastLowBalanceWarningTime > 30000 || lastLowBalance !== result.balance) {
+                        var minimizeBtn = document.querySelector('button[onclick="minimizeClientApp()"]');
+                        if (minimizeBtn) {
+                            minimizeBtn.title = 'Low balance: ' + balanceText;
+                        }
+                        lastLowBalanceWarningTime = now;
+                        lastLowBalance = result.balance;
+                    }
+                }
             })
             .catch(function (error) {
                 console.warn('Session status refresh failed:', error);
@@ -430,6 +470,16 @@
             return true;
         }
 
+        function handleMinimizeClick(event) {
+            if (event.target.disabled) {
+                event.preventDefault();
+                event.stopPropagation();
+                alert('No balance available. Please top up to use the desktop.');
+                return false;
+            }
+            minimizeClientApp();
+        }
+
         function minimizeClientApp() {
             if (window.pywebview && window.pywebview.api && window.pywebview.api.minimize) {
                 window.pywebview.api.minimize();
@@ -437,6 +487,29 @@
             }
             window.blur();
         }
+        
+        function updateMinimizeButtonState() {
+            var minimizeBtn = document.querySelector('button[onclick="minimizeClientApp()"]');
+            var currentBalance = {{ current_user.pondo|tojson }};
+            
+            if (minimizeBtn) {
+                if (currentBalance <= 0) {
+                    minimizeBtn.disabled = true;
+                    minimizeBtn.classList.add('btn-disabled');
+                    minimizeBtn.title = 'Disabled: No balance available';
+                } else {
+                    minimizeBtn.disabled = false;
+                    minimizeBtn.classList.remove('btn-disabled');
+                    if (currentBalance < 5) {
+                        minimizeBtn.title = 'Low balance: PHP ' + currentBalance.toFixed(2);
+                    } else {
+                        minimizeBtn.title = '';
+                    }
+                }
+            }
+        }
+        
+        updateMinimizeButtonState();
 
         function setTopup(amount) {
             var field = document.getElementById('topupAmount');

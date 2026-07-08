@@ -72,6 +72,19 @@
             font-size: 0.72rem;
         }
         .history-cancel:hover { background: var(--warn); color: #fff; }
+        .btn:disabled, .btn.btn-disabled { 
+            opacity: 0.5; 
+            cursor: not-allowed; 
+            color: #888;
+            border-color: #666;
+            background: #1a1a1a;
+            box-shadow: none;
+        }
+        .btn:disabled:hover, .btn.btn-disabled:hover { 
+            background: #1a1a1a; 
+            color: #888; 
+            box-shadow: none;
+        }
         @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -82,7 +95,7 @@
     <div class="top">
         <h1>Client Desktop // Unlocked</h1>
         <div>
-            <button type="button" class="btn minimize-timer-btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
+            <button type="button" class="btn minimize-timer-btn" onclick="handleMinimizeClickDesktop(event)">Minimize App (Timer)</button>
             <a class="btn" href="{{ url_for('client_bookings') }}">Bookings</a>
             <a class="btn warn" href="{{ url_for('logout') }}" onclick="clearDashboardTimerState()">Logout</a>
         </div>
@@ -127,7 +140,7 @@
                 Available balance:
                 <strong id="user-balance-bottom" data-balance-display>PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
             </p>
-            <form action="{{ url_for('topup_online') }}" method="POST">
+            <form action="{{ url_for('topup_online') }}" method="POST" id="topup-form">
                 <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required style="width:100%; box-sizing:border-box; margin: 6px 0; padding: 10px; border-radius: 4px; border: 1px solid #37415f; background: #0e1422; color: #fff;">
                 <input type="hidden" name="return_to" value="{{ url_for('client_desktop') }}">
                 <div class="quick-amounts">
@@ -169,7 +182,7 @@
 
     <div class="actions">
         <a class="btn" href="{{ url_for('client_bookings') }}">Manage Bookings</a>
-        <button type="button" class="btn minimize-timer-btn" onclick="minimizeClientApp()">Minimize App (Timer)</button>
+        <button type="button" class="btn minimize-timer-btn" onclick="handleMinimizeClickDesktop(event)">Minimize App (Timer)</button>
     </div>
 
     <!-- Hidden termination dialog -->
@@ -293,15 +306,24 @@
             btns.forEach(function(b) {
                 try {
                     b.disabled = !unlocked;
-                    b.style.opacity = unlocked ? '' : '0.5';
-                    if (!unlocked) b.title = 'Disabled: zero balance';
-                    else b.title = '';
+                    b.classList.toggle('btn-disabled', !unlocked);
+                    if (!unlocked) {
+                        b.title = 'Disabled: No balance available';
+                    } else {
+                        b.title = '';
+                    }
                 } catch (e) {}
             });
 
             var note = document.getElementById('desktop-access-note');
             if (note) {
                 note.textContent = unlocked ? 'Desktop is unlocked because your balance is greater than zero.' : 'Desktop is locked because your balance is zero.';
+            }
+
+            // Hide top-up form elements when balance is zero
+            var topupForm = document.getElementById('topup-form');
+            if (topupForm) {
+                topupForm.style.display = unlocked ? '' : 'none';
             }
         }
 
@@ -375,6 +397,9 @@
         setInterval(chargeBalance, 60000);
         {% endif %}
 
+        var lastLowBalanceWarningTime = 0;
+        var lastLowBalance = null;
+
         function refreshSessionStatus() {
             fetch('/api/session-status', {
                 method: 'GET',
@@ -425,6 +450,19 @@
                             costElement.textContent = 'PHP ' + result.cost.toFixed(2);
                         }
                     }
+
+                    // Low balance warning (max 1 warning per 30 seconds)
+                    if (Number(result.balance) > 0 && Number(result.balance) < 5) {
+                        var now = Date.now();
+                        if (now - lastLowBalanceWarningTime > 30000 || lastLowBalance !== result.balance) {
+                            var minimizeBtn = document.querySelector('.minimize-timer-btn');
+                            if (minimizeBtn) {
+                                minimizeBtn.title = 'Low balance: ' + balanceText;
+                            }
+                            lastLowBalanceWarningTime = now;
+                            lastLowBalance = result.balance;
+                        }
+                    }
                 }
             })
             .catch(function (error) {
@@ -437,11 +475,17 @@
         // Initial refresh
         setTimeout(refreshSessionStatus, 1000);
 
-        function minimizeClientApp() {
-            // Prevent minimizing if desktop access is revoked
-            if (!window._pypondo_has_desktop_access) {
-                return;
+        function handleMinimizeClickDesktop(event) {
+            if (event.target.disabled) {
+                event.preventDefault();
+                event.stopPropagation();
+                alert('No balance available. Please top up to use the desktop.');
+                return false;
             }
+            minimizeClientApp();
+        }
+
+        function minimizeClientApp() {
             withPywebviewApi(function (api) {
                 if (api.minimize) {
                     Promise.resolve(api.minimize())
@@ -462,6 +506,7 @@
                 }
             });
         }
+        
 
         function setTopup(amount) {
             var field = document.getElementById('topupAmount');
