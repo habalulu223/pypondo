@@ -8,7 +8,7 @@ import os
 import sys
 import subprocess
 
-def test_gateway_discovery():
+def check_gateway_discovery():
     """Test that gateway discovery works."""
     print("=" * 60)
     print("Testing Gateway Discovery")
@@ -53,7 +53,7 @@ def test_gateway_discovery():
         return False
 
 
-def test_imports():
+def check_imports():
     """Test that all required imports are available."""
     print("\n" + "=" * 60)
     print("Testing Required Imports")
@@ -84,7 +84,7 @@ def test_imports():
     return True
 
 
-def test_app_independence():
+def check_app_independence():
     """Test that apps don't depend on PyCharm."""
     print("\n" + "=" * 60)
     print("Testing App Independence (No PyCharm Dependencies)")
@@ -125,7 +125,7 @@ def test_app_independence():
         return True
 
 
-def test_gateway_discovery_code():
+def check_gateway_discovery_code():
     """Test that gateway discovery functions exist in code."""
     print("\n" + "=" * 60)
     print("Testing Gateway Discovery Code")
@@ -160,10 +160,10 @@ def main():
     print("=" * 60)
     
     results = {
-        "Gateway Discovery": test_gateway_discovery(),
-        "Required Imports": test_imports(),
-        "App Independence": test_app_independence(),
-        "Gateway Code": test_gateway_discovery_code(),
+        "Gateway Discovery": check_gateway_discovery(),
+        "Required Imports": check_imports(),
+        "App Independence": check_app_independence(),
+        "Gateway Code": check_gateway_discovery_code(),
     }
     
     print("\n" + "=" * 60)

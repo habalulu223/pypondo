@@ -185,10 +185,12 @@
 
         document.querySelectorAll('button').forEach(function(button) {
             if (button.dataset.noLoading !== undefined) return;
-            if (button.type === 'button' || button.type === 'submit' || button.type === '') {
-                button.addEventListener('click', function() {
-                    showLoading('Processing, please wait...');
-                });
+            if (button.dataset.loadingNav !== undefined || button.dataset.tabSwitch !== undefined) {
+                if (button.type === 'button' || button.type === 'submit' || button.type === '') {
+                    button.addEventListener('click', function() {
+                        showLoading('Switching view, please wait...');
+                    });
+                }
             }
         });
     }

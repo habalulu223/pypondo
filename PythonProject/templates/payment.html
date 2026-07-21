@@ -21,6 +21,8 @@
             background: var(--bg);
             color: var(--text);
             font-family: 'Roboto', sans-serif;
+            font-size: 17px;
+            line-height: 1.45;
             padding: 18px;
         }
         .shell {
@@ -42,20 +44,22 @@
             color: var(--line);
             font-size: clamp(1.2rem, 2vw, 1.7rem);
             letter-spacing: 1px;
-            text-transform: uppercase;
         }
         .btn,
         button {
             background: transparent;
             border: 1px solid var(--line);
             color: var(--line);
-            padding: 10px 14px;
+            padding: 12px 16px;
+            min-height: 46px;
             border-radius: 6px;
             text-decoration: none;
             cursor: pointer;
             font-family: 'Orbitron', sans-serif;
-            text-transform: uppercase;
+            font-size: 1rem;
+            font-weight: 700;
             transition: 0.25s;
+            box-sizing: border-box;
         }
         .btn:hover,
         button:hover {
@@ -90,8 +94,7 @@
             font-family: 'Orbitron', sans-serif;
             color: var(--line);
             font-size: 1rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
+            letter-spacing: 0.03em;
         }
         .summary-amount {
             font-family: 'Orbitron', sans-serif;
@@ -158,15 +161,18 @@
             width: 100%;
             box-sizing: border-box;
             padding: 11px 12px;
+            min-height: 48px;
             margin: 0 0 10px;
             border-radius: 6px;
             border: 1px solid #3a465f;
             background: #0e1422;
             color: #fff;
+            font-size: 1rem;
         }
         input:focus {
             border-color: var(--line);
-            outline: none;
+            outline: 3px solid rgba(0, 243, 255, 0.35);
+            outline-offset: 2px;
         }
         .helper,
         .notice,
@@ -205,6 +211,16 @@
         .actions button {
             flex: 1 1 220px;
         }
+        label {
+            display: block;
+            margin: 12px 0 5px;
+            color: #c9d8e8;
+            font-weight: 700;
+        }
+        button:focus, .btn:focus {
+            outline: 3px solid rgba(0, 243, 255, 0.35);
+            outline-offset: 2px;
+        }
         .fine-print {
             margin-top: 16px;
             font-size: 0.82rem;
@@ -234,42 +250,42 @@
 
     <div class="shell">
         <div class="top">
-            <h1>Choose Payment Method</h1>
+            <h1>Choose How to Pay</h1>
             <a class="btn warn" href="{{ return_to or url_for('client_bookings') }}">Back</a>
         </div>
 
         <div class="grid">
             <div class="card">
-                <h2>Top-Up Summary</h2>
-                <div class="muted">You are about to add funds to <strong>{{ current_user.username }}</strong>.</div>
+                <h2>Payment Summary</h2>
+                <div class="muted">You are adding balance for <strong>{{ current_user.username }}</strong>.</div>
                 <div class="summary-amount">{{ topup_currency }} {{ '%.2f'|format(amount) }}</div>
-                <div class="helper">Select a payment method on the right. `Cash` creates a counter payment request. `GCash` and `Card` create a PayMongo payment-method record, then save the top-up request in PyPondo for confirmation.</div>
+                <div class="helper">Choose GCash, Card, or Cash. Your balance updates after staff or the payment system confirms it.</div>
                 <div class="fine-print">Current balance: PHP {{ '%.2f'|format(current_user.pondo) }}</div>
             </div>
 
             <div class="card">
-                <h2>Payment Method</h2>
+                <h2>How will you pay?</h2>
 
                 <div class="method-grid">
                     <label class="method-option">
                         <input type="radio" name="payment_method" value="gcash" checked>
                         <span class="method-label">
                             <strong>GCash</strong>
-                            <span>Mobile wallet details and PayMongo payment-method creation.</span>
+                            <span>Pay using your mobile wallet.</span>
                         </span>
                     </label>
                     <label class="method-option">
                         <input type="radio" name="payment_method" value="card">
                         <span class="method-label">
                             <strong>Card</strong>
-                            <span>Enter card details to create a PayMongo card method.</span>
+                            <span>Pay with a debit or credit card.</span>
                         </span>
                     </label>
                     <label class="method-option">
                         <input type="radio" name="payment_method" value="cash">
                         <span class="method-label">
                             <strong>Cash</strong>
-                            <span>Manual payment at the counter with pending confirmation.</span>
+                            <span>Pay at the counter.</span>
                         </span>
                     </label>
                 </div>
@@ -282,15 +298,17 @@
                     <input type="hidden" name="return_to" value="{{ return_to or '' }}">
 
                     <div id="gcashFields" class="field-group active">
+                        <label>GCash details</label>
                         <div class="field-row">
                             <input id="gcashName" type="text" placeholder="Full name">
                             <input id="gcashEmail" type="email" placeholder="Email address">
                         </div>
                         <input id="gcashPhone" type="text" placeholder="Mobile number (e.g. 09171234567)">
-                        <div class="notice">This page uses your PayMongo public test key to create a GCash payment method record before saving the request.</div>
+                        <div class="notice">Check your name, email, and mobile number before continuing.</div>
                     </div>
 
                     <div id="cardFields" class="field-group">
+                        <label>Card details</label>
                         <div class="field-row">
                             <input id="cardName" type="text" placeholder="Cardholder name">
                             <input id="cardEmail" type="email" placeholder="Billing email">
@@ -301,25 +319,25 @@
                             <input id="cardExpYear" type="text" inputmode="numeric" placeholder="Exp year (YYYY)">
                         </div>
                         <input id="cardCvc" type="text" inputmode="numeric" placeholder="CVC">
-                        <div class="notice">Card details are sent straight to PayMongo to create a payment method record and are not stored in PyPondo.</div>
+                        <div class="notice">Card details are handled by the payment provider and are not saved here.</div>
                     </div>
 
                     <div id="cashFields" class="field-group">
-                        <div class="helper">Cash top-up will be marked as <strong>awaiting cash</strong>. The user can pay the counter staff, and the balance should be confirmed afterward.</div>
+                        <div class="helper">Pay the counter staff. Your balance will update after confirmation.</div>
                     </div>
 
                     <div id="paymentError" class="error-box"></div>
 
                     <div class="actions">
-                        <button id="submitButton" type="submit">Continue With GCash</button>
+                        <button id="submitButton" type="submit">Next: GCash</button>
                     </div>
                 </form>
 
                 <div class="fine-print">
-                    PayMongo public key loaded:
+                    Online payment ready:
                     <strong>{{ 'Yes' if paymongo_ready else 'No' }}</strong>
                     {% if not paymongo_ready %}
-                    <br>Online method creation is disabled until a public key is configured.
+                    <br>Use Cash for now, or ask staff to set up online payment.
                     {% endif %}
                 </div>
             </div>
@@ -345,8 +363,8 @@
             };
 
             var labels = {
-                gcash: 'Continue With GCash',
-                card: 'Continue With Card',
+                gcash: 'Next: GCash',
+                card: 'Next: Card',
                 cash: 'Save Cash Request'
             };
 
@@ -480,7 +498,7 @@
                 event.preventDefault();
 
                 if (!paymongoReady) {
-                    showError('PayMongo public key is not configured.');
+                    showError('Online payment is not ready. Please choose Cash or ask staff for help.');
                     return;
                 }
 
