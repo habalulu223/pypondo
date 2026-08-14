@@ -136,7 +136,7 @@ if (-not (Test-Path "android\gradlew.bat")) {
 
 Write-Host "[6/6] Building Android APK..."
 Push-Location "android"
-& .\gradlew.bat assembleDebug
+& .\gradlew.bat assembleDebug --no-daemon
 $gradleExit = $LASTEXITCODE
 Pop-Location
 if ($gradleExit -ne 0) {

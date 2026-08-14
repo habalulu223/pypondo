@@ -32,11 +32,7 @@ app = Flask(
     static_folder=os.path.join(basedir, 'assets')
 )
 
-# --- CORS Configuration ---
-# Allow requests from:
-# - Public mobile routes
-# - Local development
-# - Mobile/Desktop apps
+
 allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5000,http://127.0.0.1:5000').split(',')
 
 CORS(app, resources={
@@ -1734,6 +1730,25 @@ def build_public_server_payload():
     server_port = get_request_server_port()
     pairing_targets = get_mobile_pairing_targets(server_port)
     primary_target = pairing_targets[0] if pairing_targets else None
+
+    # If the primary target is localhost, prefer the machine's LAN IPv4
+    # so that mobile devices on the same network can reach the server
+    try:
+        if primary_target and str(primary_target.get("ip", "") or "").strip() in ("127.0.0.1", "localhost"):
+            local_ipv4 = get_primary_local_ipv4()
+            if local_ipv4 and local_ipv4 not in ("127.0.0.1", "localhost"):
+                host = format_host_for_url(local_ipv4)
+                base = f"http://{host}:{server_port}"
+                primary_target = {
+                    "ip": local_ipv4,
+                    "address": f"{host}:{server_port}",
+                    "base_url": base,
+                    "pairing_url": f"{base}/api/mobile/pairing",
+                }
+                pairing_targets[0] = primary_target
+    except Exception:
+        # Keep existing primary_target on any error
+        pass
 
     if primary_target is None:
         fallback_ip = get_client_ip_from_request() or "127.0.0.1"

@@ -64,12 +64,17 @@ echo.
 echo ============================================================
 echo Running verification tests...
 echo ============================================================
-"%PYTHON_CMD%" %PYTHON_ARGS% test_independence.py
-if errorlevel 1 (
-    echo WARNING: Some tests failed
-    echo Continue anyway? [Y/N]
-    set /p choice=
-    if /i not "!choice!"=="Y" exit /b 1
+if exist "test_independence.py" (
+    "%PYTHON_CMD%" %PYTHON_ARGS% test_independence.py
+    if errorlevel 1 (
+        echo WARNING: Some tests failed
+        echo Continue anyway? [Y/N]
+        set /p choice=
+        if /i not "!choice!"=="Y" exit /b 1
+    )
+) else (
+    echo [SKIP] test_independence.py not found.
+    echo [INFO] Continuing without verification tests.
 )
 
 REM Menu

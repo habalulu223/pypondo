@@ -3,30 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Time and Bookings</title>
+    <title>Client Bookings</title>
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
     <style>
         :root { --bg: #0b0c15; --card: #151922; --line: #00f3ff; --ok: #00ff9d; --warn: #ff0055; --text: #e0e6ed; }
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; font-size: 17px; line-height: 1.45; padding: 18px; }
-        .top { display: flex; justify-content: space-between; align-items: center; gap: 14px; border-bottom: 2px solid var(--line); padding-bottom: 12px; margin-bottom: 18px; }
-        .top h1 { margin: 0; font-family: 'Orbitron', sans-serif; font-size: 1.35rem; color: var(--line); letter-spacing: 1px; }
-        .top-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; padding: 16px; }
+        .top { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--line); padding-bottom: 10px; margin-bottom: 18px; }
+        .top h1 { margin: 0; font-family: 'Orbitron', sans-serif; font-size: 1.2rem; color: var(--line); letter-spacing: 1px; }
         .btn, .quick-amounts button, .btn.history-cancel {
             display: inline-block;
             text-decoration: none;
             border: 1px solid var(--line);
             color: var(--line);
             background: #000;
-            padding: 12px 16px;
-            min-height: 46px;
-            border-radius: 6px;
-            font-size: 1rem;
-            font-weight: 700;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 0.85rem;
             box-shadow: 0 0 14px rgba(0, 243, 255, 0.18);
             transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
             cursor: pointer;
-            box-sizing: border-box;
         }
         .btn:hover, .quick-amounts button:hover, .btn.history-cancel:hover {
             background: var(--line);
@@ -55,25 +51,19 @@
             color: #888; 
             box-shadow: none;
         }        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        .card { border: 1px solid #2d3650; border-radius: 8px; background: var(--card); padding: 18px; }
-        .card h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); font-size: 1.08rem; }
-        .flash { margin-bottom: 12px; padding: 12px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(0, 255, 157, 0.08); color: var(--ok); font-weight: 700; }
-        label { display: block; margin: 12px 0 5px; color: #c9d8e8; font-weight: 700; }
-        input, select { width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 13px; min-height: 48px; border-radius: 6px; border: 1px solid #52617f; background: #0e1422; color: #fff; font-size: 1rem; }
-        input:focus, select:focus, .btn:focus, button:focus { outline: 3px solid rgba(0, 243, 255, 0.35); outline-offset: 2px; }
+        .card { border: 1px solid #2d3650; border-radius: 8px; background: var(--card); padding: 14px; }
+        .card h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); font-size: 1rem; }
+        .flash { margin-bottom: 12px; padding: 10px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(0, 255, 157, 0.08); color: var(--ok); font-weight: 700; }
+        input, select { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 10px; border-radius: 4px; border: 1px solid #37415f; background: #0e1422; color: #fff; }
         table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-        th, td { border-bottom: 1px solid #29324a; padding: 10px 8px; font-size: 0.95rem; text-align: left; }
-        th { color: #9fbad6; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.6px; }
+        th, td { border-bottom: 1px solid #29324a; padding: 8px; font-size: 0.86rem; text-align: left; }
+        th { color: #9fbad6; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.6px; }
         .balance-low { color: var(--warn); font-weight: 700; }
         .balance-ok { color: var(--ok); font-weight: 700; }
         .quick-amounts { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
-        .quick-amounts button { flex: 1 1 110px; border: 1px solid #52617f; background: #0e1422; color: var(--text); padding: 12px 10px; border-radius: 6px; cursor: pointer; }
+        .quick-amounts button { flex: 1 1 90px; border: 1px solid #37415f; background: #0e1422; color: var(--text); padding: 9px 10px; border-radius: 4px; cursor: pointer; }
         .quick-amounts button:hover { border-color: var(--line); color: var(--line); }
-        .subtle { color: #a9bdd2; font-size: 0.95rem; line-height: 1.5; }
-        .status-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 10px; }
-        .status-item { border: 1px solid #2d3650; border-radius: 8px; background: #101725; padding: 12px; }
-        .status-label { display: block; color: #9fbad6; font-size: 0.82rem; margin-bottom: 4px; }
-        .status-value { display: block; font-size: 1.05rem; font-weight: 700; }
+        .subtle { color: #8ea4bb; font-size: 0.82rem; line-height: 1.45; }
         .history-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #29324a; font-size: 0.84rem; }
         .history-main { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex: 1; min-width: 0; }
         .history-main span:last-child { text-align: right; }
@@ -81,12 +71,11 @@
         .history-cancel {
             border-color: var(--warn);
             color: var(--warn);
-            padding: 8px 10px;
-            min-height: 36px;
-            font-size: 0.82rem;
+            padding: 5px 8px;
+            font-size: 0.72rem;
         }
         .history-cancel:hover { background: var(--warn); color: #fff; }
-        @media (max-width: 900px) { .grid, .status-grid { grid-template-columns: 1fr; } .top { align-items: flex-start; flex-direction: column; } .top-actions { width: 100%; } .top-actions .btn, .top-actions button { flex: 1 1 180px; text-align: center; } }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -94,11 +83,11 @@
     {% include '_startup_splash.html' %}
     {% include '_loading_overlay.html' %}
     <div class="top">
-        <h1>My Time and Bookings</h1>
-        <div class="top-actions">
-            <button type="button" class="btn" id="minimize-btn-bookings" onclick="handleMinimizeClick(event)">Start Desktop</button>
+        <h1>Client Bookings</h1>
+        <div>
+            <button type="button" class="btn" id="minimize-btn-bookings" onclick="handleMinimizeClick(event)">Minimize App (Timer)</button>
             {% if not kiosk_mode %}
-            <a class="btn warn" href="{{ url_for('logout') }}" onclick="clearDashboardTimerState()">Sign Out</a>
+            <a class="btn warn" href="{{ url_for('logout') }}" onclick="clearDashboardTimerState()">Logout</a>
             {% endif %}
         </div>
     </div>
@@ -112,41 +101,32 @@
     {% endwith %}
 
     <div class="card" style="margin-bottom:16px;">
-        <div class="status-grid">
-            <div class="status-item">
-                <span class="status-label">Name</span>
-                <span class="status-value">{{ current_user.username }}</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">Balance</span>
-                <span class="status-value {{ 'balance-ok' if current_user.pondo >= 1 else 'balance-low' }}" data-balance-display>PHP {{ "%.2f"|format(current_user.pondo) }}</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">Time Used</span>
-                <span class="status-value" id="dashboard-timer-time">00:00:00</span>
-            </div>
-            <div class="status-item">
-                <span class="status-label">Estimated Cost</span>
-                <span class="status-value" id="dashboard-timer-cost">PHP 0.00</span>
-            </div>
-        </div>
+        Logged in as <strong>{{ current_user.username }}</strong> |
+        Balance:
+        <span class="{{ 'balance-ok' if current_user.pondo >= 1 else 'balance-low' }}" data-balance-display>
+            PHP {{ "%.2f"|format(current_user.pondo) }}
+        </span>
+        | Timer: <strong id="dashboard-timer-time">00:00:00</strong>
+        | Estimated Cost: <strong id="dashboard-timer-cost">PHP 0.00</strong>
+        {% if current_user.pondo < 1 %}
+            | Add balance to unlock desktop access.
+        {% endif %}
         <div class="subtle" id="dashboard-timer-note" style="margin-top:8px;">
-            {{ 'You have balance. Tap Start Desktop when you are ready.' if current_user.pondo > 0 else 'Please add balance first. Then you can start the desktop.' }}
+            {{ 'Desktop access is unlocked and the timer will keep running here and in the floating timer.' if current_user.pondo > 0 else 'Add credits below to unlock desktop access and start the timer.' }}
         </div>
     </div>
 
     <div class="grid">
         <div class="card" id="wallet-card">
-            <h2>Add Balance</h2>
+            <h2>Wallet &amp; Top Up</h2>
             <p>
-                Current balance:
+                Balance:
                 <span class="{{ 'balance-ok' if current_user.pondo >= 1 else 'balance-low' }}" data-balance-display>
                     PHP {{ "%.2f"|format(current_user.pondo) }}
                 </span>
             </p>
             <form action="{{ url_for('topup_online') }}" method="POST">
-                <label for="topupAmount">Amount to add</label>
-                <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Example: 100" required>
+                <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required>
                 <input type="hidden" name="return_to" value="{{ url_for('client_bookings') }}">
                 <div class="quick-amounts">
                     <button type="button" onclick="setTopup(100)">PHP 100</button>
@@ -154,12 +134,12 @@
                     <button type="button" onclick="setTopup(500)">PHP 500</button>
                     <button type="button" onclick="setTopup(1000)">PHP 1000</button>
                 </div>
-                <button type="submit" class="btn" style="width:100%; margin-top:10px;">Next: Pay</button>
+                <button type="submit" class="btn" style="width:100%; margin-top:10px;">Choose Payment Method</button>
             </form>
-            <p class="subtle">After payment is confirmed, your balance will update here.</p>
+            <p class="subtle">Choose GCash, Card, or Cash before submitting the top-up request. Your balance updates after the payment is confirmed.</p>
 
             <div style="margin-top: 16px;">
-                <h2 style="margin-bottom: 8px;">Recent Payments</h2>
+                <h2 style="margin-bottom: 8px;">Recent Top-Ups</h2>
                 {% if recent_payments %}
                     {% for tx in recent_payments %}
                         <div class="history-row">
@@ -179,32 +159,29 @@
                         </div>
                     {% endfor %}
                 {% else %}
-                    <div class="subtle">No payments yet.</div>
+                    <div class="subtle">No top-up transactions yet.</div>
                 {% endif %}
             </div>
         </div>
 
         <div class="card">
-            <h2>Reserve a PC</h2>
+            <h2>Create Booking</h2>
             <form action="{{ url_for('book_pc') }}" method="POST" class="booking-form">
-                <label for="bookingPc">Choose PC</label>
-                <select id="bookingPc" name="pc_id" required>
+                <select name="pc_id" required>
                     <option value="" disabled selected>Select PC</option>
                     {% for pc in pcs %}
                         <option value="{{ pc.id }}">{{ pc.name }}{% if pc.booking_in_use_now %} (In Use){% else %} (Ready){% endif %}</option>
                     {% endfor %}
                 </select>
-                <label for="bookingDate">Date</label>
-                <input id="bookingDate" type="date" name="booking_date" class="booking-date-input" min="{{ today_date }}" value="{{ today_date }}" required>
-                <label for="bookingTime">Time</label>
-                <input id="bookingTime" type="time" name="time_slot" class="booking-time-input" required>
-                <p class="subtle">Pick a time at least {{ booking_lead_minutes }} minutes from now.</p>
-                <button type="submit" class="btn" style="width:100%;">Reserve This PC</button>
+                <input type="date" name="booking_date" class="booking-date-input" min="{{ today_date }}" value="{{ today_date }}" required>
+                <input type="time" name="time_slot" class="booking-time-input" required>
+                <p class="subtle">Same-day bookings must be at least {{ booking_lead_minutes }} minutes ahead. PCs marked "In Use" can still be reserved for a later time.</p>
+                <button type="submit" class="btn" style="width:100%;">Reserve Slot</button>
             </form>
         </div>
 
         <div class="card">
-            <h2>My Reservations</h2>
+            <h2>My Bookings</h2>
             <table>
                 <thead>
                     <tr>
@@ -221,7 +198,7 @@
                         <td>{{ booking.booking_date or 'N/A' }}</td>
                         <td>{{ booking.time_slot }}</td>
                         <td>
-                            <a class="btn warn" style="padding:8px 10px; min-height:36px; font-size:0.82rem;" href="{{ url_for('client_delete_booking', id=booking.id) }}">Cancel</a>
+                            <a class="btn warn" style="padding:5px 7px; font-size:0.72rem;" href="{{ url_for('client_delete_booking', id=booking.id) }}">Cancel</a>
                         </td>
                     </tr>
                     {% else %}
@@ -247,7 +224,7 @@
 
     <script>
         function showDesktopAccessBlockedMessage() {
-            window.alert('You have no balance in your account. Please top up to use the desktop.');
+            window.alert('insuficient balance please top up');
             var walletCard = document.getElementById('wallet-card');
             if (walletCard) {
                 walletCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -346,7 +323,7 @@
                         desktopLinkNode.dataset.enabled = 'true';
                         desktopLinkNode.onclick = null;
                     } else {
-                        desktopLinkNode.textContent = 'Add Balance First';
+                        desktopLinkNode.textContent = 'Top Up to Unlock Desktop';
                         desktopLinkNode.href = '#';
                         desktopLinkNode.dataset.enabled = 'false';
                         desktopLinkNode.onclick = function (event) {
@@ -382,7 +359,7 @@
                     window.localStorage.removeItem(storageKey);
                     timeNode.textContent = '00:00:00';
                     costNode.textContent = 'PHP 0.00';
-                    noteNode.textContent = 'Please add balance first. Then you can start the desktop.';
+                    noteNode.textContent = 'Add credits below to unlock desktop access and start the timer.';
                     return;
                 }
 
@@ -447,7 +424,7 @@
                 });
 
                 if (dashboardTimer && typeof dashboardTimer.setAccessState === 'function') {
-                    dashboardTimer.setAccessState(currentBalance >= 1);
+                    dashboardTimer.setAccessState(Number(result.balance) >= 1);
                 }
 
                 if (currentBalance >= 1) {

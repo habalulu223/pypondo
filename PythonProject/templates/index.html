@@ -89,6 +89,21 @@
         .pairing-links a { margin-top: 0; text-align: center; }
         .pairing-alt-list { margin-top: 12px; display: grid; gap: 8px; }
         .pairing-alt-item { padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: #c8d6e5; font-size: 0.84rem; word-break: break-all; }
+        .admin-profile-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 15px; }
+        .admin-profile-tab { width: 100%; min-height: 42px; margin-top: 0; padding: 10px 12px; box-sizing: border-box; text-align: center; border-color: #4d6078; color: #9db0c6; }
+        .admin-profile-tab.active { border-color: var(--neon-blue); color: var(--neon-blue); background: rgba(0, 243, 255, 0.1); }
+        .admin-tab-panel[hidden] { display: none; }
+        .admin-pc-list { display: grid; gap: 12px; margin-bottom: 15px; }
+        .admin-pc-panel { border: 1px solid #333; border-radius: 8px; padding: 12px; background: rgba(255,255,255,0.025); }
+        .admin-pc-panel.free { border-color: rgba(0, 243, 255, 0.55); }
+        .admin-pc-panel.occupied { border-color: rgba(255, 0, 85, 0.55); }
+        .admin-pc-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .admin-pc-head h3 { margin: 0; font-size: 1rem; }
+        .admin-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .admin-action-grid .full-row { grid-column: 1 / -1; }
+        .admin-fixed-btn { width: 100%; min-height: 42px; margin-top: 0; padding: 10px 12px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; text-align: center; font-size: 0.74rem; line-height: 1.15; }
+        .admin-inline-form { display: grid; gap: 8px; margin-top: 8px; }
+        .admin-inline-form button { width: 100%; }
         @media (min-width: 720px) { .pairing-grid { grid-template-columns: 240px minmax(0, 1fr); align-items: start; } }
     </style>
 </head>
@@ -260,6 +275,11 @@
             <h2>User Profile</h2>
 
             {% if current_user.is_admin %}
+                <div class="admin-profile-tabs" role="tablist" aria-label="Admin profile sections">
+                    <button type="button" class="btn admin-profile-tab active" data-admin-tab-target="admin-profile-main" data-tab-switch aria-selected="true">Profile</button>
+                    <button type="button" class="btn admin-profile-tab" data-admin-tab-target="admin-profile-pcs" data-tab-switch aria-selected="false">PC Availability</button>
+                </div>
+                <div id="admin-profile-main" class="admin-tab-panel">
                 {% if mobile_pairing_primary %}
                 <div class="pairing-card">
                     <small style="color:#666; text-transform:uppercase;">Mobile Pairing</small>
@@ -364,6 +384,82 @@
                         {% endif %}
                     </div>
                 </div>
+                </div>
+                <div id="admin-profile-pcs" class="admin-tab-panel" hidden>
+                    <div class="admin-pc-list">
+                        {% for pc in pcs %}
+                        <div class="admin-pc-panel {{ 'occupied' if pc.dashboard_in_use else 'free' }}">
+                            <div class="admin-pc-head">
+                                <h3>{{ pc.name }}</h3>
+                                <span class="status-badge">{{ 'In Use' if pc.dashboard_in_use else 'Ready' }}</span>
+                            </div>
+                            <p style="color:#bbb; font-size:0.85em; margin: 4px 0 8px;">
+                                LAN Target: <strong style="color:white;">{{ (pc.lan_ip ~ ':' ~ pc.lan_port) if pc.lan_ip and pc.lan_port else (pc.lan_ip if pc.lan_ip else 'Not assigned') }}</strong>
+                            </p>
+                            {% if pc.dashboard_session %}
+                                <p style="color:#aaa; font-size:0.85em; margin:4px 0;">User: <strong style="color:white;">{{ pc.dashboard_session_username or ('User #' ~ pc.dashboard_session.user_id) }}</strong></p>
+                                <p style="color:#aaa; font-size:0.85em; margin:4px 0 8px;">Used For: {{ pc.dashboard_usage_duration_text }}</p>
+                                <a href="/end_session/{{ pc.dashboard_session.id }}" class="btn btn-red admin-fixed-btn full-row">STOP & BILL</a>
+                            {% elif pc.dashboard_online %}
+                                <p style="color:var(--neon-green); font-size:0.85em; margin:4px 0 8px;">Online since {{ pc.dashboard_usage_started_text }}</p>
+                            {% endif %}
+
+                            <form action="/admin/set_pc_ip/{{ pc.id }}" method="POST" class="admin-inline-form">
+                                <input type="text" name="lan_ip" placeholder="Set LAN IP (blank to clear)" value="{{ pc.lan_ip or '' }}">
+                                <button type="submit" class="admin-fixed-btn">Save LAN IP</button>
+                            </form>
+
+                            {% if not pc.dashboard_in_use %}
+                            <div style="margin-top:10px;">
+                                <small style="color:#666; text-transform:uppercase;">Quick Start User</small>
+                                <div class="admin-action-grid" style="margin-top:8px; max-height:104px; overflow-y:auto;">
+                                    {% for user in users %}
+                                        <a href="/start_session/{{ pc.id }}/{{ user.id }}" class="btn admin-fixed-btn">Start {{ user.username }}</a>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            <form action="/pc_command" method="POST" class="admin-inline-form">
+                                <input type="hidden" name="pc_id" value="{{ pc.id }}">
+                                <select name="command" required>
+                                    <option value="lock">Lock</option>
+                                    <option value="restart">Restart</option>
+                                    <option value="shutdown">Shutdown</option>
+                                    <option value="wake">Wake</option>
+                                </select>
+                                <input type="text" name="reason" maxlength="200" placeholder="Reason (optional)">
+                                <button type="submit" class="admin-fixed-btn">Send Command</button>
+                            </form>
+
+                            <form action="/admin/request_connect" method="POST" class="admin-inline-form">
+                                <input type="hidden" name="pc_id" value="{{ pc.id }}">
+                                {% if discovered_ips or pc.lan_ip %}
+                                    <select name="connect_ip" required>
+                                        {% if pc.lan_ip %}
+                                            <option value="{{ pc.lan_ip }}" selected>{{ pc.lan_ip }} (current)</option>
+                                        {% else %}
+                                            <option value="" disabled selected>Select detected IP</option>
+                                        {% endif %}
+                                        {% for ip in discovered_ips %}
+                                            {% if ip != pc.lan_ip %}
+                                                <option value="{{ ip }}">{{ ip }}</option>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </select>
+                                {% else %}
+                                    <input type="text" name="connect_ip" placeholder="Target LAN IP (e.g. 192.168.1.120)" required>
+                                {% endif %}
+                                <input type="number" name="connect_port" min="1024" max="65535" placeholder="Agent Port (default 5001)">
+                                <button type="submit" class="admin-fixed-btn">Save/Connect</button>
+                            </form>
+                            <form action="/admin/clear_pc_commands/{{ pc.id }}" method="POST" class="admin-inline-form">
+                                <button type="submit" class="btn btn-red admin-fixed-btn">Clear Commands</button>
+                            </form>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
             {% else %}
                 <div class="user-guidance">
                     <strong>Hi {{ current_user.username }}!</strong>
@@ -450,6 +546,27 @@
             if (field) field.value = amount;
         }
 
+        function wireAdminProfileTabs() {
+            var tabs = document.querySelectorAll('[data-admin-tab-target]');
+            if (!tabs.length) {
+                return;
+            }
+
+            tabs.forEach(function (tab) {
+                tab.addEventListener('click', function () {
+                    tabs.forEach(function (candidate) {
+                        var panel = document.getElementById(candidate.dataset.adminTabTarget);
+                        var active = candidate === tab;
+                        candidate.classList.toggle('active', active);
+                        candidate.setAttribute('aria-selected', active ? 'true' : 'false');
+                        if (panel) {
+                            panel.hidden = !active;
+                        }
+                    });
+                });
+            });
+        }
+
         function wireBookingDatePicker() {
             var dateInputs = document.querySelectorAll('input.booking-date-input');
             dateInputs.forEach(function (input) {
@@ -511,6 +628,7 @@
             });
         }
 
+        wireAdminProfileTabs();
         wireBookingDatePicker();
         wireBookingLeadTime();
 
