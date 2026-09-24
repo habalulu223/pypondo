@@ -5,6 +5,8 @@ from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import io
+import csv
+from itertools import groupby
 import json
 import os
 import re
@@ -278,6 +280,11 @@ def start_public_tunnel(local_port):
 
     local_url = f"http://127.0.0.1:{int(local_port)}"
     command = [binary_path, "tunnel", "--url", local_url, "--no-autoupdate"]
+    
+    # Support custom hostname via environment variable (e.g., PYPONDO_TUNNEL_HOSTNAME=cybercore.com)
+    custom_hostname = os.getenv("PYPONDO_TUNNEL_HOSTNAME", "").strip()
+    if custom_hostname:
+        command.extend(["--hostname", custom_hostname])
 
     try:
         proc = subprocess.Popen(
@@ -333,12 +340,121 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(120), nullable=False)
     pondo = db.Column(db.Float, default=0.0)
     is_admin = db.Column(db.Boolean, default=False)
+    # Roles keep HR and the IT team separate from the legacy cafe administrator.
+    role = db.Column(db.String(32), nullable=False, default="student")
+    full_name = db.Column(db.String(160), nullable=True)
+    is_active_staff = db.Column(db.Boolean, nullable=False, default=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
+
+    @property
+    def is_hr(self):
+        return self.role == "hr"
+
+    @property
+    def can_manage_equipment(self):
+        return bool(self.is_admin or self.role in {"hr", "it_manager", "it_staff", "laboratory_custodian"})
+
+    @property
+    def can_borrow_equipment(self):
+        return self.role in {"student", "instructor"}
+
+    @property
+    def is_dean(self):
+        return self.role == "dean"
+
+    @property
+    def is_management(self):
+        return bool(self.is_admin or self.role in {"it_manager", "laboratory_custodian"})
+
+
+class Equipment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    asset_tag = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(160), nullable=False)
+    category = db.Column(db.String(80), nullable=False, default="IT equipment")
+    serial_number = db.Column(db.String(128), nullable=True)
+    room = db.Column(db.String(80), nullable=True)
+    location_detail = db.Column(db.String(160), nullable=True)
+    condition = db.Column(db.String(32), nullable=False, default="good")
+    status = db.Column(db.String(32), nullable=False, default="available")
+    accountable_to_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    last_seen_at = db.Column(db.DateTime, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    accountable_to = db.relationship('User', foreign_keys=[accountable_to_id])
+
+
+class EquipmentTransaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.id'), nullable=False, index=True)
+    borrower_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    issued_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    borrowed_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    due_at = db.Column(db.DateTime, nullable=True)
+    returned_at = db.Column(db.DateTime, nullable=True)
+    condition_out = db.Column(db.String(32), nullable=False, default="good")
+    condition_in = db.Column(db.String(32), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    return_requested_at = db.Column(db.DateTime, nullable=True)
+    return_confirmed_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    equipment = db.relationship('Equipment', backref='transactions')
+    borrower = db.relationship('User', foreign_keys=[borrower_id])
+    issued_by = db.relationship('User', foreign_keys=[issued_by_id])
+    return_confirmed_by = db.relationship('User', foreign_keys=[return_confirmed_by_id])
+
+
+class EquipmentLoanRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.id'), nullable=False, index=True)
+    borrower_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    purpose = db.Column(db.Text, nullable=False)
+    requested_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True)
+    needed_until = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(32), nullable=False, default='pending')
+    reviewed_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    equipment = db.relationship('Equipment', backref='loan_requests')
+    borrower = db.relationship('User', foreign_keys=[borrower_id])
+    reviewed_by = db.relationship('User', foreign_keys=[reviewed_by_id])
+
+
+class EquipmentIssue(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.id'), nullable=False, index=True)
+    issue_type = db.Column(db.String(32), nullable=False, default="damaged")
+    description = db.Column(db.Text, nullable=False)
+    reported_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(32), nullable=False, default="open")
+    reported_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    equipment = db.relationship('Equipment', backref='issues')
+    reported_by = db.relationship('User', foreign_keys=[reported_by_id])
+
+
+class MaintenanceRecord(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.id'), nullable=False, index=True)
+    activity_type = db.Column(db.String(32), nullable=False, default="inspection")
+    performed_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    performed_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    next_due_at = db.Column(db.DateTime, nullable=True)
+    findings = db.Column(db.Text, nullable=False)
+    equipment = db.relationship('Equipment', backref='maintenance_records')
+    performed_by = db.relationship('User', foreign_keys=[performed_by_id])
+
+
+class RoomNetwork(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    room = db.Column(db.String(80), unique=True, nullable=False)
+    router_name = db.Column(db.String(120), nullable=True)
+    gateway_ip = db.Column(db.String(64), nullable=True)
+    cidr = db.Column(db.String(64), nullable=False, unique=True)
+    notes = db.Column(db.Text, nullable=True)
 
 
 class PC(db.Model):
@@ -349,6 +465,7 @@ class PC(db.Model):
     lan_port = db.Column(db.Integer, nullable=True)
     last_agent_seen_at = db.Column(db.DateTime, nullable=True)
     online_since_at = db.Column(db.DateTime, nullable=True)
+    room = db.Column(db.String(80), nullable=True)
 
 
 class Booking(db.Model):
@@ -427,6 +544,9 @@ def ensure_pc_lan_ip_column():
     if "online_since_at" not in cols:
         db.session.execute(text("ALTER TABLE pc ADD COLUMN online_since_at DATETIME"))
         db.session.commit()
+    if "room" not in cols:
+        db.session.execute(text("ALTER TABLE pc ADD COLUMN room VARCHAR(80)"))
+        db.session.commit()
 
 
 def ensure_booking_date_column():
@@ -451,6 +571,48 @@ def ensure_session_last_charged_at_column():
         db.session.commit()
 
 
+def ensure_equipment_transaction_columns():
+    cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(equipment_transaction)")).fetchall()]
+    if "return_requested_at" not in cols:
+        db.session.execute(text("ALTER TABLE equipment_transaction ADD COLUMN return_requested_at DATETIME"))
+    if "return_confirmed_by_id" not in cols:
+        db.session.execute(text("ALTER TABLE equipment_transaction ADD COLUMN return_confirmed_by_id INTEGER"))
+    db.session.commit()
+
+
+def ensure_user_role_columns():
+    """Small SQLite migration for installations created before staff roles existed."""
+    cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(user)")).fetchall()]
+    if "role" not in cols:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN role VARCHAR(32) DEFAULT 'student'"))
+    if "full_name" not in cols:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN full_name VARCHAR(160)"))
+    if "is_active_staff" not in cols:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN is_active_staff BOOLEAN DEFAULT 1"))
+    db.session.execute(text("UPDATE user SET role = 'administrator' WHERE is_admin = 1 AND (role IS NULL OR role = 'student')"))
+    db.session.commit()
+
+
+def current_staff_or_redirect():
+    if not getattr(current_user, "can_manage_equipment", False):
+        flash("Your account does not have equipment-management access.", "error")
+        return False
+    return True
+
+
+def room_for_ip(value):
+    ip = normalize_ipv4(value or "")
+    if not ip:
+        return None
+    for network in RoomNetwork.query.all():
+        try:
+            if ipaddress.ip_address(ip) in ipaddress.ip_network(network.cidr, strict=False):
+                return network.room
+        except ValueError:
+            continue
+    return None
+
+
 def ensure_core_seed_data():
     seeded = False
 
@@ -460,9 +622,15 @@ def ensure_core_seed_data():
         seeded = True
 
     if not User.query.filter_by(username="admin").first():
-        admin = User(username="admin", is_admin=True)
+        admin = User(username="admin", is_admin=True, role="administrator", full_name="System Administrator")
         admin.set_password("admin123")
         db.session.add(admin)
+        seeded = True
+
+    if not User.query.filter_by(username="hr").first():
+        hr = User(username="hr", role="hr", full_name="Human Resources")
+        hr.set_password("hr123")
+        db.session.add(hr)
         seeded = True
 
     if seeded:
@@ -829,7 +997,8 @@ def _quick_gateway_scan_result(summary):
         clients.append({
             "ip": ip,
             "hostname": "unknown",
-            "source_pc_name": "unknown"
+            "source_pc_name": "unknown",
+            "room": room_for_ip(ip)
         })
 
     clients = sorted(clients, key=lambda row: tuple(int(part) for part in row["ip"].split(".")))
@@ -921,7 +1090,8 @@ def _full_gateway_scan(summary):
             "hostname": dns_name or "unknown",
             "source_pc_name": source_pc_name,
             "device_name": source_pc_name,
-            "mapped_pc_name": mapped_pc_by_ip.get(ip)
+            "mapped_pc_name": mapped_pc_by_ip.get(ip),
+            "room": room_for_ip(ip)
         })
 
     return {
@@ -2110,11 +2280,10 @@ def user_has_positive_balance(user):
 
 
 def post_login_endpoint_for_user(user):
-    if getattr(user, "is_admin", False):
-        return "index"
-    if user_has_positive_balance(user):
-        return "client_desktop"
-    return "client_bookings"
+    if getattr(user, "is_management", False): return "management_dashboard"
+    if getattr(user, "can_manage_equipment", False): return "equipment_dashboard"
+    if getattr(user, "is_dean", False): return "dean_dashboard"
+    return "borrower_dashboard"
 
 
 def resolve_safe_next_url():
@@ -2278,6 +2447,8 @@ def bootstrap_schema():
         ensure_pc_lan_ip_column()
         ensure_booking_date_column()
         ensure_session_last_charged_at_column()
+        ensure_equipment_transaction_columns()
+        ensure_user_role_columns()
         ensure_core_seed_data()
         app._schema_ready = True
 
@@ -2303,6 +2474,25 @@ def add_mobile_api_cors_headers(response):
         response.headers.setdefault("Access-Control-Allow-Origin", "*")
         response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type, Accept, X-Requested-With")
         response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    return response
+
+
+@app.after_request
+def apply_equipment_dashboard_theme(response):
+    """Keep all new role dashboards visually aligned with the original CyberCore UI."""
+    themed_paths = {"/equipment", "/management", "/borrower", "/dean/pcs"}
+    if request.path not in themed_paths or "text/html" not in response.content_type:
+        return response
+    markup = response.get_data(as_text=True)
+    if "equipment_dashboard_theme.css" not in markup:
+        markup = markup.replace(
+            "</head>",
+            '<link rel="stylesheet" href="/assets/equipment_dashboard_theme.css"></head>',
+            1
+        )
+    if 'class="cyber-dashboard-grid"' not in markup:
+        markup = markup.replace("<body>", '<body><div class="cyber-dashboard-grid"></div>', 1)
+    response.set_data(markup)
     return response
 
 
@@ -2615,21 +2805,15 @@ def logout():
 @app.route('/client')
 @login_required
 def client_entry():
-    if current_user.is_admin:
-        return redirect(url_for('index'))
-    if user_has_positive_balance(current_user):
-        return redirect(url_for('client_desktop'))
-    return redirect(url_for('client_bookings'))
+    flash('PC-cafe booking has been retired. Use equipment borrowing instead.', 'info')
+    return redirect(url_for(post_login_endpoint_for_user(current_user)))
 
 
 @app.route('/client/desktop')
 @login_required
 def client_desktop():
-    if current_user.is_admin:
-        return redirect(url_for('index'))
-    if not user_has_positive_balance(current_user):
-        flash('Insufficient balance. Add credits to unlock desktop access and start the timer.', 'error')
-        return redirect(url_for('client_bookings'))
+    flash('PC-cafe sessions have been retired.', 'info')
+    return redirect(url_for(post_login_endpoint_for_user(current_user)))
 
     active_session = Session.query.filter_by(user_id=current_user.id, end_time=None).order_by(Session.start_time.desc()).first()
     recent_payments = get_recent_payment_requests(current_user.id)
@@ -2645,8 +2829,8 @@ def client_desktop():
 @app.route('/client/bookings')
 @login_required
 def client_bookings():
-    if current_user.is_admin:
-        return redirect(url_for('view_bookings'))
+    flash('PC-cafe bookings have been retired. Submit an equipment request instead.', 'info')
+    return redirect(url_for(post_login_endpoint_for_user(current_user)))
 
     now_dt = datetime.now()
     pcs = PC.query.order_by(PC.id.asc()).all()
@@ -2668,8 +2852,8 @@ def client_bookings():
 @app.route('/client/bookings/delete/<int:id>')
 @login_required
 def client_delete_booking(id):
-    if current_user.is_admin:
-        return redirect(url_for('view_bookings'))
+    flash('PC-cafe bookings have been retired.', 'info')
+    return redirect(url_for(post_login_endpoint_for_user(current_user)))
 
     booking = Booking.query.filter_by(id=id, user_id=current_user.id).first()
     if booking:
@@ -2682,6 +2866,14 @@ def client_delete_booking(id):
 @app.route('/')
 @login_required
 def index():
+    if getattr(current_user, 'is_management', False):
+        return redirect(url_for('management_dashboard'))
+    if getattr(current_user, 'can_manage_equipment', False):
+        return redirect(url_for('equipment_dashboard'))
+    if getattr(current_user, 'can_borrow_equipment', False):
+        return redirect(url_for('borrower_dashboard'))
+    if getattr(current_user, 'is_dean', False):
+        return redirect(url_for('dean_dashboard'))
     if not current_user.is_admin:
         if user_has_positive_balance(current_user):
             return redirect(url_for('client_desktop'))
@@ -2814,10 +3006,283 @@ def index():
     )
 
 
+@app.route('/equipment')
+@login_required
+def equipment_dashboard():
+    if not current_staff_or_redirect():
+        return redirect(url_for('index'))
+    equipment = Equipment.query.order_by(Equipment.room.asc(), Equipment.name.asc()).all()
+    open_issues = EquipmentIssue.query.filter_by(status='open').order_by(EquipmentIssue.reported_at.desc()).all()
+    active_loans = EquipmentTransaction.query.filter_by(returned_at=None).order_by(EquipmentTransaction.borrowed_at.desc()).all()
+    due_cutoff = datetime.now() + timedelta(days=14)
+    maintenance_due = MaintenanceRecord.query.filter(
+        MaintenanceRecord.next_due_at.isnot(None), MaintenanceRecord.next_due_at <= due_cutoff
+    ).order_by(MaintenanceRecord.next_due_at.asc()).all()
+    staff = User.query.filter(User.role.in_(['hr', 'it_manager', 'it_staff', 'laboratory_custodian', 'administrator'])).order_by(User.full_name, User.username).all()
+    pending_requests = EquipmentLoanRequest.query.filter_by(status='pending').order_by(EquipmentLoanRequest.requested_at.desc()).all()
+    recent_transactions = EquipmentTransaction.query.order_by(EquipmentTransaction.borrowed_at.desc()).limit(100).all()
+    return render_template('equipment.html', equipment=equipment, open_issues=open_issues,
+                           active_loans=active_loans, maintenance_due=maintenance_due,
+                           staff=staff, rooms=RoomNetwork.query.order_by(RoomNetwork.room).all(),
+                           pending_requests=pending_requests, recent_transactions=recent_transactions, role=current_user.role)
+
+
+@app.route('/management')
+@login_required
+def management_dashboard():
+    if not current_user.is_management:
+        return redirect(url_for('index'))
+    pending_requests = EquipmentLoanRequest.query.filter_by(status='pending').order_by(EquipmentLoanRequest.requested_at.desc()).all()
+    active_loans = EquipmentTransaction.query.filter_by(returned_at=None).order_by(EquipmentTransaction.borrowed_at.desc()).all()
+    return_requests = [loan for loan in active_loans if loan.return_requested_at]
+    open_issues = EquipmentIssue.query.filter_by(status='open').order_by(EquipmentIssue.reported_at.desc()).all()
+    recent_transactions = EquipmentTransaction.query.order_by(EquipmentTransaction.borrowed_at.desc()).limit(100).all()
+    room_summary = []
+    for room, items in groupby(Equipment.query.order_by(Equipment.room, Equipment.name).all(), key=lambda item: item.room or 'Unassigned'):
+        items = list(items)
+        room_summary.append({'room': room, 'total': len(items), 'available': sum(i.status == 'available' for i in items), 'attention': sum(i.status in {'maintenance', 'missing'} for i in items)})
+    return render_template('management.html', pending_requests=pending_requests, active_loans=active_loans,
+                           return_requests=return_requests, open_issues=open_issues,
+                           recent_transactions=recent_transactions, room_summary=room_summary,
+                           public_tunnel=get_public_tunnel_snapshot())
+
+
+@app.route('/borrower')
+@login_required
+def borrower_dashboard():
+    if not current_user.can_borrow_equipment:
+        return redirect(url_for('index'))
+    items = Equipment.query.filter_by(status='available').order_by(Equipment.room, Equipment.name).all()
+    requests = EquipmentLoanRequest.query.filter_by(borrower_id=current_user.id).order_by(EquipmentLoanRequest.requested_at.desc()).all()
+    loans = EquipmentTransaction.query.filter_by(borrower_id=current_user.id).order_by(EquipmentTransaction.borrowed_at.desc()).all()
+    return render_template('borrower.html', equipment=items, requests=requests, loans=loans)
+
+
+@app.route('/borrower/request/<int:equipment_id>', methods=['POST'])
+@login_required
+def submit_loan_request(equipment_id):
+    if not current_user.can_borrow_equipment: return redirect(url_for('index'))
+    item = db.session.get(Equipment, equipment_id); purpose = str(request.form.get('purpose', '')).strip()
+    if not item or item.status != 'available' or not purpose:
+        flash('Choose an available item and provide the purpose.', 'error'); return redirect(url_for('borrower_dashboard'))
+    due_at = None
+    try: due_at = datetime.strptime(str(request.form.get('needed_until', '')).strip(), '%Y-%m-%d')
+    except ValueError: pass
+    db.session.add(EquipmentLoanRequest(equipment=item, borrower=current_user, purpose=purpose, needed_until=due_at))
+    db.session.commit(); flash('Borrow request sent to management for confirmation.', 'success')
+    return redirect(url_for('borrower_dashboard'))
+
+
+@app.route('/borrower/return/<int:transaction_id>', methods=['POST'])
+@login_required
+def request_equipment_return(transaction_id):
+    transaction = EquipmentTransaction.query.filter_by(id=transaction_id, borrower_id=current_user.id, returned_at=None).first()
+    if not current_user.can_borrow_equipment or not transaction:
+        flash('Active borrowing record not found.', 'error'); return redirect(url_for('borrower_dashboard'))
+    transaction.return_requested_at = datetime.now(); db.session.commit()
+    flash('Return submitted. Please bring the item to management for condition verification.', 'success')
+    return redirect(url_for('borrower_dashboard'))
+
+
+@app.route('/management/request/<int:request_id>/confirm', methods=['POST'])
+@login_required
+def confirm_loan_request(request_id):
+    if not current_user.is_management:
+        flash('Management confirmation is required for borrow tickets.', 'error'); return redirect(url_for('index'))
+    loan_request = db.session.get(EquipmentLoanRequest, request_id)
+    if not loan_request or loan_request.status != 'pending' or loan_request.equipment.status != 'available':
+        flash('This request can no longer be confirmed.', 'error'); return redirect(url_for('management_dashboard'))
+    now_dt = datetime.now()
+    loan_request.status, loan_request.reviewed_by, loan_request.reviewed_at = 'approved', current_user, now_dt
+    item = loan_request.equipment; item.status, item.accountable_to_id = 'borrowed', loan_request.borrower_id
+    db.session.add(EquipmentTransaction(equipment=item, borrower=loan_request.borrower, issued_by=current_user,
+        borrowed_at=now_dt, due_at=loan_request.needed_until, condition_out=item.condition,
+        notes=f'Confirmed request #{loan_request.id}: {loan_request.purpose}'))
+    db.session.commit(); flash(f'Borrow ticket confirmed at {now_dt.strftime("%d %b %Y %H:%M:%S")}.', 'success')
+    return redirect(url_for('management_dashboard'))
+
+
+@app.route('/management/request/<int:request_id>/decline', methods=['POST'])
+@login_required
+def decline_loan_request(request_id):
+    if not current_user.is_management:
+        flash('Management confirmation is required for borrow tickets.', 'error'); return redirect(url_for('index'))
+    loan_request = db.session.get(EquipmentLoanRequest, request_id)
+    if loan_request and loan_request.status == 'pending':
+        loan_request.status, loan_request.reviewed_by, loan_request.reviewed_at = 'declined', current_user, datetime.now(); db.session.commit()
+        flash('Borrow request declined.', 'info')
+    return redirect(url_for('management_dashboard'))
+
+
+@app.route('/dean/pcs')
+@login_required
+def dean_dashboard():
+    if not (current_user.is_dean or current_user.is_admin): return redirect(url_for('index'))
+    return render_template('dean.html', pcs=PC.query.order_by(PC.room, PC.name).all())
+
+
+@app.route('/dean/pc-command', methods=['POST'])
+@login_required
+def dean_pc_command():
+    if not (current_user.is_dean or current_user.is_admin): return redirect(url_for('index'))
+    pc = db.session.get(PC, request.form.get('pc_id', type=int)); command = str(request.form.get('command', '')).lower()
+    if not pc or command not in ALLOWED_LAN_COMMANDS:
+        flash('Invalid PC or command.', 'error'); return redirect(url_for('dean_dashboard'))
+    ok, message = send_lan_command(pc.name, command, {'requested_by': current_user.username, 'reason': 'Dean remote control'})
+    db.session.add(AdminLog(admin_name=current_user.username, action=f'Dean LAN command {command} to {pc.name}: {message}'))
+    db.session.commit(); flash(message, 'success' if ok else 'error')
+    return redirect(url_for('dean_dashboard'))
+
+
+@app.route('/equipment/report.csv')
+@login_required
+def download_equipment_report():
+    if not current_staff_or_redirect(): return redirect(url_for('index'))
+    stream = io.StringIO()
+    writer = csv.writer(stream)
+    writer.writerow(['Asset tag', 'Name', 'Category', 'Serial number', 'Room', 'Location', 'Condition', 'Status', 'Accountable to', 'Last seen', 'Notes'])
+    for item in Equipment.query.order_by(Equipment.room, Equipment.asset_tag).all():
+        writer.writerow([item.asset_tag, item.name, item.category, item.serial_number or '', item.room or '',
+                         item.location_detail or '', item.condition, item.status,
+                         (item.accountable_to.username if item.accountable_to else ''),
+                         (item.last_seen_at.isoformat() if item.last_seen_at else ''), item.notes or ''])
+    return app.response_class(stream.getvalue(), mimetype='text/csv', headers={
+        'Content-Disposition': 'attachment; filename=equipment-report.csv'
+    })
+
+
+@app.route('/equipment/add', methods=['POST'])
+@login_required
+def add_equipment():
+    if not current_staff_or_redirect(): return redirect(url_for('index'))
+    asset_tag = str(request.form.get('asset_tag', '')).strip().upper()
+    name = str(request.form.get('name', '')).strip()
+    if not asset_tag or not name:
+        flash('Asset tag and equipment name are required.', 'error')
+    elif Equipment.query.filter_by(asset_tag=asset_tag).first():
+        flash('That asset tag already exists.', 'error')
+    else:
+        db.session.add(Equipment(asset_tag=asset_tag, name=name,
+            category=str(request.form.get('category', 'IT equipment')).strip() or 'IT equipment',
+            serial_number=str(request.form.get('serial_number', '')).strip() or None,
+            room=str(request.form.get('room', '')).strip() or None,
+            location_detail=str(request.form.get('location_detail', '')).strip() or None,
+            condition=str(request.form.get('condition', 'good')).strip(),
+            notes=str(request.form.get('notes', '')).strip() or None))
+        db.session.add(AdminLog(admin_name=current_user.username, action=f'Added equipment {asset_tag}: {name}'))
+        db.session.commit(); flash('Equipment record created.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/equipment/<int:equipment_id>/borrow', methods=['POST'])
+@login_required
+def borrow_equipment(equipment_id):
+    if not current_staff_or_redirect(): return redirect(url_for('index'))
+    item = db.session.get(Equipment, equipment_id)
+    borrower = User.query.filter_by(username=str(request.form.get('borrower', '')).strip()).first()
+    if not item or not borrower or item.status != 'available':
+        flash('Choose an available item and a valid borrower.', 'error'); return redirect(url_for('equipment_dashboard'))
+    due_text = str(request.form.get('due_at', '')).strip()
+    try: due_at = datetime.strptime(due_text, '%Y-%m-%d') if due_text else None
+    except ValueError: due_at = None
+    item.status, item.accountable_to_id = 'borrowed', borrower.id
+    db.session.add(EquipmentTransaction(equipment=item, borrower=borrower, issued_by=current_user,
+        due_at=due_at, condition_out=item.condition, notes=str(request.form.get('notes', '')).strip() or None))
+    db.session.add(AdminLog(admin_name=current_user.username, action=f'Issued {item.asset_tag} to {borrower.username}'))
+    db.session.commit(); flash('Borrowing transaction recorded.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/equipment/transaction/<int:transaction_id>/return', methods=['POST'])
+@login_required
+def return_equipment(transaction_id):
+    if not current_user.is_management:
+        flash('Management confirmation is required for equipment returns.', 'error'); return redirect(url_for('index'))
+    transaction = db.session.get(EquipmentTransaction, transaction_id)
+    if not transaction or transaction.returned_at:
+        flash('Transaction was not found or has already been returned.', 'error'); return redirect(url_for('management_dashboard'))
+    condition = str(request.form.get('condition_in', 'good')).strip()
+    transaction.returned_at, transaction.condition_in = datetime.now(), condition
+    transaction.return_confirmed_by = current_user
+    transaction.notes = '\n'.join(filter(None, [transaction.notes, str(request.form.get('notes', '')).strip()])) or None
+    transaction.equipment.condition = condition
+    transaction.equipment.accountable_to_id = None
+    transaction.equipment.status = 'available' if condition in {'new', 'good', 'fair'} else 'maintenance'
+    db.session.add(AdminLog(admin_name=current_user.username, action=f'Returned {transaction.equipment.asset_tag} ({condition})'))
+    db.session.commit(); flash('Return and post-use condition recorded.', 'success')
+    return redirect(url_for('management_dashboard'))
+
+
+@app.route('/equipment/<int:equipment_id>/issue', methods=['POST'])
+@login_required
+def report_equipment_issue(equipment_id):
+    if not current_staff_or_redirect(): return redirect(url_for('index'))
+    item = db.session.get(Equipment, equipment_id); issue_type = str(request.form.get('issue_type', 'damaged')).strip()
+    description = str(request.form.get('description', '')).strip()
+    if not item or not description:
+        flash('An item and issue description are required.', 'error'); return redirect(url_for('equipment_dashboard'))
+    item.status = 'missing' if issue_type == 'missing' else 'maintenance'
+    db.session.add(EquipmentIssue(equipment=item, issue_type=issue_type, description=description, reported_by=current_user))
+    db.session.add(AdminLog(admin_name=current_user.username, action=f'Reported {issue_type} for {item.asset_tag}'))
+    db.session.commit(); flash('Equipment concern reported and item status updated.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/equipment/<int:equipment_id>/maintenance', methods=['POST'])
+@login_required
+def record_maintenance(equipment_id):
+    if not current_staff_or_redirect(): return redirect(url_for('index'))
+    item = db.session.get(Equipment, equipment_id); findings = str(request.form.get('findings', '')).strip()
+    if not item or not findings:
+        flash('Maintenance findings are required.', 'error'); return redirect(url_for('equipment_dashboard'))
+    next_due = None
+    try: next_due = datetime.strptime(str(request.form.get('next_due_at', '')).strip(), '%Y-%m-%d')
+    except ValueError: pass
+    activity = str(request.form.get('activity_type', 'inspection')).strip()
+    db.session.add(MaintenanceRecord(equipment=item, activity_type=activity, performed_by=current_user, findings=findings, next_due_at=next_due))
+    if activity in {'repair', 'maintenance'}: item.status = 'available'
+    db.session.commit(); flash('Maintenance history updated.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/hr/staff', methods=['POST'])
+@login_required
+def create_staff_account():
+    if not (current_user.is_admin or current_user.is_hr):
+        flash('Only HR or an administrator can create staff accounts.', 'error'); return redirect(url_for('equipment_dashboard'))
+    username, password = str(request.form.get('username', '')).strip(), str(request.form.get('password', ''))
+    role = str(request.form.get('role', 'it_staff')).strip()
+    allowed_roles = {'it_manager', 'it_staff', 'laboratory_custodian', 'hr', 'instructor', 'dean'}
+    if not username or len(password) < 8 or role not in allowed_roles or User.query.filter_by(username=username).first():
+        flash('Use a unique username, an 8+ character password, and a valid staff role.', 'error'); return redirect(url_for('equipment_dashboard'))
+    staff = User(username=username, full_name=str(request.form.get('full_name', '')).strip() or username, role=role)
+    staff.set_password(password); db.session.add(staff)
+    db.session.add(AdminLog(admin_name=current_user.username, action=f'HR created {role} account {username}'))
+    db.session.commit(); flash('Staff account created.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/rooms/network', methods=['POST'])
+@login_required
+def add_room_network():
+    if not (current_user.is_admin or current_user.role == 'it_manager'):
+        flash('Only IT managers or administrators can manage room networks.', 'error'); return redirect(url_for('equipment_dashboard'))
+    room, cidr = str(request.form.get('room', '')).strip(), str(request.form.get('cidr', '')).strip()
+    try: ipaddress.ip_network(cidr, strict=False)
+    except ValueError: cidr = ''
+    if not room or not cidr or RoomNetwork.query.filter((RoomNetwork.room == room) | (RoomNetwork.cidr == cidr)).first():
+        flash('Use a unique room and valid, unique router subnet (for example 192.168.10.0/24).', 'error')
+    else:
+        db.session.add(RoomNetwork(room=room, cidr=cidr, gateway_ip=str(request.form.get('gateway_ip', '')).strip() or None,
+            router_name=str(request.form.get('router_name', '')).strip() or None))
+        db.session.commit(); flash('Room-router mapping saved.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
 @app.route('/admin/public_route/start', methods=['POST'])
 @login_required
 def admin_start_public_route():
-    if not current_user.is_admin:
+    if not current_user.is_management:
         return redirect(url_for('index'))
 
     local_port = int(os.getenv("APP_PORT", "5000"))
@@ -2826,18 +3291,18 @@ def admin_start_public_route():
         flash(f"Public mobile route ready: {snapshot['url']}", "success")
     else:
         flash(snapshot.get("error") or "Unable to create a public mobile route.", "error")
-    return redirect(url_for('index'))
+    return redirect(url_for('management_dashboard'))
 
 
 @app.route('/admin/public_route/stop', methods=['POST'])
 @login_required
 def admin_stop_public_route():
-    if not current_user.is_admin:
+    if not current_user.is_management:
         return redirect(url_for('index'))
 
     terminate_public_tunnel()
     flash("Public mobile route stopped.", "info")
-    return redirect(url_for('index'))
+    return redirect(url_for('management_dashboard'))
 
 
 # --- ADMIN FEATURES ---
@@ -3750,6 +4215,7 @@ def api_admin_lan_discovery():
             "pc_name": pc.name,
             "lan_ip": pc.lan_ip,
             "lan_port": pc.lan_port,
+            "room": pc.room or room_for_ip(pc.lan_ip),
             "last_agent_seen_at": pc.last_agent_seen_at.isoformat() if pc.last_agent_seen_at else None,
             "online_since_at": pc.online_since_at.isoformat() if pc.online_since_at else None,
             "online": is_pc_online(pc, now_dt, online_window_seconds),
@@ -3842,6 +4308,7 @@ def api_agent_register_lan():
 
     pc.lan_ip = detected_ip
     pc.lan_port = agent_port
+    pc.room = room_for_ip(detected_ip) or pc.room
     mark_pc_agent_seen(pc)
     db.session.add(AdminLog(admin_name=f"agent:{pc_name}", action=f"Auto-registered LAN target {detected_ip}:{agent_port}"))
     db.session.commit()
@@ -3864,6 +4331,7 @@ def api_agent_register_lan():
         "pc_name": pc_name,
         "lan_ip": detected_ip,
         "lan_port": agent_port,
+        "room": pc.room,
         "pending_command": pending_command
     }), 200
 
@@ -4009,6 +4477,9 @@ if __name__ == '__main__':
         db.create_all()
         ensure_pc_lan_ip_column()
         ensure_booking_date_column()
+        ensure_session_last_charged_at_column()
+        ensure_equipment_transaction_columns()
+        ensure_user_role_columns()
         seeded = ensure_core_seed_data()
         if seeded:
             print("DB Init: admin/admin123")
