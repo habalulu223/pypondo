@@ -917,12 +917,7 @@ import app as server  # noqa: E402
 
 def ensure_seed_data():
     with server.app.app_context():
-        server.db.create_all()
-        server.ensure_pc_lan_ip_column()
-        server.ensure_booking_date_column()
-        seeded = server.ensure_core_seed_data()
-        if seeded:
-            print("DB init complete: default admin + PCs created.")
+        server.initialize_database()
 
 
 def is_port_available(host, port):

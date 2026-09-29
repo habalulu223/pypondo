@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 import io
 import csv
@@ -19,7 +20,8 @@ from decimal import Decimal, InvalidOperation
 from urllib import request as http_request
 from urllib import error as http_error
 from urllib import parse as http_parse
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.engine import Engine
 import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -49,12 +51,39 @@ CORS(app, resources={
 
 # --- Config ---
 assets_dir = os.path.join(basedir, 'assets')
-default_db_path = os.path.join(basedir, 'pccafe.db')
-database_path = os.path.abspath(os.getenv("PYPONDO_DB_PATH", default_db_path))
+configured_data_dir = os.getenv('PYPONDO_DATA_DIR', '').strip()
+configured_main_db = os.getenv('PYPONDO_DB_PATH', '').strip()
+default_db_path = os.path.join(os.path.abspath(configured_data_dir), 'pccafe.db') if configured_data_dir else os.path.join(basedir, 'pccafe.db')
+database_path = os.path.abspath(configured_main_db or default_db_path)
+provided_community_db = r'D:\Users\jush\Downloads\sample.db'
+if os.path.isfile(provided_community_db):
+    default_community_db = provided_community_db
+elif configured_data_dir:
+    default_community_db = os.path.join(os.path.abspath(configured_data_dir), 'community_equipment.db')
+elif configured_main_db:
+    default_community_db = os.path.join(os.path.dirname(database_path), 'community_equipment.db')
+else:
+    default_community_db = os.path.join(basedir, 'instance', 'community_equipment.db')
+community_db_path = os.path.abspath(os.getenv("PYPONDO_COMMUNITY_DB_PATH", default_community_db))
+os.makedirs(os.path.dirname(database_path), exist_ok=True)
+os.makedirs(os.path.dirname(community_db_path), exist_ok=True)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + database_path
+app.config['SQLALCHEMY_BINDS'] = {'community': 'sqlite:///' + community_db_path}
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'super_secret_cyber_key'
 
 db = SQLAlchemy(app)
+
+
+@event.listens_for(Engine, 'connect')
+def configure_sqlite_connection(connection, _record):
+    if connection.__class__.__module__.startswith('sqlite3'):
+        cursor = connection.cursor()
+        cursor.execute('PRAGMA foreign_keys = ON')
+        cursor.execute('PRAGMA busy_timeout = 5000')
+        cursor.close()
+
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -340,7 +369,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(120), nullable=False)
     pondo = db.Column(db.Float, default=0.0)
     is_admin = db.Column(db.Boolean, default=False)
-    # Roles keep HR and the IT team separate from the legacy cafe administrator.
+    # Staff roles remain separate from the legacy cafe administrator.
     role = db.Column(db.String(32), nullable=False, default="student")
     full_name = db.Column(db.String(160), nullable=True)
     is_active_staff = db.Column(db.Boolean, nullable=False, default=True)
@@ -352,12 +381,12 @@ class User(UserMixin, db.Model):
         return check_password_hash(self.password_hash, password)
 
     @property
-    def is_hr(self):
-        return self.role == "hr"
+    def is_active(self):
+        return self.is_active_staff
 
     @property
     def can_manage_equipment(self):
-        return bool(self.is_admin or self.role in {"hr", "it_manager", "it_staff", "laboratory_custodian"})
+        return bool(self.is_admin or self.role in {"dean", "it_manager", "it_staff", "laboratory_custodian"})
 
     @property
     def can_borrow_equipment(self):
@@ -369,7 +398,7 @@ class User(UserMixin, db.Model):
 
     @property
     def is_management(self):
-        return bool(self.is_admin or self.role in {"it_manager", "laboratory_custodian"})
+        return bool(self.is_admin or self.role in {"dean", "it_manager", "laboratory_custodian"})
 
 
 class Equipment(db.Model):
@@ -496,6 +525,252 @@ class AdminLog(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.now)
 
 
+# Community equipment ERD (sample.db). Kept alongside the cafe tables because
+# the application also stores bookings, PC sessions, and payments.
+class CommunityRole(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'roles'
+    role_id = db.Column(db.Integer, primary_key=True)
+    role_name = db.Column(db.String(80), unique=True, nullable=False)
+    description = db.Column(db.Text)
+
+
+class CommunityUser(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'users'
+    user_id = db.Column(db.Integer, primary_key=True)
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.role_id'), nullable=False)
+    first_name = db.Column(db.String(100), nullable=False)
+    last_name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    contact_number = db.Column(db.String(80))
+    password_hash = db.Column(db.String(255), nullable=False)
+    account_status = db.Column(db.String(32), nullable=False, default='Active', server_default='Active')
+    role = db.relationship('CommunityRole')
+
+
+class CommunityNotification(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'notifications'
+    notification_id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    notification_type = db.Column(db.String(80), nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    reference_type = db.Column(db.String(80))
+    reference_id = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, server_default=text('CURRENT_TIMESTAMP'))
+    read_at = db.Column(db.DateTime)
+    user = db.relationship('CommunityUser')
+
+
+class CommunityAuditLog(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'audit_logs'
+    audit_id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'))
+    action = db.Column(db.Text, nullable=False)
+    table_name = db.Column(db.String(80), nullable=False)
+    record_id = db.Column(db.Integer)
+    old_value = db.Column(db.Text)
+    new_value = db.Column(db.Text)
+    ip_address = db.Column(db.String(64))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, server_default=text('CURRENT_TIMESTAMP'))
+    user = db.relationship('CommunityUser')
+
+
+class CommunityLaboratory(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'laboratories'
+    laboratory_id = db.Column(db.Integer, primary_key=True)
+    laboratory_name = db.Column(db.String(160), unique=True, nullable=False)
+    location = db.Column(db.String(255))
+    description = db.Column(db.Text)
+
+
+class CommunityEquipmentCategory(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'equipment_categories'
+    category_id = db.Column(db.Integer, primary_key=True)
+    category_name = db.Column(db.String(120), unique=True, nullable=False)
+    description = db.Column(db.Text)
+
+
+class CommunityEquipmentStatus(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'equipment_statuses'
+    status_id = db.Column(db.Integer, primary_key=True)
+    status_name = db.Column(db.String(80), unique=True, nullable=False)
+    description = db.Column(db.Text)
+
+
+class CommunityMaintenancePriority(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'maintenance_priorities'
+    priority_id = db.Column(db.Integer, primary_key=True)
+    priority_name = db.Column(db.String(80), unique=True, nullable=False)
+    severity_level = db.Column(db.Integer, unique=True, nullable=False)
+    description = db.Column(db.Text)
+
+
+class CommunityEquipment(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'equipment'
+    equipment_id = db.Column(db.Integer, primary_key=True)
+    laboratory_id = db.Column(db.Integer, db.ForeignKey('laboratories.laboratory_id'), nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('equipment_categories.category_id'), nullable=False)
+    equipment_code = db.Column(db.String(100), unique=True, nullable=False)
+    equipment_name = db.Column(db.String(200), nullable=False)
+    brand = db.Column(db.String(120))
+    model = db.Column(db.String(120))
+    serial_number = db.Column(db.String(160), unique=True)
+    acquisition_date = db.Column(db.Date)
+    acquisition_cost = db.Column(db.Float)
+    description = db.Column(db.Text)
+    laboratory = db.relationship('CommunityLaboratory')
+    category = db.relationship('CommunityEquipmentCategory')
+
+
+class CommunityEquipmentQRCode(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'equipment_qr_codes'
+    qr_id = db.Column(db.Integer, primary_key=True)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.equipment_id'), nullable=False, unique=True)
+    qr_value = db.Column(db.String(255), unique=True, nullable=False)
+    generated_at = db.Column(db.DateTime, nullable=False, default=datetime.now, server_default=text('CURRENT_TIMESTAMP'))
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=text('1'))
+    __table_args__ = (db.CheckConstraint('is_active IN (0, 1)'),)
+    equipment = db.relationship('CommunityEquipment')
+
+
+class CommunityEquipmentStatusHistory(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'equipment_status_history'
+    status_history_id = db.Column(db.Integer, primary_key=True)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.equipment_id'), nullable=False)
+    status_id = db.Column(db.Integer, db.ForeignKey('equipment_statuses.status_id'), nullable=False)
+    changed_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    changed_at = db.Column(db.DateTime, nullable=False, default=datetime.now, server_default=text('CURRENT_TIMESTAMP'))
+    remarks = db.Column(db.Text)
+    equipment = db.relationship('CommunityEquipment')
+    status = db.relationship('CommunityEquipmentStatus')
+    actor = db.relationship('CommunityUser')
+
+
+class CommunityBorrowing(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'borrowings'
+    borrowing_id = db.Column(db.Integer, primary_key=True)
+    borrower_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    approved_by = db.Column(db.Integer, db.ForeignKey('users.user_id'))
+    borrow_date = db.Column(db.DateTime, nullable=False, default=datetime.now, server_default=text('CURRENT_TIMESTAMP'))
+    expected_return_date = db.Column(db.DateTime, nullable=False)
+    actual_return_date = db.Column(db.DateTime)
+    borrowing_status = db.Column(db.String(40), nullable=False, default='Borrowed', server_default='Borrowed')
+    purpose = db.Column(db.Text)
+    borrower = db.relationship('CommunityUser', foreign_keys=[borrower_id])
+    approver = db.relationship('CommunityUser', foreign_keys=[approved_by])
+
+
+class CommunityBorrowingItem(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'borrowing_items'
+    borrowing_item_id = db.Column(db.Integer, primary_key=True)
+    borrowing_id = db.Column(db.Integer, db.ForeignKey('borrowings.borrowing_id'), nullable=False)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.equipment_id'), nullable=False)
+    __table_args__ = (db.UniqueConstraint('borrowing_id', 'equipment_id'),)
+    borrowing = db.relationship('CommunityBorrowing', backref='items')
+    equipment = db.relationship('CommunityEquipment')
+
+
+class CommunityReturnInspection(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'return_inspections'
+    inspection_id = db.Column(db.Integer, primary_key=True)
+    borrowing_item_id = db.Column(db.Integer, db.ForeignKey('borrowing_items.borrowing_item_id'), nullable=False)
+    inspected_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    condition_status = db.Column(db.String(80), nullable=False)
+    inspection_date = db.Column(db.DateTime, nullable=False, default=datetime.now, server_default=text('CURRENT_TIMESTAMP'))
+    remarks = db.Column(db.Text)
+    borrowing_item = db.relationship('CommunityBorrowingItem', backref='inspections')
+    inspector = db.relationship('CommunityUser')
+
+
+class CommunityIssue(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'issues'
+    issue_id = db.Column(db.Integer, primary_key=True)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.equipment_id'), nullable=False)
+    reported_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    issue_title = db.Column(db.String(200), nullable=False)
+    issue_description = db.Column(db.Text, nullable=False)
+    reported_at = db.Column(db.DateTime, nullable=False, default=datetime.now, server_default=text('CURRENT_TIMESTAMP'))
+    equipment = db.relationship('CommunityEquipment')
+    reporter = db.relationship('CommunityUser')
+
+
+class CommunityIssueImage(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'issue_images'
+    image_id = db.Column(db.Integer, primary_key=True)
+    issue_id = db.Column(db.Integer, db.ForeignKey('issues.issue_id'), nullable=False)
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    image_path = db.Column(db.Text, nullable=False)
+    uploaded_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    issue = db.relationship('CommunityIssue', backref='images')
+    uploader = db.relationship('CommunityUser')
+
+
+class CommunityMaintenanceRequest(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'maintenance_requests'
+    request_id = db.Column(db.Integer, primary_key=True)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.equipment_id'), nullable=False)
+    requested_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    priority_id = db.Column(db.Integer, db.ForeignKey('maintenance_priorities.priority_id'), nullable=False)
+    request_description = db.Column(db.Text, nullable=False)
+    requested_at = db.Column(db.DateTime, nullable=False, default=datetime.now, server_default=text('CURRENT_TIMESTAMP'))
+    due_date = db.Column(db.Date)
+    request_status = db.Column(db.String(40), nullable=False, default='Pending', server_default='Pending')
+    equipment = db.relationship('CommunityEquipment')
+    requester = db.relationship('CommunityUser')
+    priority = db.relationship('CommunityMaintenancePriority')
+
+
+class CommunityMaintenanceRecord(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'maintenance_records'
+    maintenance_id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.Integer, db.ForeignKey('maintenance_requests.request_id'))
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.equipment_id'), nullable=False)
+    technician_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    maintenance_type = db.Column(db.String(100), nullable=False)
+    work_description = db.Column(db.Text, nullable=False)
+    findings = db.Column(db.Text)
+    action_taken = db.Column(db.Text)
+    maintenance_date = db.Column(db.Date, nullable=False)
+    completion_date = db.Column(db.Date)
+    cost = db.Column(db.Float)
+    request = db.relationship('CommunityMaintenanceRequest', backref='records')
+    equipment = db.relationship('CommunityEquipment')
+    technician = db.relationship('CommunityUser')
+
+
+class CommunityMaintenanceSchedule(db.Model):
+    __bind_key__ = 'community'
+    __tablename__ = 'maintenance_schedules'
+    schedule_id = db.Column(db.Integer, primary_key=True)
+    equipment_id = db.Column(db.Integer, db.ForeignKey('equipment.equipment_id'), nullable=False)
+    assigned_to = db.Column(db.Integer, db.ForeignKey('users.user_id'))
+    maintenance_type = db.Column(db.String(100), nullable=False)
+    schedule_date = db.Column(db.Date, nullable=False)
+    frequency_days = db.Column(db.Integer)
+    description = db.Column(db.Text)
+    schedule_status = db.Column(db.String(40), nullable=False, default='Scheduled', server_default='Scheduled')
+    equipment = db.relationship('CommunityEquipment')
+    assignee = db.relationship('CommunityUser')
+
+
 class PaymentTransaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -583,13 +858,24 @@ def ensure_equipment_transaction_columns():
 def ensure_user_role_columns():
     """Small SQLite migration for installations created before staff roles existed."""
     cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(user)")).fetchall()]
+    if "is_admin" not in cols:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN is_admin BOOLEAN DEFAULT 0"))
+    if "password_hash" not in cols:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN password_hash VARCHAR(255) NOT NULL DEFAULT ''"))
     if "role" not in cols:
         db.session.execute(text("ALTER TABLE user ADD COLUMN role VARCHAR(32) DEFAULT 'student'"))
     if "full_name" not in cols:
         db.session.execute(text("ALTER TABLE user ADD COLUMN full_name VARCHAR(160)"))
     if "is_active_staff" not in cols:
         db.session.execute(text("ALTER TABLE user ADD COLUMN is_active_staff BOOLEAN DEFAULT 1"))
+    db.session.execute(text("UPDATE user SET is_admin = 1 WHERE username = 'admin' AND is_admin = 0"))
     db.session.execute(text("UPDATE user SET role = 'administrator' WHERE is_admin = 1 AND (role IS NULL OR role = 'student')"))
+    # Very old databases had user accounts without password hashes. Give these
+    # accounts unusable random passwords instead of making blank credentials valid.
+    legacy_ids = db.session.execute(text("SELECT id FROM user WHERE password_hash IS NULL OR password_hash = ''")).scalars().all()
+    for legacy_id in legacy_ids:
+        db.session.execute(text("UPDATE user SET password_hash = :password_hash WHERE id = :user_id"),
+            {'password_hash': generate_password_hash(uuid.uuid4().hex), 'user_id': legacy_id})
     db.session.commit()
 
 
@@ -627,15 +913,243 @@ def ensure_core_seed_data():
         db.session.add(admin)
         seeded = True
 
-    if not User.query.filter_by(username="hr").first():
-        hr = User(username="hr", role="hr", full_name="Human Resources")
-        hr.set_password("hr123")
-        db.session.add(hr)
+    dean = User.query.filter_by(username="dean").first()
+    legacy_hr = User.query.filter_by(username="hr").first()
+    if dean is None and legacy_hr is not None:
+        legacy_hr.username = "dean"
+        legacy_hr.role = "dean"
+        legacy_hr.full_name = "Dean"
+        legacy_hr.set_password("11452360")
+        seeded = True
+    elif dean is None:
+        dean = User(username="dean", role="dean", full_name="Dean")
+        dean.set_password("11452360")
+        db.session.add(dean)
+        seeded = True
+    elif dean.role != "dean":
+        dean.role = "dean"
+        seeded = True
+    if dean is not None and not dean.check_password("11452360"):
+        dean.set_password("11452360")
+        seeded = True
+    if legacy_hr is not None and legacy_hr is not dean:
+        legacy_hr.role = "student"
+        legacy_hr.is_active_staff = False
         seeded = True
 
     if seeded:
         db.session.commit()
     return seeded
+
+
+def ensure_community_reference_data():
+    roles = {
+        'administrator': 'System administrator', 'dean': 'Dean', 'it_manager': 'IT manager',
+        'it_staff': 'IT staff', 'laboratory_custodian': 'Laboratory custodian',
+        'instructor': 'Instructor', 'student': 'Student'
+    }
+    for account_role in db.session.query(User.role).distinct().all():
+        role_name = account_role[0]
+        if role_name and role_name not in roles:
+            roles[role_name] = role_name.replace('_', ' ').title()
+    for role_name, description in roles.items():
+        if not CommunityRole.query.filter_by(role_name=role_name).first():
+            db.session.add(CommunityRole(role_name=role_name, description=description))
+    for name, description in [('Available', 'Available for use'), ('Borrowed', 'Currently borrowed'),
+                              ('Under Maintenance', 'Unavailable during maintenance'), ('Retired', 'Retired from service'),
+                              ('Lost', 'Reported missing or lost')]:
+        if not CommunityEquipmentStatus.query.filter_by(status_name=name).first():
+            db.session.add(CommunityEquipmentStatus(status_name=name, description=description))
+    for name, level in [('Low', 1), ('Medium', 2), ('High', 3), ('Critical', 4)]:
+        if not CommunityMaintenancePriority.query.filter_by(priority_name=name).first():
+            db.session.add(CommunityMaintenancePriority(priority_name=name, severity_level=level))
+    if not CommunityLaboratory.query.first():
+        db.session.add(CommunityLaboratory(laboratory_name='General Storage', description='Default location; edit to match the campus laboratory.'))
+    if not CommunityEquipmentCategory.query.first():
+        db.session.add(CommunityEquipmentCategory(category_name='General Equipment'))
+    db.session.flush()
+
+    # Keep app login accounts and ERD audit/borrowing identities aligned by email.
+    for account in User.query.all():
+        ensure_community_user(account)
+    db.session.flush()
+
+    # Bring existing equipment into the normalized tables once, keyed by asset tag.
+    status_lookup = {s.status_name.lower(): s for s in CommunityEquipmentStatus.query.all()}
+    for old_item in Equipment.query.all():
+        if CommunityEquipment.query.filter_by(equipment_code=old_item.asset_tag).first():
+            continue
+        category_name = (old_item.category or 'General Equipment').strip() or 'General Equipment'
+        category = CommunityEquipmentCategory.query.filter_by(category_name=category_name).first()
+        if category is None:
+            category = CommunityEquipmentCategory(category_name=category_name)
+            db.session.add(category)
+            db.session.flush()
+        lab_name = (old_item.room or 'General Storage').strip() or 'General Storage'
+        laboratory = CommunityLaboratory.query.filter_by(laboratory_name=lab_name).first()
+        if laboratory is None:
+            laboratory = CommunityLaboratory(laboratory_name=lab_name)
+            db.session.add(laboratory)
+            db.session.flush()
+        serial_number = old_item.serial_number
+        if serial_number and CommunityEquipment.query.filter_by(serial_number=serial_number).first():
+            serial_number = None
+        record = CommunityEquipment(laboratory_id=laboratory.laboratory_id, category_id=category.category_id,
+            equipment_code=old_item.asset_tag, equipment_name=old_item.name, serial_number=serial_number,
+            description='\n'.join(filter(None, [old_item.location_detail, old_item.notes])) or None)
+        db.session.add(record)
+        db.session.flush()
+        status_name = 'Available' if old_item.status == 'available' else ('Borrowed' if old_item.status == 'borrowed' else 'Under Maintenance')
+        actor = ensure_community_user(old_item.accountable_to) if old_item.accountable_to else CommunityUser.query.first()
+        if actor:
+            db.session.add(CommunityEquipmentStatusHistory(equipment_id=record.equipment_id,
+                status_id=status_lookup[status_name.lower()].status_id, changed_by=actor.user_id,
+                remarks='Imported from the previous equipment register.'))
+        qr_value = 'PYPONDO-EQUIPMENT:' + record.equipment_code
+        db.session.add(CommunityEquipmentQRCode(equipment_id=record.equipment_id, qr_value=qr_value))
+
+    # Preserve previous loans, issue reports, and maintenance history when
+    # moving an installation onto the normalized community equipment store.
+    for old_loan in EquipmentTransaction.query.order_by(EquipmentTransaction.borrowed_at).all():
+        item = CommunityEquipment.query.filter_by(equipment_code=old_loan.equipment.asset_tag).first()
+        borrower = ensure_community_user(old_loan.borrower)
+        if not item or not borrower:
+            continue
+        loan = CommunityBorrowing.query.filter_by(borrower_id=borrower.user_id, borrow_date=old_loan.borrowed_at).first()
+        if loan is None:
+            approver = ensure_community_user(old_loan.issued_by)
+            loan = CommunityBorrowing(borrower_id=borrower.user_id,
+                approved_by=approver.user_id if approver else None,
+                borrow_date=old_loan.borrowed_at,
+                expected_return_date=old_loan.due_at or (old_loan.borrowed_at + timedelta(days=14)),
+                actual_return_date=old_loan.returned_at,
+                borrowing_status='Returned' if old_loan.returned_at else 'Borrowed',
+                purpose=old_loan.notes)
+            db.session.add(loan)
+            db.session.flush()
+        line = CommunityBorrowingItem.query.filter_by(borrowing_id=loan.borrowing_id, equipment_id=item.equipment_id).first()
+        if line is None:
+            line = CommunityBorrowingItem(borrowing_id=loan.borrowing_id, equipment_id=item.equipment_id)
+            db.session.add(line)
+            db.session.flush()
+        if old_loan.returned_at and old_loan.condition_in and not line.inspections:
+            inspector = ensure_community_user(old_loan.return_confirmed_by or old_loan.issued_by)
+            if inspector:
+                db.session.add(CommunityReturnInspection(borrowing_item_id=line.borrowing_item_id,
+                    inspected_by=inspector.user_id, condition_status=str(old_loan.condition_in).title(),
+                    inspection_date=old_loan.returned_at, remarks=old_loan.notes))
+
+    for old_request in EquipmentLoanRequest.query.filter(EquipmentLoanRequest.status.in_(['pending', 'declined'])).all():
+        item = CommunityEquipment.query.filter_by(equipment_code=old_request.equipment.asset_tag).first()
+        borrower = ensure_community_user(old_request.borrower)
+        if not item or not borrower:
+            continue
+        if CommunityBorrowing.query.filter_by(borrower_id=borrower.user_id, borrow_date=old_request.requested_at).first():
+            continue
+        loan = CommunityBorrowing(borrower_id=borrower.user_id,
+            approved_by=ensure_community_user(old_request.reviewed_by).user_id if old_request.reviewed_by else None,
+            borrow_date=old_request.requested_at,
+            expected_return_date=old_request.needed_until or (old_request.requested_at + timedelta(days=14)),
+            borrowing_status='Pending' if old_request.status == 'pending' else 'Declined',
+            purpose=old_request.purpose)
+        db.session.add(loan)
+        db.session.flush()
+        db.session.add(CommunityBorrowingItem(borrowing_id=loan.borrowing_id, equipment_id=item.equipment_id))
+
+    for old_issue in EquipmentIssue.query.all():
+        item = CommunityEquipment.query.filter_by(equipment_code=old_issue.equipment.asset_tag).first()
+        reporter = ensure_community_user(old_issue.reported_by)
+        if not item or not reporter:
+            continue
+        if not CommunityIssue.query.filter_by(equipment_id=item.equipment_id, reported_by=reporter.user_id,
+                issue_title=old_issue.issue_type.title(), issue_description=old_issue.description).first():
+            db.session.add(CommunityIssue(equipment_id=item.equipment_id, reported_by=reporter.user_id,
+                issue_title=old_issue.issue_type.title(), issue_description=old_issue.description,
+                reported_at=old_issue.reported_at))
+
+    for old_record in MaintenanceRecord.query.all():
+        item = CommunityEquipment.query.filter_by(equipment_code=old_record.equipment.asset_tag).first()
+        technician = ensure_community_user(old_record.performed_by)
+        if not item or not technician:
+            continue
+        description = old_record.findings or 'Maintenance record imported from the previous register.'
+        if not CommunityMaintenanceRecord.query.filter_by(equipment_id=item.equipment_id,
+                technician_id=technician.user_id, work_description=description,
+                maintenance_date=old_record.performed_at.date()).first():
+            db.session.add(CommunityMaintenanceRecord(equipment_id=item.equipment_id,
+                technician_id=technician.user_id, maintenance_type=old_record.activity_type,
+                work_description=description, findings=old_record.findings,
+                maintenance_date=old_record.performed_at.date(),
+                completion_date=old_record.performed_at.date() if old_record.activity_type in {'repair','maintenance'} else None))
+        if old_record.next_due_at and not CommunityMaintenanceSchedule.query.filter_by(
+                equipment_id=item.equipment_id, schedule_date=old_record.next_due_at.date()).first():
+            db.session.add(CommunityMaintenanceSchedule(equipment_id=item.equipment_id,
+                assigned_to=technician.user_id, maintenance_type=old_record.activity_type,
+                schedule_date=old_record.next_due_at.date(), description='Imported preventive maintenance due date.'))
+    db.session.commit()
+
+
+def ensure_community_user(account):
+    if account is None:
+        return None
+    role_name = account.role or 'student'
+    role = CommunityRole.query.filter_by(role_name=role_name).first()
+    if role is None:
+        role = CommunityRole(role_name=role_name, description=role_name.replace('_', ' ').title())
+        db.session.add(role)
+        db.session.flush()
+    email = account.username.strip().lower()
+    if '@' not in email:
+        email = f'{email}@pypondo.local'
+    identity = CommunityUser.query.filter_by(email=email).first()
+    full_name = (account.full_name or account.username).strip().split(None, 1)
+    first_name = full_name[0] if full_name else account.username
+    last_name = full_name[1] if len(full_name) > 1 else ''
+    if identity is None:
+        identity = CommunityUser(role_id=role.role_id, first_name=first_name, last_name=last_name,
+            email=email, password_hash=account.password_hash,
+            account_status='Active' if account.is_active_staff else 'Inactive')
+        db.session.add(identity)
+        db.session.flush()
+    else:
+        identity.role_id = role.role_id
+        identity.first_name, identity.last_name = first_name, last_name
+        identity.password_hash = account.password_hash
+        identity.account_status = 'Active' if account.is_active_staff else 'Inactive'
+    return identity
+
+
+def community_audit(action, table_name, record_id=None, old_value=None, new_value=None, actor=None):
+    identity = ensure_community_user(actor or current_user._get_current_object())
+    db.session.add(CommunityAuditLog(user_id=identity.user_id if identity else None, action=action,
+        table_name=table_name, record_id=record_id, old_value=old_value, new_value=new_value,
+        ip_address=request.remote_addr if request else None))
+
+
+def community_notify(user_id, title, message, notification_type='equipment', reference_type=None, reference_id=None):
+    db.session.add(CommunityNotification(user_id=user_id, notification_type=notification_type,
+        title=title, message=message, reference_type=reference_type, reference_id=reference_id))
+
+
+def change_community_equipment_status(item, status_name, actor, remarks=None):
+    status = CommunityEquipmentStatus.query.filter_by(status_name=status_name).first()
+    identity = ensure_community_user(actor)
+    if status and identity:
+        db.session.add(CommunityEquipmentStatusHistory(equipment_id=item.equipment_id,
+            status_id=status.status_id, changed_by=identity.user_id, remarks=remarks))
+
+
+def initialize_database():
+    """Initialize both the cafe database and the community ERD database."""
+    db.create_all()
+    ensure_pc_lan_ip_column()
+    ensure_booking_date_column()
+    ensure_session_last_charged_at_column()
+    ensure_equipment_transaction_columns()
+    ensure_user_role_columns()
+    ensure_core_seed_data()
+    ensure_community_reference_data()
+    app._schema_ready = True
 
 
 def normalize_agent_port(value):
@@ -2443,14 +2957,7 @@ def build_mobile_assistant_response(user, message):
 @app.before_request
 def bootstrap_schema():
     if not getattr(app, "_schema_ready", False):
-        db.create_all()
-        ensure_pc_lan_ip_column()
-        ensure_booking_date_column()
-        ensure_session_last_charged_at_column()
-        ensure_equipment_transaction_columns()
-        ensure_user_role_columns()
-        ensure_core_seed_data()
-        app._schema_ready = True
+        initialize_database()
 
 
 @app.before_request
@@ -3011,20 +3518,36 @@ def index():
 def equipment_dashboard():
     if not current_staff_or_redirect():
         return redirect(url_for('index'))
-    equipment = Equipment.query.order_by(Equipment.room.asc(), Equipment.name.asc()).all()
-    open_issues = EquipmentIssue.query.filter_by(status='open').order_by(EquipmentIssue.reported_at.desc()).all()
-    active_loans = EquipmentTransaction.query.filter_by(returned_at=None).order_by(EquipmentTransaction.borrowed_at.desc()).all()
-    due_cutoff = datetime.now() + timedelta(days=14)
-    maintenance_due = MaintenanceRecord.query.filter(
-        MaintenanceRecord.next_due_at.isnot(None), MaintenanceRecord.next_due_at <= due_cutoff
-    ).order_by(MaintenanceRecord.next_due_at.asc()).all()
-    staff = User.query.filter(User.role.in_(['hr', 'it_manager', 'it_staff', 'laboratory_custodian', 'administrator'])).order_by(User.full_name, User.username).all()
-    pending_requests = EquipmentLoanRequest.query.filter_by(status='pending').order_by(EquipmentLoanRequest.requested_at.desc()).all()
-    recent_transactions = EquipmentTransaction.query.order_by(EquipmentTransaction.borrowed_at.desc()).limit(100).all()
-    return render_template('equipment.html', equipment=equipment, open_issues=open_issues,
-                           active_loans=active_loans, maintenance_due=maintenance_due,
-                           staff=staff, rooms=RoomNetwork.query.order_by(RoomNetwork.room).all(),
-                           pending_requests=pending_requests, recent_transactions=recent_transactions, role=current_user.role)
+    identity = ensure_community_user(current_user._get_current_object())
+    db.session.commit()
+    equipment = CommunityEquipment.query.order_by(CommunityEquipment.equipment_name).all()
+    pending_borrowings = CommunityBorrowing.query.filter_by(borrowing_status='Pending').order_by(CommunityBorrowing.borrow_date.desc()).all()
+    active_borrowings = CommunityBorrowing.query.filter(CommunityBorrowing.borrowing_status.in_(['Borrowed', 'Return Requested', 'Overdue'])).order_by(CommunityBorrowing.expected_return_date).all()
+    requests = CommunityMaintenanceRequest.query.order_by(CommunityMaintenanceRequest.requested_at.desc()).limit(100).all()
+    schedules = CommunityMaintenanceSchedule.query.filter_by(schedule_status='Scheduled').order_by(CommunityMaintenanceSchedule.schedule_date).all()
+    issues = CommunityIssue.query.order_by(CommunityIssue.reported_at.desc()).limit(100).all()
+    audit_logs = CommunityAuditLog.query.order_by(CommunityAuditLog.created_at.desc()).limit(50).all()
+    notifications = CommunityNotification.query.filter_by(user_id=identity.user_id).order_by(CommunityNotification.created_at.desc()).limit(50).all()
+    borrowing_history = CommunityBorrowing.query.order_by(CommunityBorrowing.borrow_date.desc()).limit(50).all()
+    return_inspections = CommunityReturnInspection.query.order_by(CommunityReturnInspection.inspection_date.desc()).limit(50).all()
+    equipment_status = {}
+    for item in equipment:
+        latest = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(
+            CommunityEquipmentStatusHistory.changed_at.desc(), CommunityEquipmentStatusHistory.status_history_id.desc()).first()
+        equipment_status[item.equipment_id] = latest.status.status_name if latest else 'Unknown'
+    return render_template('community_equipment.html', equipment=equipment,
+        categories=CommunityEquipmentCategory.query.order_by(CommunityEquipmentCategory.category_name).all(),
+        laboratories=CommunityLaboratory.query.order_by(CommunityLaboratory.laboratory_name).all(),
+        statuses=CommunityEquipmentStatus.query.order_by(CommunityEquipmentStatus.status_id).all(),
+        priorities=CommunityMaintenancePriority.query.order_by(CommunityMaintenancePriority.severity_level).all(),
+        pending_borrowings=pending_borrowings, active_borrowings=active_borrowings,
+        maintenance_requests=requests, schedules=schedules, issues=issues,
+        borrowing_history=borrowing_history, return_inspections=return_inspections,
+        community_users=CommunityUser.query.order_by(CommunityUser.first_name, CommunityUser.last_name).all(),
+        maintenance_records=CommunityMaintenanceRecord.query.order_by(CommunityMaintenanceRecord.maintenance_date.desc()).limit(40).all(),
+        notifications=notifications, audit_logs=audit_logs,
+        history=CommunityEquipmentStatusHistory.query.order_by(CommunityEquipmentStatusHistory.changed_at.desc()).limit(50).all(),
+        equipment_status=equipment_status, is_manager=True, role=current_user.role)
 
 
 @app.route('/management')
@@ -3032,19 +3555,7 @@ def equipment_dashboard():
 def management_dashboard():
     if not current_user.is_management:
         return redirect(url_for('index'))
-    pending_requests = EquipmentLoanRequest.query.filter_by(status='pending').order_by(EquipmentLoanRequest.requested_at.desc()).all()
-    active_loans = EquipmentTransaction.query.filter_by(returned_at=None).order_by(EquipmentTransaction.borrowed_at.desc()).all()
-    return_requests = [loan for loan in active_loans if loan.return_requested_at]
-    open_issues = EquipmentIssue.query.filter_by(status='open').order_by(EquipmentIssue.reported_at.desc()).all()
-    recent_transactions = EquipmentTransaction.query.order_by(EquipmentTransaction.borrowed_at.desc()).limit(100).all()
-    room_summary = []
-    for room, items in groupby(Equipment.query.order_by(Equipment.room, Equipment.name).all(), key=lambda item: item.room or 'Unassigned'):
-        items = list(items)
-        room_summary.append({'room': room, 'total': len(items), 'available': sum(i.status == 'available' for i in items), 'attention': sum(i.status in {'maintenance', 'missing'} for i in items)})
-    return render_template('management.html', pending_requests=pending_requests, active_loans=active_loans,
-                           return_requests=return_requests, open_issues=open_issues,
-                           recent_transactions=recent_transactions, room_summary=room_summary,
-                           public_tunnel=get_public_tunnel_snapshot())
+    return redirect(url_for('equipment_dashboard'))
 
 
 @app.route('/borrower')
@@ -3052,10 +3563,597 @@ def management_dashboard():
 def borrower_dashboard():
     if not current_user.can_borrow_equipment:
         return redirect(url_for('index'))
-    items = Equipment.query.filter_by(status='available').order_by(Equipment.room, Equipment.name).all()
-    requests = EquipmentLoanRequest.query.filter_by(borrower_id=current_user.id).order_by(EquipmentLoanRequest.requested_at.desc()).all()
-    loans = EquipmentTransaction.query.filter_by(borrower_id=current_user.id).order_by(EquipmentTransaction.borrowed_at.desc()).all()
-    return render_template('borrower.html', equipment=items, requests=requests, loans=loans)
+    identity = ensure_community_user(current_user._get_current_object())
+    # Only the latest status event determines whether an asset can be requested.
+    available_items = []
+    for item in CommunityEquipment.query.order_by(CommunityEquipment.equipment_name).all():
+        latest = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(
+            CommunityEquipmentStatusHistory.changed_at.desc(), CommunityEquipmentStatusHistory.status_history_id.desc()).first()
+        if latest and latest.status.status_name == 'Available':
+            available_items.append(item)
+    equipment_status = {item.equipment_id: 'Available' for item in available_items}
+    borrowings = CommunityBorrowing.query.filter_by(borrower_id=identity.user_id).order_by(CommunityBorrowing.borrow_date.desc()).all()
+    return render_template('community_equipment.html', equipment=available_items,
+        categories=[], laboratories=[], statuses=[], priorities=[], pending_borrowings=[], active_borrowings=[],
+        maintenance_requests=[], schedules=[], issues=[], maintenance_records=[], notifications=[], audit_logs=[], history=[],
+        my_borrowings=borrowings, borrowing_history=[], return_inspections=[], community_users=[],
+        equipment_status=equipment_status, is_manager=False, role=current_user.role)
+
+
+def community_item_available(item):
+    latest = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(
+        CommunityEquipmentStatusHistory.changed_at.desc(), CommunityEquipmentStatusHistory.status_history_id.desc()).first()
+    return bool(latest and latest.status.status_name == 'Available')
+
+
+@app.route('/community/equipment', methods=['POST'])
+@login_required
+def community_add_equipment():
+    if not current_staff_or_redirect(): return redirect(url_for('equipment_dashboard'))
+    code = str(request.form.get('equipment_code', '')).strip().upper()
+    name = str(request.form.get('equipment_name', '')).strip()
+    category_name = str(request.form.get('category', '')).strip() or 'General Equipment'
+    lab_name = str(request.form.get('laboratory', '')).strip() or 'General Storage'
+    if not code or not name:
+        flash('Equipment code and name are required.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    if CommunityEquipment.query.filter_by(equipment_code=code).first():
+        flash('That equipment code is already registered.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    serial_number = str(request.form.get('serial_number', '')).strip() or None
+    if serial_number and CommunityEquipment.query.filter_by(serial_number=serial_number).first():
+        flash('That serial number is already registered.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    category = CommunityEquipmentCategory.query.filter_by(category_name=category_name).first()
+    if category is None:
+        category = CommunityEquipmentCategory(category_name=category_name)
+        db.session.add(category)
+        db.session.flush()
+    laboratory = CommunityLaboratory.query.filter_by(laboratory_name=lab_name).first()
+    if laboratory is None:
+        laboratory = CommunityLaboratory(laboratory_name=lab_name)
+        db.session.add(laboratory)
+        db.session.flush()
+    try:
+        acquired = datetime.strptime(request.form.get('acquisition_date', ''), '%Y-%m-%d').date() or None
+    except ValueError:
+        acquired = None
+    try:
+        cost = float(request.form.get('acquisition_cost', '') or 0) or None
+        if cost is not None and cost < 0: raise ValueError()
+    except ValueError:
+        flash('Acquisition cost must be zero or greater.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    item = CommunityEquipment(laboratory_id=laboratory.laboratory_id, category_id=category.category_id,
+        equipment_code=code, equipment_name=name,
+        brand=str(request.form.get('brand', '')).strip() or None,
+        model=str(request.form.get('model', '')).strip() or None,
+        serial_number=serial_number,
+        acquisition_date=acquired, acquisition_cost=cost,
+        description=str(request.form.get('description', '')).strip() or None)
+    db.session.add(item)
+    db.session.flush()
+    community_audit('Registered equipment', 'equipment', item.equipment_id, new_value=code)
+    change_community_equipment_status(item, 'Available', current_user._get_current_object(), 'Initial registration')
+    db.session.add(CommunityEquipmentQRCode(equipment_id=item.equipment_id,
+        qr_value=f'PYPONDO-EQUIPMENT:{code}:{uuid.uuid4().hex[:12]}'))
+    db.session.commit()
+    flash('Equipment and initial status history saved.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/catalog/<catalog_type>', methods=['POST'])
+@login_required
+def community_save_catalog(catalog_type):
+    if not current_user.can_manage_equipment:
+        return redirect(url_for('index'))
+    catalogs = {
+        'category': (CommunityEquipmentCategory, 'category_id', 'category_name'),
+        'laboratory': (CommunityLaboratory, 'laboratory_id', 'laboratory_name'),
+        'status': (CommunityEquipmentStatus, 'status_id', 'status_name'),
+        'priority': (CommunityMaintenancePriority, 'priority_id', 'priority_name')
+    }
+    spec = catalogs.get(catalog_type)
+    if not spec:
+        return redirect(url_for('equipment_dashboard'))
+    model, id_field, name_field = spec
+    name = str(request.form.get('name', '')).strip()
+    record_id = request.form.get('record_id', type=int)
+    record = db.session.get(model, record_id) if record_id else None
+    if record_id and not record:
+        flash('Catalog entry was not found.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    if not record and not name:
+        flash('A name is required for a new catalog entry.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    other = model.query.filter(getattr(model, name_field) == name).first() if name else None
+    if other and other is not record:
+        flash('That catalog name already exists.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    if record is None:
+        if catalog_type == 'category': record = CommunityEquipmentCategory(category_name=name)
+        elif catalog_type == 'laboratory': record = CommunityLaboratory(laboratory_name=name)
+        elif catalog_type == 'status': record = CommunityEquipmentStatus(status_name=name)
+        else:
+            severity = request.form.get('severity_level', type=int)
+            if not severity or severity < 1 or CommunityMaintenancePriority.query.filter_by(severity_level=severity).first():
+                flash('Priority severity must be a unique positive number.', 'error')
+                return redirect(url_for('equipment_dashboard'))
+            record = CommunityMaintenancePriority(priority_name=name, severity_level=severity)
+        db.session.add(record)
+    elif catalog_type == 'status' and name != record.status_name and record.status_name in {
+            'Available', 'Borrowed', 'Under Maintenance', 'Retired', 'Lost'}:
+        flash('The core workflow status names cannot be changed.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    elif name:
+        setattr(record, name_field, name)
+    if catalog_type == 'laboratory':
+        record.location = str(request.form.get('location', '')).strip() or None
+    elif catalog_type == 'priority':
+        severity = request.form.get('severity_level', type=int)
+        if severity:
+            duplicate_query = CommunityMaintenancePriority.query.filter_by(severity_level=severity)
+            if record.priority_id:
+                duplicate_query = duplicate_query.filter(CommunityMaintenancePriority.priority_id != record.priority_id)
+            duplicate = duplicate_query.first()
+            if duplicate:
+                flash('Priority severity must be unique.', 'error')
+                return redirect(url_for('equipment_dashboard'))
+            record.severity_level = severity
+    if catalog_type in {'category', 'laboratory', 'status', 'priority'}:
+        record.description = str(request.form.get('description', '')).strip() or None
+    db.session.flush()
+    community_audit('Saved equipment catalog entry', model.__tablename__, getattr(record, id_field), new_value=name or getattr(record, name_field))
+    db.session.commit()
+    flash('Catalog entry saved.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/equipment/<int:equipment_id>/edit', methods=['POST'])
+@login_required
+def community_edit_equipment(equipment_id):
+    if not current_user.can_manage_equipment:
+        return redirect(url_for('index'))
+    item = db.session.get(CommunityEquipment, equipment_id)
+    if not item:
+        flash('Equipment was not found.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    code = str(request.form.get('equipment_code', '')).strip().upper()
+    name = str(request.form.get('equipment_name', '')).strip()
+    serial = str(request.form.get('serial_number', '')).strip() or None
+    if not code or not name:
+        flash('Equipment code and name are required.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    if CommunityEquipment.query.filter(CommunityEquipment.equipment_code == code,
+            CommunityEquipment.equipment_id != item.equipment_id).first():
+        flash('That equipment code is already in use.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    if serial and CommunityEquipment.query.filter(CommunityEquipment.serial_number == serial,
+            CommunityEquipment.equipment_id != item.equipment_id).first():
+        flash('That serial number is already in use.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    category_name = str(request.form.get('category', '')).strip() or 'General Equipment'
+    category = CommunityEquipmentCategory.query.filter_by(category_name=category_name).first()
+    if not category:
+        category = CommunityEquipmentCategory(category_name=category_name)
+        db.session.add(category)
+        db.session.flush()
+    lab_name = str(request.form.get('laboratory', '')).strip() or 'General Storage'
+    laboratory = CommunityLaboratory.query.filter_by(laboratory_name=lab_name).first()
+    if not laboratory:
+        laboratory = CommunityLaboratory(laboratory_name=lab_name)
+        db.session.add(laboratory)
+        db.session.flush()
+    try:
+        acquired = datetime.strptime(request.form.get('acquisition_date', ''), '%Y-%m-%d').date()
+    except ValueError:
+        acquired = None
+    try:
+        cost = float(request.form.get('acquisition_cost', '') or 0) or None
+        if cost is not None and cost < 0: raise ValueError()
+    except ValueError:
+        flash('Acquisition cost must be zero or greater.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    old_value = json.dumps({'code': item.equipment_code, 'name': item.equipment_name,
+        'category': item.category.category_name, 'laboratory': item.laboratory.laboratory_name,
+        'serial_number': item.serial_number, 'description': item.description}, ensure_ascii=False)
+    item.equipment_code, item.equipment_name = code, name
+    item.category_id, item.laboratory_id = category.category_id, laboratory.laboratory_id
+    item.brand = str(request.form.get('brand', '')).strip() or None
+    item.model = str(request.form.get('model', '')).strip() or None
+    item.serial_number, item.acquisition_date, item.acquisition_cost = serial, acquired, cost
+    item.description = str(request.form.get('description', '')).strip() or None
+    new_value = json.dumps({'code': code, 'name': name, 'category': category_name,
+        'laboratory': lab_name, 'serial_number': serial, 'description': item.description}, ensure_ascii=False)
+    community_audit('Updated equipment details', 'equipment', item.equipment_id,
+        old_value=old_value, new_value=new_value)
+    db.session.commit()
+    flash('Equipment details updated.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/borrow/<int:equipment_id>', methods=['POST'])
+@login_required
+def community_borrow_request(equipment_id):
+    if not current_user.can_borrow_equipment:
+        return redirect(url_for('index'))
+    item = db.session.get(CommunityEquipment, equipment_id)
+    try:
+        expected = datetime.strptime(request.form.get('expected_return_date') or request.form.get('needed_until', ''), '%Y-%m-%d')
+    except ValueError:
+        expected = None
+    purpose = str(request.form.get('purpose', '')).strip()
+    if not item or not community_item_available(item) or expected is None or expected.date() < datetime.now().date() or not purpose:
+        flash('Select an available item, provide a purpose, and choose a valid return date.', 'error')
+        return redirect(url_for('borrower_dashboard'))
+    identity = ensure_community_user(current_user._get_current_object())
+    borrowing = CommunityBorrowing(borrower_id=identity.user_id, expected_return_date=expected,
+        borrowing_status='Pending', purpose=purpose)
+    db.session.add(borrowing)
+    db.session.flush()
+    db.session.add(CommunityBorrowingItem(borrowing_id=borrowing.borrowing_id, equipment_id=item.equipment_id))
+    community_audit('Requested equipment borrowing', 'borrowings', borrowing.borrowing_id, new_value=item.equipment_code)
+    db.session.commit()
+    flash('Borrow request sent for approval.', 'success')
+    return redirect(url_for('borrower_dashboard'))
+
+
+@app.route('/community/borrowing/<int:borrowing_id>/review', methods=['POST'])
+@login_required
+def community_review_borrowing(borrowing_id):
+    if not current_user.is_management:
+        return redirect(url_for('index'))
+    borrowing = db.session.get(CommunityBorrowing, borrowing_id)
+    decision = str(request.form.get('decision', '')).strip().lower()
+    if not borrowing or borrowing.borrowing_status != 'Pending' or decision not in {'approve', 'decline'}:
+        flash('This request is no longer pending.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    identity = ensure_community_user(current_user._get_current_object())
+    if decision == 'approve' and all(community_item_available(line.equipment) for line in borrowing.items):
+        borrowing.borrowing_status = 'Borrowed'
+        borrowing.approved_by = identity.user_id
+        for line in borrowing.items:
+            change_community_equipment_status(line.equipment, 'Borrowed', current_user._get_current_object(), f'Borrowing #{borrowing.borrowing_id} approved')
+        community_notify(borrowing.borrower_id, 'Borrow request approved', f'Borrowing #{borrowing.borrowing_id} is approved.', reference_type='borrowings', reference_id=borrowing.borrowing_id)
+        action = 'Approved equipment borrowing'
+    elif decision == 'decline':
+        borrowing.borrowing_status = 'Declined'
+        borrowing.approved_by = identity.user_id
+        community_notify(borrowing.borrower_id, 'Borrow request declined', f'Borrowing #{borrowing.borrowing_id} was declined.', reference_type='borrowings', reference_id=borrowing.borrowing_id)
+        action = 'Declined equipment borrowing'
+    else:
+        flash('One or more items are no longer available.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    community_audit(action, 'borrowings', borrowing.borrowing_id)
+    db.session.commit()
+    flash(f'Borrowing request {decision}d.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/return/<int:borrowing_item_id>', methods=['POST'])
+@login_required
+def community_inspect_return(borrowing_item_id):
+    if not current_user.is_management:
+        return redirect(url_for('index'))
+    line = db.session.get(CommunityBorrowingItem, borrowing_item_id)
+    condition = str(request.form.get('condition_status', '')).strip()
+    if not line or line.borrowing.borrowing_status not in {'Borrowed', 'Return Requested', 'Overdue'} or condition not in {'Good', 'Fair', 'Damaged', 'Poor'}:
+        flash('Choose an active borrowing item and valid return condition.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    identity = ensure_community_user(current_user._get_current_object())
+    remarks = str(request.form.get('remarks', '')).strip() or None
+    db.session.add(CommunityReturnInspection(borrowing_item_id=line.borrowing_item_id,
+        inspected_by=identity.user_id, condition_status=condition, remarks=remarks))
+    db.session.flush()
+    next_status = 'Available' if condition in {'Good', 'Fair'} else 'Under Maintenance'
+    change_community_equipment_status(line.equipment, next_status, current_user._get_current_object(), f'Returned {condition.lower()}: {remarks or "inspection complete"}')
+    if all(borrowing_line.inspections for borrowing_line in line.borrowing.items):
+        line.borrowing.actual_return_date = datetime.now()
+        line.borrowing.borrowing_status = 'Returned'
+    community_notify(line.borrowing.borrower_id, 'Equipment return recorded', f'{line.equipment.equipment_code} was checked in as {condition}.', reference_type='borrowings', reference_id=line.borrowing.borrowing_id)
+    community_audit('Inspected equipment return', 'return_inspections', line.borrowing_item_id, new_value=condition)
+    db.session.commit()
+    flash('Return inspection saved and equipment status history updated.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/return-request/<int:borrowing_item_id>', methods=['POST'])
+@login_required
+def community_borrower_return_request(borrowing_item_id):
+    line = db.session.get(CommunityBorrowingItem, borrowing_item_id)
+    identity = ensure_community_user(current_user._get_current_object())
+    if not current_user.can_borrow_equipment or not line or line.borrowing.borrower_id != identity.user_id or line.borrowing.borrowing_status != 'Borrowed':
+        flash('An active borrowing record could not be found.', 'error')
+        return redirect(url_for('borrower_dashboard'))
+    line.borrowing.borrowing_status = 'Return Requested'
+    for manager_role in CommunityRole.query.filter(CommunityRole.role_name.in_(['administrator','dean','it_manager','laboratory_custodian'])).all():
+        for manager in CommunityUser.query.filter_by(role_id=manager_role.role_id, account_status='Active').all():
+            community_notify(manager.user_id, 'Equipment return needs inspection',
+                f'{line.equipment.equipment_code} has been returned by {identity.first_name} {identity.last_name} and needs a condition inspection.',
+                reference_type='borrowings', reference_id=line.borrowing.borrowing_id)
+    community_audit('Requested return inspection', 'borrowings', line.borrowing.borrowing_id)
+    db.session.commit()
+    flash('Return request sent. A manager must inspect and check in the equipment.', 'success')
+    return redirect(url_for('borrower_dashboard'))
+
+
+@app.route('/community/equipment/<int:equipment_id>/issue', methods=['POST'])
+@login_required
+def community_report_issue(equipment_id):
+    item = db.session.get(CommunityEquipment, equipment_id)
+    title = str(request.form.get('issue_title', '')).strip()
+    description = str(request.form.get('issue_description', '')).strip()
+    if not item or not title or not description:
+        flash('Issue title and description are required.', 'error')
+        return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard'))
+    identity = ensure_community_user(current_user._get_current_object())
+    issue = CommunityIssue(equipment_id=item.equipment_id, reported_by=identity.user_id,
+        issue_title=title, issue_description=description)
+    db.session.add(issue)
+    db.session.flush()
+    image = request.files.get('issue_image')
+    if image and image.filename:
+        filename = secure_filename(image.filename)
+        extension = os.path.splitext(filename)[1].lower()
+        if extension not in {'.png', '.jpg', '.jpeg', '.webp'}:
+            db.session.rollback()
+            flash('Issue image must be PNG, JPG, or WEBP.', 'error')
+            return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard'))
+        folder = os.path.join(assets_dir, 'equipment_issues')
+        os.makedirs(folder, exist_ok=True)
+        saved_name = f'{uuid.uuid4().hex}{extension}'
+        image.save(os.path.join(folder, saved_name))
+        db.session.add(CommunityIssueImage(issue_id=issue.issue_id, uploaded_by=identity.user_id,
+            image_path=f'equipment_issues/{saved_name}'))
+    change_community_equipment_status(item, 'Under Maintenance', current_user._get_current_object(), f'Issue reported: {title}')
+    community_audit('Reported equipment issue', 'issues', issue.issue_id, new_value=title)
+    manager_roles = CommunityRole.query.filter(CommunityRole.role_name.in_(['administrator','dean','it_manager','laboratory_custodian'])).all()
+    for manager_role in manager_roles:
+        for manager in CommunityUser.query.filter_by(role_id=manager_role.role_id, account_status='Active').all():
+            if manager.user_id != identity.user_id:
+                community_notify(manager.user_id, 'New equipment issue',
+                    f'{item.equipment_code}: {title}', reference_type='issues', reference_id=issue.issue_id)
+    db.session.commit()
+    flash('Issue report and optional image saved.', 'success')
+    return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard'))
+
+
+@app.route('/community/maintenance/request/<int:equipment_id>', methods=['POST'])
+@login_required
+def community_request_maintenance(equipment_id):
+    if not current_user.can_manage_equipment:
+        return redirect(url_for('index'))
+    item = db.session.get(CommunityEquipment, equipment_id)
+    description = str(request.form.get('request_description', '')).strip()
+    priority_id = request.form.get('priority_id', type=int)
+    if not item or not description or not db.session.get(CommunityMaintenancePriority, priority_id):
+        flash('Equipment, request description, and priority are required.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    due = None
+    try: due = datetime.strptime(request.form.get('due_date', ''), '%Y-%m-%d').date()
+    except ValueError: pass
+    identity = ensure_community_user(current_user._get_current_object())
+    task = CommunityMaintenanceRequest(equipment_id=item.equipment_id, requested_by=identity.user_id,
+        priority_id=priority_id, request_description=description, due_date=due)
+    db.session.add(task)
+    db.session.flush()
+    change_community_equipment_status(item, 'Under Maintenance', current_user._get_current_object(), 'Maintenance requested')
+    community_audit('Created maintenance request', 'maintenance_requests', task.request_id)
+    db.session.commit()
+    flash('Maintenance request saved.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/maintenance/schedule/<int:equipment_id>', methods=['POST'])
+@login_required
+def community_schedule_maintenance(equipment_id):
+    if not current_user.can_manage_equipment: return redirect(url_for('index'))
+    item = db.session.get(CommunityEquipment, equipment_id)
+    try: schedule_date = datetime.strptime(request.form.get('schedule_date', ''), '%Y-%m-%d').date()
+    except ValueError: schedule_date = None
+    if not item or not schedule_date:
+        flash('Equipment and a valid schedule date are required.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    days = request.form.get('frequency_days', type=int)
+    task = CommunityMaintenanceSchedule(equipment_id=item.equipment_id,
+        assigned_to=ensure_community_user(current_user._get_current_object()).user_id,
+        maintenance_type=str(request.form.get('maintenance_type', 'Inspection')).strip() or 'Inspection',
+        schedule_date=schedule_date, frequency_days=days if days and days > 0 else None,
+        description=str(request.form.get('description', '')).strip() or None)
+    db.session.add(task)
+    community_audit('Scheduled maintenance', 'maintenance_schedules', new_value=item.equipment_code)
+    db.session.commit()
+    flash('Maintenance schedule created.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/maintenance/schedule/<int:schedule_id>/complete', methods=['POST'])
+@login_required
+def community_complete_schedule(schedule_id):
+    if not current_user.can_manage_equipment: return redirect(url_for('index'))
+    schedule = db.session.get(CommunityMaintenanceSchedule, schedule_id)
+    if not schedule or schedule.schedule_status != 'Scheduled':
+        flash('That maintenance schedule is no longer active.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    today = datetime.now().date()
+    identity = ensure_community_user(current_user._get_current_object())
+    schedule.schedule_status = 'Completed'
+    work = CommunityMaintenanceRecord(equipment_id=schedule.equipment_id,
+        technician_id=identity.user_id, maintenance_type=schedule.maintenance_type,
+        work_description=schedule.description or f'Scheduled {schedule.maintenance_type.lower()} completed.',
+        action_taken='Completed from maintenance schedule.', maintenance_date=today, completion_date=today)
+    db.session.add(work)
+    change_community_equipment_status(schedule.equipment, 'Available', current_user._get_current_object(),
+        f'{schedule.maintenance_type} schedule completed')
+    if schedule.frequency_days:
+        next_date = max(schedule.schedule_date, today) + timedelta(days=schedule.frequency_days)
+        db.session.add(CommunityMaintenanceSchedule(equipment_id=schedule.equipment_id,
+            assigned_to=schedule.assigned_to or identity.user_id, maintenance_type=schedule.maintenance_type,
+            schedule_date=next_date, frequency_days=schedule.frequency_days,
+            description=schedule.description, schedule_status='Scheduled'))
+    community_audit('Completed maintenance schedule', 'maintenance_schedules', schedule.schedule_id)
+    db.session.commit()
+    flash('Schedule completed and maintenance history recorded.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/maintenance/record/<int:equipment_id>', methods=['POST'])
+@login_required
+def community_record_maintenance(equipment_id):
+    if not current_user.can_manage_equipment: return redirect(url_for('index'))
+    item = db.session.get(CommunityEquipment, equipment_id)
+    work = str(request.form.get('work_description', '')).strip()
+    if not item or not work:
+        flash('Equipment and work description are required.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    today = datetime.now().date()
+    req_id = request.form.get('request_id', type=int)
+    related_request = db.session.get(CommunityMaintenanceRequest, req_id) if req_id else None
+    if related_request and related_request.equipment_id != item.equipment_id:
+        flash('The maintenance request belongs to a different equipment item.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    try:
+        cost = float(request.form.get('cost') or 0)
+        if cost < 0: raise ValueError()
+    except ValueError:
+        flash('Maintenance cost must be zero or greater.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    task = CommunityMaintenanceRecord(request_id=related_request.request_id if related_request else None,
+        equipment_id=item.equipment_id, technician_id=ensure_community_user(current_user._get_current_object()).user_id,
+        maintenance_type=str(request.form.get('maintenance_type', 'Repair')).strip() or 'Repair',
+        work_description=work, findings=str(request.form.get('findings', '')).strip() or None,
+        action_taken=str(request.form.get('action_taken', '')).strip() or None,
+        maintenance_date=today, completion_date=today if request.form.get('complete') else None,
+        cost=cost or None)
+    db.session.add(task)
+    db.session.flush()
+    if task.request:
+        task.request.request_status = 'Completed' if task.completion_date else 'In Progress'
+    if task.completion_date:
+        change_community_equipment_status(item, 'Available', current_user._get_current_object(), 'Maintenance completed')
+    community_audit('Recorded maintenance work', 'maintenance_records', task.maintenance_id)
+    db.session.commit()
+    flash('Maintenance work recorded.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/status/<int:equipment_id>', methods=['POST'])
+@login_required
+def community_update_status(equipment_id):
+    if not current_user.can_manage_equipment: return redirect(url_for('index'))
+    item = db.session.get(CommunityEquipment, equipment_id)
+    status = CommunityEquipmentStatus.query.filter_by(status_name=str(request.form.get('status_name', '')).strip()).first()
+    if not item or not status:
+        flash('Choose a valid equipment status.', 'error')
+    else:
+        old = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(CommunityEquipmentStatusHistory.changed_at.desc()).first()
+        community_audit('Changed equipment status', 'equipment_status_history', item.equipment_id,
+            old_value=old.status.status_name if old else None, new_value=status.status_name)
+        change_community_equipment_status(item, status.status_name, current_user._get_current_object(),
+            str(request.form.get('remarks', '')).strip() or None)
+        db.session.commit()
+        flash('Equipment status updated.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/qr/<int:equipment_id>')
+@login_required
+def community_equipment_qr(equipment_id):
+    qr = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id, is_active=True).first_or_404()
+    return jsonify({'equipment_id': equipment_id, 'qr_value': qr.qr_value,
+        'equipment_code': qr.equipment.equipment_code, 'equipment_name': qr.equipment.equipment_name,
+        'laboratory': qr.equipment.laboratory.laboratory_name, 'category': qr.equipment.category.category_name})
+
+
+@app.route('/community/qr/<int:equipment_id>', methods=['POST'])
+@login_required
+def community_manage_equipment_qr(equipment_id):
+    if not current_user.can_manage_equipment:
+        return redirect(url_for('index'))
+    item = db.session.get(CommunityEquipment, equipment_id)
+    if not item:
+        flash('Equipment was not found.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    qr = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id).first()
+    action = str(request.form.get('action', 'regenerate')).strip().lower()
+    if qr is None:
+        qr = CommunityEquipmentQRCode(equipment_id=item.equipment_id,
+            qr_value=f'PYPONDO-EQUIPMENT:{item.equipment_code}:{uuid.uuid4().hex[:12]}', is_active=True)
+        db.session.add(qr)
+        action = 'created'
+    elif action == 'deactivate':
+        qr.is_active = False
+    elif action in {'activate', 'regenerate'}:
+        qr.is_active = True
+        qr.qr_value = f'PYPONDO-EQUIPMENT:{item.equipment_code}:{uuid.uuid4().hex[:12]}'
+        qr.generated_at = datetime.now()
+    else:
+        flash('Choose activate, deactivate, or regenerate.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    community_audit(f'{action.title()} equipment QR code', 'equipment_qr_codes', qr.qr_id,
+        new_value=qr.qr_value)
+    db.session.commit()
+    flash(f'Equipment QR code {action}.', 'success')
+    return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/notifications/<int:notification_id>/read', methods=['POST'])
+@login_required
+def community_mark_notification_read(notification_id):
+    identity = ensure_community_user(current_user._get_current_object())
+    note = CommunityNotification.query.filter_by(notification_id=notification_id, user_id=identity.user_id).first()
+    if note:
+        note.read_at = datetime.now()
+        community_audit('Read notification', 'notifications', note.notification_id)
+        db.session.commit()
+    return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard'))
+
+
+@app.route('/community/user/<int:user_id>/update', methods=['POST'])
+@login_required
+def community_update_user(user_id):
+    if not (current_user.is_dean or current_user.is_admin):
+        return redirect(url_for('index'))
+    identity = db.session.get(CommunityUser, user_id)
+    if not identity:
+        flash('User record was not found.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    assignable_roles = {'dean', 'it_manager', 'it_staff', 'laboratory_custodian', 'instructor', 'student'}
+    new_role = str(request.form.get('role_name', '')).strip()
+    new_status = str(request.form.get('account_status', '')).strip()
+    login_name = identity.email[:-len('@pypondo.local')] if identity.email.endswith('@pypondo.local') else identity.email
+    login_account = User.query.filter(db.func.lower(User.username) == login_name.lower()).first()
+    if login_account and login_account.is_admin and identity.role.role_name == 'administrator' and new_role == 'dean':
+        new_role = 'administrator'
+    role = CommunityRole.query.filter_by(role_name=new_role).first()
+    # Preserve a legacy administrator's role when changing only account status.
+    if login_account and login_account.is_admin and new_role == 'administrator':
+        assignable_roles.add('administrator')
+        role = CommunityRole.query.filter_by(role_name='administrator').first()
+        if role is None:
+            role = CommunityRole(role_name='administrator', description='System administrator')
+            db.session.add(role)
+            db.session.flush()
+    if new_role not in assignable_roles or role is None or new_status not in {'Active', 'Inactive'}:
+        flash('Choose a supported staff role and account status.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    if login_account and login_account.id == current_user.id and (new_status == 'Inactive' or new_role not in {'dean'}):
+        flash('You cannot deactivate or remove dean access from your own account.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    if login_account and login_account.is_admin and new_role != 'dean' and User.query.filter_by(is_admin=True).count() <= 1:
+        flash('The last administrator account cannot be demoted here.', 'error')
+        return redirect(url_for('equipment_dashboard'))
+    old_value = json.dumps({'role': identity.role.role_name, 'status': identity.account_status})
+    identity.role_id, identity.account_status = role.role_id, new_status
+    if login_account:
+        login_account.role = new_role
+        login_account.is_active_staff = new_status == 'Active'
+        # Keep the main authentication account and ERD account status/role in sync.
+    community_audit('Updated account access', 'users', identity.user_id, old_value=old_value,
+        new_value=json.dumps({'role': new_role, 'status': new_status}))
+    db.session.commit()
+    flash('Account role and status updated.', 'success')
+    return redirect(url_for('equipment_dashboard'))
 
 
 @app.route('/borrower/request/<int:equipment_id>', methods=['POST'])
@@ -3140,12 +4238,14 @@ def download_equipment_report():
     if not current_staff_or_redirect(): return redirect(url_for('index'))
     stream = io.StringIO()
     writer = csv.writer(stream)
-    writer.writerow(['Asset tag', 'Name', 'Category', 'Serial number', 'Room', 'Location', 'Condition', 'Status', 'Accountable to', 'Last seen', 'Notes'])
-    for item in Equipment.query.order_by(Equipment.room, Equipment.asset_tag).all():
-        writer.writerow([item.asset_tag, item.name, item.category, item.serial_number or '', item.room or '',
-                         item.location_detail or '', item.condition, item.status,
-                         (item.accountable_to.username if item.accountable_to else ''),
-                         (item.last_seen_at.isoformat() if item.last_seen_at else ''), item.notes or ''])
+    writer.writerow(['Equipment code', 'Equipment name', 'Laboratory', 'Category', 'Brand', 'Model', 'Serial number', 'Acquisition date', 'Acquisition cost', 'Current status', 'Description'])
+    for item in CommunityEquipment.query.order_by(CommunityEquipment.equipment_code).all():
+        latest = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(
+            CommunityEquipmentStatusHistory.changed_at.desc(), CommunityEquipmentStatusHistory.status_history_id.desc()).first()
+        writer.writerow([item.equipment_code, item.equipment_name, item.laboratory.laboratory_name,
+            item.category.category_name, item.brand or '', item.model or '', item.serial_number or '',
+            item.acquisition_date.isoformat() if item.acquisition_date else '', item.acquisition_cost or '',
+            latest.status.status_name if latest else 'Unknown', item.description or ''])
     return app.response_class(stream.getvalue(), mimetype='text/csv', headers={
         'Content-Disposition': 'attachment; filename=equipment-report.csv'
     })
@@ -3248,16 +4348,19 @@ def record_maintenance(equipment_id):
 @app.route('/hr/staff', methods=['POST'])
 @login_required
 def create_staff_account():
-    if not (current_user.is_admin or current_user.is_hr):
-        flash('Only HR or an administrator can create staff accounts.', 'error'); return redirect(url_for('equipment_dashboard'))
+    if not (current_user.is_admin or current_user.is_dean):
+        flash('Only the dean or an administrator can create staff accounts.', 'error'); return redirect(url_for('equipment_dashboard'))
     username, password = str(request.form.get('username', '')).strip(), str(request.form.get('password', ''))
     role = str(request.form.get('role', 'it_staff')).strip()
-    allowed_roles = {'it_manager', 'it_staff', 'laboratory_custodian', 'hr', 'instructor', 'dean'}
+    allowed_roles = {'it_manager', 'it_staff', 'laboratory_custodian', 'instructor', 'dean'}
     if not username or len(password) < 8 or role not in allowed_roles or User.query.filter_by(username=username).first():
         flash('Use a unique username, an 8+ character password, and a valid staff role.', 'error'); return redirect(url_for('equipment_dashboard'))
     staff = User(username=username, full_name=str(request.form.get('full_name', '')).strip() or username, role=role)
     staff.set_password(password); db.session.add(staff)
-    db.session.add(AdminLog(admin_name=current_user.username, action=f'HR created {role} account {username}'))
+    db.session.flush()
+    identity = ensure_community_user(staff)
+    db.session.add(AdminLog(admin_name=current_user.username, action=f'Dean created {role} account {username}'))
+    community_audit('Created staff account', 'users', identity.user_id, new_value=f'{username} ({role})')
     db.session.commit(); flash('Staff account created.', 'success')
     return redirect(url_for('equipment_dashboard'))
 
@@ -4474,15 +5577,7 @@ if __name__ == '__main__':
     log.setLevel(logging.ERROR)
     
     with app.app_context():
-        db.create_all()
-        ensure_pc_lan_ip_column()
-        ensure_booking_date_column()
-        ensure_session_last_charged_at_column()
-        ensure_equipment_transaction_columns()
-        ensure_user_role_columns()
-        seeded = ensure_core_seed_data()
-        if seeded:
-            print("DB Init: admin/admin123")
+        initialize_database()
     
     app_host = (os.getenv("APP_HOST") or os.getenv("FLASK_HOST") or "0.0.0.0").strip() or "0.0.0.0"
     app_port = int((os.getenv("APP_PORT") or os.getenv("PORT") or os.getenv("FLASK_PORT") or "5000").strip())
