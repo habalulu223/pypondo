@@ -1,6 +1,6 @@
 <style>
     body {
-        background-color: #0b0c15 !important;
+        background-color: #16090d !important;
     }
 
     .cyber-bg {
@@ -14,14 +14,10 @@
 
     body.startup-active .cyber-bg {
         opacity: 0.08;
-        transform: scale(1.04);
-        filter: blur(8px);
     }
 
     body.startup-complete .cyber-bg {
         opacity: 1;
-        transform: scale(1);
-        filter: blur(0);
     }
 
     .cyber-bg::before,
@@ -30,33 +26,31 @@
         position: absolute;
         inset: -12%;
         background:
-            radial-gradient(circle at center, rgba(0, 243, 255, 0.2) 0%, rgba(0, 243, 255, 0.08) 18%, rgba(0, 0, 0, 0) 46%),
-            radial-gradient(circle at 18% 20%, rgba(0, 120, 255, 0.12) 0%, rgba(0, 0, 0, 0) 32%),
-            radial-gradient(circle at 82% 78%, rgba(0, 255, 157, 0.08) 0%, rgba(0, 0, 0, 0) 26%);
+            radial-gradient(circle at center, rgba(255, 255, 255, 0.2) 0%, rgba(255, 45, 70, 0.16) 22%, rgba(0, 0, 0, 0) 52%),
+            radial-gradient(circle at 18% 20%, rgba(255, 35, 62, 0.2) 0%, rgba(0, 0, 0, 0) 36%),
+            radial-gradient(circle at 82% 78%, rgba(255, 255, 255, 0.11) 0%, rgba(0, 0, 0, 0) 30%);
         animation: bgPulse 8s ease-in-out infinite alternate;
     }
 
     .cyber-bg::after {
-        opacity: 0.45;
-        filter: blur(34px);
-        animation-duration: 12s;
+        display: none;
     }
 
     .cyber-grid {
         position: absolute;
         inset: 0;
         background-image:
-            linear-gradient(rgba(0, 243, 255, 0.06) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0, 243, 255, 0.06) 1px, transparent 1px);
+            linear-gradient(rgba(255, 65, 85, 0.07) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 65, 85, 0.07) 1px, transparent 1px);
         background-size: 48px 48px;
         background-image:
-            linear-gradient(rgba(0, 243, 255, 0.075) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0, 243, 255, 0.075) 1px, transparent 1px),
-            linear-gradient(rgba(0, 243, 255, 0.035) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0, 243, 255, 0.035) 1px, transparent 1px);
+            linear-gradient(rgba(255, 65, 85, 0.09) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 65, 85, 0.09) 1px, transparent 1px),
+            linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
         background-size: 48px 48px, 48px 48px, 12px 12px, 12px 12px;
         mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.95) 24%, rgba(0, 0, 0, 0.5) 58%, transparent 86%);
-        opacity: 0.5;
+        opacity: 0.62;
     }
 
     .cyber-svg {
@@ -68,7 +62,7 @@
 
     .cyber-wire {
         fill: none;
-        stroke: rgba(72, 150, 190, 0.58);
+        stroke: rgba(255, 95, 112, 0.68);
         stroke-width: 2.4;
         stroke-linecap: round;
         stroke-linejoin: round;
@@ -76,43 +70,44 @@
 
     .cyber-wire-glow {
         fill: none;
-        stroke: rgba(0, 243, 255, 0.14);
-        stroke-width: 8;
+        stroke: rgba(255, 255, 255, 0.28);
+        stroke-width: 9;
         stroke-linecap: round;
         stroke-linejoin: round;
-        filter: blur(2px);
+        filter: none;
     }
 
     .cyber-pulse {
         fill: none;
-        stroke: rgba(160, 250, 255, 1);
-        stroke-width: 3.2;
+        stroke: rgba(255, 255, 255, 1);
+        stroke-width: 3.6;
         stroke-linecap: round;
         stroke-linejoin: round;
-        stroke-dasharray: 8 30 3 190;
-        animation: wireCurrent 1.65s linear infinite;
-        filter: drop-shadow(0 0 5px rgba(0, 243, 255, 1)) drop-shadow(0 0 13px rgba(0, 243, 255, 0.8));
+        /* One moving neon dash per circuit path. */
+        stroke-dasharray: 8 560;
+        animation: wireCurrent 2.35s linear infinite;
+        filter: none;
     }
 
     .cyber-pulse.delay-1 { animation-delay: -0.9s; }
     .cyber-pulse.delay-2 { animation-delay: -1.8s; }
     .cyber-pulse.delay-3 { animation-delay: -2.4s; }
 
-    .cyber-trace { fill:none; stroke:rgba(56,150,190,.42); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
-    .cyber-bolt { fill:none; stroke:#b7fbff; stroke-width:2.5; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:5 95; animation: wireCurrent 1.1s linear infinite; filter:drop-shadow(0 0 5px #00f3ff) drop-shadow(0 0 12px #00aaff); }
+    .cyber-trace { fill:none; stroke:rgba(255,105,120,.48); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+    .cyber-bolt { fill:none; stroke:#fff; stroke-width:2.5; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:5 95; animation: wireCurrent 1.1s linear infinite; filter:none; }
     .cyber-bolt.b2 { animation-delay:-.38s; }
     .cyber-bolt.b3 { animation-delay:-.76s; }
 
     .cyber-node {
-        fill: rgba(11, 15, 26, 0.9);
-        stroke: rgba(0, 243, 255, 0.55);
+        fill: rgba(45, 8, 15, 0.95);
+        stroke: rgba(255, 255, 255, 0.7);
         stroke-width: 2;
     }
 
     .cyber-node.hot {
-        fill: rgba(0, 243, 255, 0.18);
-        stroke: rgba(138, 248, 255, 0.95);
-        filter: drop-shadow(0 0 10px rgba(0, 243, 255, 0.9));
+        fill: rgba(255, 40, 65, 0.48);
+        stroke: rgba(255, 255, 255, 1);
+        filter: none;
         animation: nodeBlink 2.2s ease-in-out infinite;
     }
 
@@ -133,15 +128,15 @@
         position: absolute;
         inset: -22%;
         border-radius: 28%;
-        border: 1px solid rgba(0, 243, 255, 0.24);
-        box-shadow: 0 0 30px rgba(0, 243, 255, 0.16), inset 0 0 24px rgba(0, 243, 255, 0.06);
+        border: 1px solid rgba(255, 70, 90, 0.42);
+        box-shadow: inset 0 0 12px rgba(255, 45, 70, 0.1);
         animation: coreRotate 16s linear infinite;
     }
 
     .cyber-core::after {
         inset: -10%;
         border-radius: 36%;
-        border-color: rgba(0, 255, 157, 0.22);
+        border-color: rgba(255, 255, 255, 0.32);
         animation-direction: reverse;
         animation-duration: 10s;
     }
@@ -150,8 +145,8 @@
         position: absolute;
         inset: 6%;
         border-radius: 50%;
-        border: 1px solid rgba(0, 243, 255, 0.25);
-        box-shadow: inset 0 0 24px rgba(0, 243, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.36);
+        box-shadow: inset 0 0 12px rgba(255, 45, 70, 0.14);
     }
 
     .cyber-core-shell {
@@ -160,12 +155,9 @@
         border-radius: 50%;
         background:
             radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.14), transparent 34%),
-            radial-gradient(circle at center, rgba(11, 25, 40, 0.96) 0%, rgba(8, 12, 20, 0.98) 72%);
-        border: 1px solid rgba(0, 243, 255, 0.35);
-        box-shadow:
-            0 0 25px rgba(0, 243, 255, 0.16),
-            inset 0 0 20px rgba(0, 243, 255, 0.08),
-            inset 0 0 50px rgba(0, 0, 0, 0.45);
+            radial-gradient(circle at center, rgba(48, 10, 17, 0.97) 0%, rgba(20, 7, 11, 0.99) 72%);
+        border: 1px solid rgba(255, 90, 108, 0.58);
+        box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.35);
         overflow: hidden;
     }
 
@@ -174,7 +166,7 @@
         position: absolute;
         inset: 12%;
         border-radius: 50%;
-        border: 1px dashed rgba(0, 243, 255, 0.22);
+        border: 1px dashed rgba(255, 255, 255, 0.36);
         animation: coreRotate 12s linear infinite reverse;
     }
 
@@ -182,7 +174,7 @@
         position: absolute;
         width: 40%;
         max-width: 84px;
-        filter: drop-shadow(0 0 16px rgba(0, 243, 255, 0.35));
+        filter: none;
         animation: iconFloat 3.8s ease-in-out infinite;
     }
 
@@ -196,8 +188,8 @@
         width: 10px;
         height: 10px;
         border-radius: 50%;
-        background: radial-gradient(circle, rgba(185, 251, 255, 1) 0%, rgba(0, 243, 255, 0.75) 40%, rgba(0, 243, 255, 0) 72%);
-        box-shadow: 0 0 12px rgba(0, 243, 255, 0.8);
+        background: radial-gradient(circle, rgba(255, 255, 255, 1) 0%, rgba(255, 48, 70, 0.85) 40%, rgba(255, 48, 70, 0) 72%);
+        box-shadow: none;
         animation: sparkOrbit 4.8s linear infinite;
     }
 
@@ -213,7 +205,7 @@
 
     @keyframes wireCurrent {
         from { stroke-dashoffset: 0; }
-        to { stroke-dashoffset: -398; }
+        to { stroke-dashoffset: -568; }
     }
 
     @keyframes coreRotate {
@@ -222,8 +214,8 @@
     }
 
     @keyframes bgPulse {
-        from { transform: scale(1) rotate(0deg); opacity: 0.72; }
-        to { transform: scale(1.06) rotate(2deg); opacity: 1; }
+        from { opacity: 0.72; }
+        to { opacity: 1; }
     }
 
     @keyframes nodeBlink {
@@ -261,51 +253,32 @@
 <div class="cyber-bg" aria-hidden="true">
     <div class="cyber-grid"></div>
     <svg class="cyber-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-        <path class="cyber-wire-glow" d="M80 140 H280 L360 260 H430" />
-        <path class="cyber-wire-glow" d="M920 140 H720 L640 260 H570" />
-        <path class="cyber-wire-glow" d="M80 860 H280 L360 740 H430" />
-        <path class="cyber-wire-glow" d="M920 860 H720 L640 740 H570" />
-        <path class="cyber-wire-glow" d="M170 500 H340 L405 500" />
-        <path class="cyber-wire-glow" d="M830 500 H660 L595 500" />
-        <path class="cyber-wire-glow" d="M500 90 V270" />
-        <path class="cyber-wire-glow" d="M500 910 V730" />
-        <path class="cyber-wire-glow" d="M40 330 H175 L220 375 V430 H315" />
-        <path class="cyber-wire-glow" d="M960 330 H825 L780 375 V430 H685" />
-        <path class="cyber-wire-glow" d="M40 670 H175 L220 625 V570 H315" />
-        <path class="cyber-wire-glow" d="M960 670 H825 L780 625 V570 H685" />
-        <path class="cyber-wire-glow" d="M300 70 V180 L350 230" />
-        <path class="cyber-wire-glow" d="M700 70 V180 L650 230" />
-        <path class="cyber-wire-glow" d="M300 930 V820 L350 770" />
-        <path class="cyber-wire-glow" d="M700 930 V820 L650 770" />
+        <path class="cyber-wire-glow" d="M80 140 H280 L360 260 H430 V385" />
+        <path class="cyber-wire-glow" d="M920 140 H720 L640 260 H570 V385" />
+        <path class="cyber-wire-glow" d="M80 860 H280 L360 740 H430 V615" />
+        <path class="cyber-wire-glow" d="M920 860 H720 L640 740 H570 V615" />
+        <path class="cyber-wire-glow" d="M170 500 H340 L385 500" />
+        <path class="cyber-wire-glow" d="M830 500 H660 L615 500" />
+        <path class="cyber-wire-glow" d="M500 90 V385" />
+        <path class="cyber-wire-glow" d="M500 910 V615" />
 
-        <path class="cyber-wire" d="M80 140 H280 L360 260 H430" />
-        <path class="cyber-wire" d="M920 140 H720 L640 260 H570" />
-        <path class="cyber-wire" d="M80 860 H280 L360 740 H430" />
-        <path class="cyber-wire" d="M920 860 H720 L640 740 H570" />
-        <path class="cyber-wire" d="M170 500 H340 L405 500" />
-        <path class="cyber-wire" d="M830 500 H660 L595 500" />
-        <path class="cyber-wire" d="M500 90 V270" />
-        <path class="cyber-wire" d="M500 910 V730" />
-        <path class="cyber-trace" d="M40 330 H175 L220 375 V430 H315 M960 330 H825 L780 375 V430 H685" />
-        <path class="cyber-trace" d="M40 670 H175 L220 625 V570 H315 M960 670 H825 L780 625 V570 H685" />
-        <path class="cyber-trace" d="M300 70 V180 L350 230 M700 70 V180 L650 230 M300 930 V820 L350 770 M700 930 V820 L650 770" />
+        <path class="cyber-wire" d="M80 140 H280 L360 260 H430 V385" />
+        <path class="cyber-wire" d="M920 140 H720 L640 260 H570 V385" />
+        <path class="cyber-wire" d="M80 860 H280 L360 740 H430 V615" />
+        <path class="cyber-wire" d="M920 860 H720 L640 740 H570 V615" />
+        <path class="cyber-wire" d="M170 500 H340 L385 500" />
+        <path class="cyber-wire" d="M830 500 H660 L615 500" />
+        <path class="cyber-wire" d="M500 90 V385" />
+        <path class="cyber-wire" d="M500 910 V615" />
 
-        <path class="cyber-pulse" d="M80 140 H280 L360 260 H430" />
-        <path class="cyber-pulse delay-1" d="M920 140 H720 L640 260 H570" />
-        <path class="cyber-pulse delay-2" d="M80 860 H280 L360 740 H430" />
-        <path class="cyber-pulse delay-3" d="M920 860 H720 L640 740 H570" />
-        <path class="cyber-pulse delay-1" d="M170 500 H340 L405 500" />
-        <path class="cyber-pulse delay-2" d="M830 500 H660 L595 500" />
-        <path class="cyber-pulse delay-3" d="M500 90 V270" />
-        <path class="cyber-pulse" d="M500 910 V730" />
-        <path class="cyber-bolt" d="M40 330 H175 L220 375 V430 H315" />
-        <path class="cyber-bolt b2" d="M960 330 H825 L780 375 V430 H685" />
-        <path class="cyber-bolt b2" d="M40 670 H175 L220 625 V570 H315" />
-        <path class="cyber-bolt b3" d="M960 670 H825 L780 625 V570 H685" />
-        <path class="cyber-bolt b3" d="M300 70 V180 L350 230" />
-        <path class="cyber-bolt" d="M700 70 V180 L650 230" />
-        <path class="cyber-bolt b2" d="M300 930 V820 L350 770" />
-        <path class="cyber-bolt b3" d="M700 930 V820 L650 770" />
+        <path class="cyber-pulse" d="M80 140 H280 L360 260 H430 V385" />
+        <path class="cyber-pulse delay-1" d="M920 140 H720 L640 260 H570 V385" />
+        <path class="cyber-pulse delay-2" d="M80 860 H280 L360 740 H430 V615" />
+        <path class="cyber-pulse delay-3" d="M920 860 H720 L640 740 H570 V615" />
+        <path class="cyber-pulse delay-1" d="M170 500 H340 L385 500" />
+        <path class="cyber-pulse delay-2" d="M830 500 H660 L615 500" />
+        <path class="cyber-pulse delay-3" d="M500 90 V385" />
+        <path class="cyber-pulse" d="M500 910 V615" />
 
         <circle class="cyber-node" cx="80" cy="140" r="10" />
         <circle class="cyber-node hot" cx="280" cy="140" r="8" />
@@ -323,14 +296,14 @@
         <circle class="cyber-node hot" cx="720" cy="860" r="8" />
         <circle class="cyber-node hot" cx="640" cy="740" r="8" />
         <circle class="cyber-node" cx="570" cy="740" r="10" />
-        <circle class="cyber-node hot" cx="500" cy="90" r="8" />
-        <circle class="cyber-node hot" cx="500" cy="270" r="8" />
-        <circle class="cyber-node hot" cx="500" cy="730" r="8" />
-        <circle class="cyber-node hot" cx="500" cy="910" r="8" />
         <circle class="cyber-node" cx="170" cy="500" r="10" />
         <circle class="cyber-node hot" cx="340" cy="500" r="8" />
         <circle class="cyber-node hot" cx="660" cy="500" r="8" />
         <circle class="cyber-node" cx="830" cy="500" r="10" />
+        <circle class="cyber-node hot" cx="500" cy="90" r="8" />
+        <circle class="cyber-node hot" cx="500" cy="270" r="8" />
+        <circle class="cyber-node hot" cx="500" cy="730" r="8" />
+        <circle class="cyber-node hot" cx="500" cy="910" r="8" />
     </svg>
 
     <div class="cyber-core">

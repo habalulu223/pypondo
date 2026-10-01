@@ -18,8 +18,8 @@
         }
         .card {
             background-color: #151922;
-            border: 1px solid #00f3ff;
-            box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
+            border: 1px solid #e21f3d;
+            box-shadow: 0 0 20px rgba(226,31,61, 0.2);
             padding: 40px;
             border-radius: 10px;
             width: 350px;
@@ -27,7 +27,7 @@
         }
         h1 {
             font-family: 'Orbitron', sans-serif;
-            color: #00f3ff;
+            color: #e21f3d;
             margin-bottom: 30px;
         }
         input {
@@ -41,13 +41,13 @@
             box-sizing: border-box;
             font-size: 1.1em;
         }
-        input:focus { border-color: #00f3ff; outline: none; }
+        input:focus { border-color: #e21f3d; outline: none; }
 
         button {
             width: 100%;
             padding: 12px;
             margin-top: 20px;
-            background: linear-gradient(45deg, #00f3ff, #0066ff);
+            background: linear-gradient(45deg, #e21f3d, #a50f28);
             border: none;
             color: white;
             font-family: 'Orbitron', sans-serif;
@@ -57,7 +57,7 @@
             transition: 0.3s;
         }
         button:hover {
-            box-shadow: 0 0 15px #00f3ff;
+            box-shadow: 0 0 15px #e21f3d;
             transform: scale(1.02);
         }
         a {
@@ -68,7 +68,7 @@
         }
         a:hover { color: white; }
     </style>
-</head>
+{% include '_dashboard_container_theme.html' %}</head>
 <body>
     {% include '_animated_background.html' %}
     {% include '_loading_overlay.html' %}

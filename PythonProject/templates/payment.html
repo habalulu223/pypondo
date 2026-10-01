@@ -10,8 +10,8 @@
         :root {
             --bg: #0b0c15;
             --card: #151922;
-            --line: #00f3ff;
-            --ok: #00ff9d;
+            --line: #e21f3d;
+            --ok: #d91c39;
             --warn: #ff0055;
             --text: #e0e6ed;
             --muted: #90a6bc;
@@ -65,7 +65,7 @@
         button:hover {
             background: var(--line);
             color: #000;
-            box-shadow: 0 0 14px rgba(0, 243, 255, 0.45);
+            box-shadow: 0 0 14px rgba(226,31,61, 0.45);
         }
         .btn.warn {
             border-color: var(--warn);
@@ -86,7 +86,7 @@
             border: 1px solid #2a3347;
             border-radius: 14px;
             padding: 20px;
-            box-shadow: 0 0 24px rgba(0, 243, 255, 0.08);
+            box-shadow: 0 0 24px rgba(226,31,61, 0.08);
         }
         .card h2 {
             margin-top: 0;
@@ -131,7 +131,7 @@
             display: block;
             margin-bottom: 6px;
             font-family: 'Orbitron', sans-serif;
-            color: #f3f8ff;
+            color: #ffffff;
         }
         .method-label span {
             font-size: 0.84rem;
@@ -140,7 +140,7 @@
         }
         .method-option input:checked + .method-label {
             border-color: var(--line);
-            box-shadow: 0 0 18px rgba(0, 243, 255, 0.2);
+            box-shadow: 0 0 18px rgba(226,31,61, 0.2);
             transform: translateY(-2px);
         }
         .field-group {
@@ -171,7 +171,7 @@
         }
         input:focus {
             border-color: var(--line);
-            outline: 3px solid rgba(0, 243, 255, 0.35);
+            outline: 3px solid rgba(226,31,61, 0.35);
             outline-offset: 2px;
         }
         .helper,
@@ -183,9 +183,9 @@
             font-size: 0.9rem;
         }
         .helper {
-            background: rgba(0, 243, 255, 0.08);
-            border: 1px solid rgba(0, 243, 255, 0.22);
-            color: #b5edf7;
+            background: rgba(226,31,61, 0.08);
+            border: 1px solid rgba(226,31,61, 0.22);
+            color: #ffffff;
         }
         .notice {
             background: rgba(255, 179, 107, 0.08);
@@ -218,7 +218,7 @@
             font-weight: 700;
         }
         button:focus, .btn:focus {
-            outline: 3px solid rgba(0, 243, 255, 0.35);
+            outline: 3px solid rgba(226,31,61, 0.35);
             outline-offset: 2px;
         }
         .fine-print {
@@ -242,7 +242,7 @@
             }
         }
     </style>
-</head>
+{% include '_dashboard_container_theme.html' %}</head>
 <body>
     {% include '_animated_background.html' %}
     {% include '_loading_overlay.html' %}

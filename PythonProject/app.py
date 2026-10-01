@@ -627,8 +627,10 @@ class CommunityEquipment(db.Model):
     acquisition_date = db.Column(db.Date)
     acquisition_cost = db.Column(db.Float)
     description = db.Column(db.Text)
+    owner_user_id = db.Column(db.Integer, db.ForeignKey('users.user_id'), index=True)
     laboratory = db.relationship('CommunityLaboratory')
     category = db.relationship('CommunityEquipmentCategory')
+    owner = db.relationship('CommunityUser', foreign_keys=[owner_user_id])
 
 
 class CommunityEquipmentQRCode(db.Model):
@@ -652,6 +654,7 @@ class CommunityEquipmentStatusHistory(db.Model):
     changed_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
     changed_at = db.Column(db.DateTime, nullable=False, default=datetime.now, server_default=text('CURRENT_TIMESTAMP'))
     remarks = db.Column(db.Text)
+    __table_args__ = (db.Index('ix_equipment_status_latest', 'equipment_id', 'changed_at', 'status_history_id'),)
     equipment = db.relationship('CommunityEquipment')
     status = db.relationship('CommunityEquipmentStatus')
     actor = db.relationship('CommunityUser')
@@ -1142,6 +1145,12 @@ def change_community_equipment_status(item, status_name, actor, remarks=None):
 def initialize_database():
     """Initialize both the cafe database and the community ERD database."""
     db.create_all()
+    community_engine = db.engines['community']
+    with community_engine.begin() as connection:
+        equipment_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(equipment)').fetchall()}
+        if 'owner_user_id' not in equipment_columns:
+            connection.exec_driver_sql('ALTER TABLE equipment ADD COLUMN owner_user_id INTEGER REFERENCES users(user_id)')
+        connection.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_equipment_owner_user_id ON equipment (owner_user_id)')
     ensure_pc_lan_ip_column()
     ensure_booking_date_column()
     ensure_session_last_charged_at_column()
@@ -2794,10 +2803,11 @@ def user_has_positive_balance(user):
 
 
 def post_login_endpoint_for_user(user):
-    if getattr(user, "is_management", False): return "management_dashboard"
-    if getattr(user, "can_manage_equipment", False): return "equipment_dashboard"
-    if getattr(user, "is_dean", False): return "dean_dashboard"
-    return "borrower_dashboard"
+    if (getattr(user, "is_management", False)
+            or getattr(user, "can_manage_equipment", False)
+            or getattr(user, "can_borrow_equipment", False)):
+        return "role_dashboard"
+    return "index"
 
 
 def resolve_safe_next_url():
@@ -3373,14 +3383,10 @@ def client_delete_booking(id):
 @app.route('/')
 @login_required
 def index():
-    if getattr(current_user, 'is_management', False):
-        return redirect(url_for('management_dashboard'))
-    if getattr(current_user, 'can_manage_equipment', False):
-        return redirect(url_for('equipment_dashboard'))
-    if getattr(current_user, 'can_borrow_equipment', False):
-        return redirect(url_for('borrower_dashboard'))
-    if getattr(current_user, 'is_dean', False):
-        return redirect(url_for('dean_dashboard'))
+    if (getattr(current_user, 'is_management', False)
+            or getattr(current_user, 'can_manage_equipment', False)
+            or getattr(current_user, 'can_borrow_equipment', False)):
+        return redirect(url_for('role_dashboard'))
     if not current_user.is_admin:
         if user_has_positive_balance(current_user):
             return redirect(url_for('client_desktop'))
@@ -3513,41 +3519,195 @@ def index():
     )
 
 
+def community_latest_equipment_statuses(equipment_ids=None):
+    latest_timestamps = db.session.query(
+        CommunityEquipmentStatusHistory.equipment_id.label('equipment_id'),
+        db.func.max(CommunityEquipmentStatusHistory.changed_at).label('latest_changed_at')
+    ).group_by(CommunityEquipmentStatusHistory.equipment_id)
+    if equipment_ids is not None:
+        if not equipment_ids:
+            return {}
+        latest_timestamps = latest_timestamps.filter(CommunityEquipmentStatusHistory.equipment_id.in_(equipment_ids))
+    latest_timestamps = latest_timestamps.subquery()
+    latest_ids = db.session.query(
+        db.func.max(CommunityEquipmentStatusHistory.status_history_id).label('latest_status_id')
+    ).join(latest_timestamps,
+        (CommunityEquipmentStatusHistory.equipment_id == latest_timestamps.c.equipment_id)
+        & (CommunityEquipmentStatusHistory.changed_at == latest_timestamps.c.latest_changed_at)
+    ).group_by(CommunityEquipmentStatusHistory.equipment_id).subquery()
+    rows = db.session.query(
+        CommunityEquipmentStatusHistory.equipment_id,
+        CommunityEquipmentStatus.status_name
+    ).join(latest_ids,
+        CommunityEquipmentStatusHistory.status_history_id == latest_ids.c.latest_status_id
+    ).join(CommunityEquipmentStatus,
+        CommunityEquipmentStatus.status_id == CommunityEquipmentStatusHistory.status_id
+    ).all()
+    return {equipment_id: status_name for equipment_id, status_name in rows}
+
+
 @app.route('/equipment')
 @login_required
 def equipment_dashboard():
     if not current_staff_or_redirect():
         return redirect(url_for('index'))
+    dashboard_tabs = [
+        {'key': 'inventory', 'label': 'Inventory'},
+        {'key': 'maintenance', 'label': 'Maintenance'},
+        {'key': 'reports', 'label': 'Reports'},
+        {'key': 'catalogs', 'label': 'Catalogs'}
+    ]
+    if current_user.is_management:
+        dashboard_tabs.insert(1, {'key': 'approvals', 'label': 'Borrowing approvals'})
+    if current_user.is_dean or current_user.is_admin:
+        dashboard_tabs.append({'key': 'users', 'label': 'User access'})
+    allowed_views = {tab['key'] for tab in dashboard_tabs}
+    dashboard_view = request.args.get('view', 'inventory')
+    if dashboard_view not in allowed_views:
+        dashboard_view = 'inventory'
     identity = ensure_community_user(current_user._get_current_object())
-    db.session.commit()
-    equipment = CommunityEquipment.query.order_by(CommunityEquipment.equipment_name).all()
-    pending_borrowings = CommunityBorrowing.query.filter_by(borrowing_status='Pending').order_by(CommunityBorrowing.borrow_date.desc()).all()
-    active_borrowings = CommunityBorrowing.query.filter(CommunityBorrowing.borrowing_status.in_(['Borrowed', 'Return Requested', 'Overdue'])).order_by(CommunityBorrowing.expected_return_date).all()
-    requests = CommunityMaintenanceRequest.query.order_by(CommunityMaintenanceRequest.requested_at.desc()).limit(100).all()
-    schedules = CommunityMaintenanceSchedule.query.filter_by(schedule_status='Scheduled').order_by(CommunityMaintenanceSchedule.schedule_date).all()
-    issues = CommunityIssue.query.order_by(CommunityIssue.reported_at.desc()).limit(100).all()
-    audit_logs = CommunityAuditLog.query.order_by(CommunityAuditLog.created_at.desc()).limit(50).all()
-    notifications = CommunityNotification.query.filter_by(user_id=identity.user_id).order_by(CommunityNotification.created_at.desc()).limit(50).all()
-    borrowing_history = CommunityBorrowing.query.order_by(CommunityBorrowing.borrow_date.desc()).limit(50).all()
-    return_inspections = CommunityReturnInspection.query.order_by(CommunityReturnInspection.inspection_date.desc()).limit(50).all()
-    equipment_status = {}
-    for item in equipment:
-        latest = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(
-            CommunityEquipmentStatusHistory.changed_at.desc(), CommunityEquipmentStatusHistory.status_history_id.desc()).first()
-        equipment_status[item.equipment_id] = latest.status.status_name if latest else 'Unknown'
+    page_number = request.args.get('page', 1, type=int)
+    equipment_page = None
+    equipment = []
+    equipment_total = CommunityEquipment.query.count()
+    if dashboard_view in {'inventory', 'maintenance'}:
+        equipment_page = CommunityEquipment.query.order_by(CommunityEquipment.equipment_name).paginate(
+            page=max(1, page_number), per_page=24, error_out=False)
+        equipment = equipment_page.items
+
+    equipment_status = community_latest_equipment_statuses(
+        [item.equipment_id for item in equipment] if equipment else [])
+    pending_borrowings = []
+    active_borrowings = []
+    borrowing_history = []
+    return_inspections = []
+    if dashboard_view == 'approvals':
+        pending_query = CommunityBorrowing.query.filter_by(borrowing_status='Pending')
+        if not current_user.is_admin:
+            pending_query = pending_query.filter(~CommunityBorrowing.items.any(
+                CommunityBorrowingItem.equipment.has(CommunityEquipment.owner_user_id.isnot(None))))
+        pending_borrowings = pending_query.order_by(
+            CommunityBorrowing.borrow_date.desc()).limit(100).all()
+        active_borrowings = CommunityBorrowing.query.filter(
+            CommunityBorrowing.borrowing_status.in_(['Borrowed', 'Return Requested', 'Overdue'])
+        ).order_by(CommunityBorrowing.expected_return_date).limit(100).all()
+        borrowing_history = CommunityBorrowing.query.order_by(CommunityBorrowing.borrow_date.desc()).limit(50).all()
+        return_inspections = CommunityReturnInspection.query.order_by(
+            CommunityReturnInspection.inspection_date.desc()).limit(50).all()
+
+    requests = []
+    schedules = []
+    maintenance_records = []
+    if dashboard_view == 'maintenance':
+        requests = CommunityMaintenanceRequest.query.order_by(CommunityMaintenanceRequest.requested_at.desc()).limit(100).all()
+        schedules = CommunityMaintenanceSchedule.query.filter_by(schedule_status='Scheduled').order_by(
+            CommunityMaintenanceSchedule.schedule_date).limit(100).all()
+        maintenance_records = CommunityMaintenanceRecord.query.order_by(
+            CommunityMaintenanceRecord.maintenance_date.desc()).limit(40).all()
+
+    issues = CommunityIssue.query.order_by(CommunityIssue.reported_at.desc()).limit(100).all() if dashboard_view == 'reports' else []
+    audit_logs = CommunityAuditLog.query.order_by(CommunityAuditLog.created_at.desc()).limit(50).all() if dashboard_view == 'reports' else []
+    notifications = []
+    categories = CommunityEquipmentCategory.query.order_by(CommunityEquipmentCategory.category_name).all() if dashboard_view in {'inventory', 'catalogs'} else []
+    laboratories = CommunityLaboratory.query.order_by(CommunityLaboratory.laboratory_name).all() if dashboard_view in {'inventory', 'catalogs'} else []
+    statuses = CommunityEquipmentStatus.query.order_by(CommunityEquipmentStatus.status_id).all() if dashboard_view in {'inventory', 'catalogs'} else []
+    priorities = CommunityMaintenancePriority.query.order_by(CommunityMaintenancePriority.severity_level).all() if dashboard_view in {'maintenance', 'catalogs'} else []
+    community_users = CommunityUser.query.order_by(CommunityUser.first_name, CommunityUser.last_name).all() if dashboard_view == 'users' else []
+    history = CommunityEquipmentStatusHistory.query.order_by(
+        CommunityEquipmentStatusHistory.changed_at.desc()).limit(50).all() if dashboard_view == 'reports' else []
     return render_template('community_equipment.html', equipment=equipment,
-        categories=CommunityEquipmentCategory.query.order_by(CommunityEquipmentCategory.category_name).all(),
-        laboratories=CommunityLaboratory.query.order_by(CommunityLaboratory.laboratory_name).all(),
-        statuses=CommunityEquipmentStatus.query.order_by(CommunityEquipmentStatus.status_id).all(),
-        priorities=CommunityMaintenancePriority.query.order_by(CommunityMaintenancePriority.severity_level).all(),
+        categories=categories, laboratories=laboratories, statuses=statuses, priorities=priorities,
         pending_borrowings=pending_borrowings, active_borrowings=active_borrowings,
         maintenance_requests=requests, schedules=schedules, issues=issues,
         borrowing_history=borrowing_history, return_inspections=return_inspections,
-        community_users=CommunityUser.query.order_by(CommunityUser.first_name, CommunityUser.last_name).all(),
-        maintenance_records=CommunityMaintenanceRecord.query.order_by(CommunityMaintenanceRecord.maintenance_date.desc()).limit(40).all(),
+        community_users=community_users, maintenance_records=maintenance_records,
         notifications=notifications, audit_logs=audit_logs,
-        history=CommunityEquipmentStatusHistory.query.order_by(CommunityEquipmentStatusHistory.changed_at.desc()).limit(50).all(),
-        equipment_status=equipment_status, is_manager=True, role=current_user.role)
+        history=history,
+        equipment_status=equipment_status, is_manager=True, role=current_user.role,
+        dashboard_view=dashboard_view, dashboard_tabs=dashboard_tabs,
+        equipment_total=equipment_total, equipment_page=equipment_page)
+
+
+@app.route('/dashboard')
+@login_required
+def role_dashboard():
+    if not (current_user.is_management or current_user.can_manage_equipment or current_user.can_borrow_equipment):
+        return redirect(url_for('index'))
+
+    identity = ensure_community_user(current_user._get_current_object())
+    role = current_user.role or 'student'
+    equipment_count = CommunityEquipment.query.count()
+    status_by_equipment = community_latest_equipment_statuses()
+    available_count = sum(status == 'Available' for status in status_by_equipment.values())
+    borrowed_count = sum(status == 'Borrowed' for status in status_by_equipment.values())
+    attention_count = max(0, equipment_count - available_count - borrowed_count)
+
+    pending_count = CommunityBorrowing.query.filter_by(borrowing_status='Pending').count()
+    issue_count_query = CommunityIssue.query
+    if current_user.can_borrow_equipment and not current_user.can_manage_equipment:
+        issue_count_query = issue_count_query.filter_by(reported_by=identity.user_id)
+    recent_issues = issue_count_query.order_by(CommunityIssue.reported_at.desc()).limit(5).all()
+    issue_count = issue_count_query.count()
+    my_borrowing_count = CommunityBorrowing.query.filter_by(borrower_id=identity.user_id).count()
+    unread_count = CommunityNotification.query.filter_by(user_id=identity.user_id, read_at=None).count()
+
+    role_titles = {
+        'administrator': 'Administrator dashboard', 'dean': 'Dean dashboard',
+        'it_manager': 'IT manager dashboard', 'it_staff': 'IT staff dashboard',
+        'laboratory_custodian': 'Laboratory custodian dashboard',
+        'instructor': 'Instructor dashboard', 'student': 'Student dashboard'
+    }
+    if current_user.is_management:
+        cards = [
+            {'title': 'Borrow approvals', 'description': f'{pending_count} requests waiting for review.', 'url': url_for('equipment_dashboard', view='approvals'), 'action': 'Review requests'},
+            {'title': 'Equipment and inventory', 'description': f'{equipment_count} registered items · {available_count} available.', 'url': url_for('equipment_dashboard', view='inventory'), 'action': 'Open inventory'},
+            {'title': 'Issue reports', 'description': f'{issue_count} reports in the queue.', 'url': url_for('equipment_dashboard', view='reports'), 'action': 'Review reports'},
+            {'title': 'Maintenance', 'description': f'{attention_count} items need attention.', 'url': url_for('equipment_dashboard', view='maintenance'), 'action': 'Open maintenance'},
+            {'title': 'Catalogs and settings', 'description': 'Manage equipment categories, locations, and status options.', 'url': url_for('equipment_dashboard', view='catalogs'), 'action': 'Open catalogs'},
+            {'title': 'Equipment report', 'description': 'Download the current inventory summary.', 'url': url_for('download_equipment_report'), 'action': 'Download CSV'}
+        ]
+        if current_user.is_dean or current_user.is_admin:
+            cards.append({'title': 'User access', 'description': 'Review staff and student roles and account status.', 'url': url_for('equipment_dashboard', view='users'), 'action': 'Manage access'})
+            cards.append({'title': 'Campus PC monitoring', 'description': 'View registered PCs and available remote actions.', 'url': url_for('dean_dashboard'), 'action': 'Open PC monitor'})
+    elif current_user.can_manage_equipment:
+        cards = [
+            {'title': 'Equipment register', 'description': f'{equipment_count} items · {available_count} available.', 'url': url_for('equipment_dashboard', view='inventory'), 'action': 'Open inventory'},
+            {'title': 'Issue reports', 'description': f'{issue_count} reports to review.', 'url': url_for('equipment_dashboard', view='reports'), 'action': 'Review reports'},
+            {'title': 'Maintenance', 'description': f'{attention_count} items need attention.', 'url': url_for('equipment_dashboard', view='maintenance'), 'action': 'Open maintenance'},
+            {'title': 'Equipment report', 'description': 'Download the current inventory summary.', 'url': url_for('download_equipment_report'), 'action': 'Download CSV'}
+        ]
+    elif role == 'instructor':
+        instructor_identity = identity
+        owned_item_count = CommunityEquipment.query.filter_by(owner_user_id=instructor_identity.user_id).count()
+        instructor_pending_count = CommunityBorrowing.query.join(CommunityBorrowingItem).join(
+            CommunityEquipment, CommunityEquipment.equipment_id == CommunityBorrowingItem.equipment_id
+        ).filter(CommunityEquipment.owner_user_id == instructor_identity.user_id,
+                 CommunityBorrowing.borrowing_status == 'Pending').distinct().count()
+        cards = [
+            {'title': 'My lending items', 'description': f'{owned_item_count} items registered to you.', 'url': url_for('borrower_dashboard', view='instructor_items'), 'action': 'Manage my items'},
+            {'title': 'Requests for my items', 'description': f'{instructor_pending_count} requests waiting for your approval.', 'url': url_for('borrower_dashboard', view='instructor_requests'), 'action': 'Review requests'},
+            {'title': 'Equipment catalog', 'description': f'{available_count} items are available to borrow.', 'url': url_for('borrower_dashboard', view='equipment'), 'action': 'Browse equipment'},
+            {'title': 'My borrowing requests', 'description': f'{my_borrowing_count} requests or loans on record.', 'url': url_for('borrower_dashboard', view='borrowings'), 'action': 'View my requests'}
+        ]
+    else:
+        cards = [
+            {'title': 'Browse equipment', 'description': f'{available_count} items are available to borrow.', 'url': url_for('borrower_dashboard', view='equipment'), 'action': 'Browse items'},
+            {'title': 'My borrowing requests', 'description': f'{my_borrowing_count} requests or loans on record.', 'url': url_for('borrower_dashboard', view='borrowings'), 'action': 'View my requests'},
+            {'title': 'Report equipment issue', 'description': 'Tell the equipment team about damage or a problem.', 'url': url_for('borrower_dashboard', view='equipment'), 'action': 'Choose equipment'},
+            {'title': 'My issue reports', 'description': f'{issue_count} reports submitted by you.', 'url': url_for('borrower_dashboard', view='reports'), 'action': 'View reports'}
+        ]
+
+    return render_template('role_dashboard.html',
+        dashboard_title=role_titles.get(role, 'Equipment dashboard'),
+        dashboard_role=role.replace('_', ' ').title(), cards=cards,
+        equipment_count=equipment_count, available_count=available_count,
+        attention_count=attention_count, pending_count=pending_count,
+        issue_count=issue_count, my_borrowing_count=my_borrowing_count,
+        unread_count=unread_count, recent_issues=recent_issues,
+        is_management=current_user.is_management,
+        is_admin=current_user.is_admin,
+        public_tunnel=get_public_tunnel_snapshot() if current_user.is_admin else None,
+        can_manage_equipment=current_user.can_manage_equipment)
 
 
 @app.route('/management')
@@ -3555,7 +3715,7 @@ def equipment_dashboard():
 def management_dashboard():
     if not current_user.is_management:
         return redirect(url_for('index'))
-    return redirect(url_for('equipment_dashboard'))
+    return redirect(url_for('role_dashboard'))
 
 
 @app.route('/borrower')
@@ -3563,21 +3723,67 @@ def management_dashboard():
 def borrower_dashboard():
     if not current_user.can_borrow_equipment:
         return redirect(url_for('index'))
+    dashboard_tabs = [
+        {'key': 'equipment', 'label': 'Equipment'},
+        {'key': 'borrowings', 'label': 'My borrowing'},
+        {'key': 'reports', 'label': 'My reports'},
+        {'key': 'notifications', 'label': 'Notifications'}
+    ]
+    instructor_mode = current_user.role == 'instructor'
+    if instructor_mode:
+        dashboard_tabs.extend([
+            {'key': 'instructor_items', 'label': 'My lending items'},
+            {'key': 'instructor_requests', 'label': 'Requests for my items'}
+        ])
+    allowed_views = {tab['key'] for tab in dashboard_tabs}
+    dashboard_view = request.args.get('view', 'equipment')
+    if dashboard_view not in allowed_views:
+        dashboard_view = 'equipment'
     identity = ensure_community_user(current_user._get_current_object())
     # Only the latest status event determines whether an asset can be requested.
-    available_items = []
-    for item in CommunityEquipment.query.order_by(CommunityEquipment.equipment_name).all():
-        latest = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(
-            CommunityEquipmentStatusHistory.changed_at.desc(), CommunityEquipmentStatusHistory.status_history_id.desc()).first()
-        if latest and latest.status.status_name == 'Available':
-            available_items.append(item)
-    equipment_status = {item.equipment_id: 'Available' for item in available_items}
-    borrowings = CommunityBorrowing.query.filter_by(borrower_id=identity.user_id).order_by(CommunityBorrowing.borrow_date.desc()).all()
-    return render_template('community_equipment.html', equipment=available_items,
-        categories=[], laboratories=[], statuses=[], priorities=[], pending_borrowings=[], active_borrowings=[],
-        maintenance_requests=[], schedules=[], issues=[], maintenance_records=[], notifications=[], audit_logs=[], history=[],
+    equipment_total = (CommunityEquipment.query.filter_by(owner_user_id=identity.user_id).count()
+                       if instructor_mode and dashboard_view == 'instructor_items'
+                       else CommunityEquipment.query.count())
+    equipment_page = None
+    catalog_items = []
+    if dashboard_view == 'equipment':
+        equipment_page = CommunityEquipment.query.order_by(CommunityEquipment.equipment_name).paginate(
+            page=max(1, request.args.get('page', 1, type=int)), per_page=24, error_out=False)
+        catalog_items = equipment_page.items
+    elif instructor_mode and dashboard_view == 'instructor_items':
+        equipment_page = CommunityEquipment.query.filter_by(owner_user_id=identity.user_id).order_by(
+            CommunityEquipment.equipment_name).paginate(
+                page=max(1, request.args.get('page', 1, type=int)), per_page=24, error_out=False)
+        catalog_items = equipment_page.items
+    equipment_status = community_latest_equipment_statuses(
+        [item.equipment_id for item in catalog_items] if catalog_items else [])
+    borrowing_query = CommunityBorrowing.query.filter_by(borrower_id=identity.user_id)
+    my_borrowing_total = borrowing_query.count()
+    borrowings = borrowing_query.order_by(CommunityBorrowing.borrow_date.desc()).all() if dashboard_view == 'borrowings' else []
+    owner_borrowings_query = CommunityBorrowing.query.join(CommunityBorrowingItem).join(
+        CommunityEquipment, CommunityEquipment.equipment_id == CommunityBorrowingItem.equipment_id
+    ).filter(CommunityEquipment.owner_user_id == identity.user_id).distinct()
+    pending_borrowings = owner_borrowings_query.filter(CommunityBorrowing.borrowing_status == 'Pending').order_by(
+        CommunityBorrowing.borrow_date.desc()).all() if instructor_mode and dashboard_view == 'instructor_requests' else []
+    active_borrowings = owner_borrowings_query.filter(
+        CommunityBorrowing.borrowing_status.in_(['Borrowed', 'Return Requested', 'Overdue'])
+    ).order_by(CommunityBorrowing.expected_return_date).all() if instructor_mode and dashboard_view == 'instructor_requests' else []
+    issues_query = CommunityIssue.query.filter_by(reported_by=identity.user_id)
+    my_issue_total = issues_query.count()
+    my_issues = issues_query.order_by(CommunityIssue.reported_at.desc()).limit(50).all() if dashboard_view == 'reports' else []
+    notifications = CommunityNotification.query.filter_by(user_id=identity.user_id).order_by(
+        CommunityNotification.created_at.desc()).limit(20).all() if dashboard_view == 'notifications' else []
+    return render_template('community_equipment.html', equipment=catalog_items,
+        categories=[], laboratories=[], statuses=[], priorities=[],
+        maintenance_requests=[], schedules=[], issues=my_issues, maintenance_records=[], notifications=notifications, audit_logs=[], history=[],
         my_borrowings=borrowings, borrowing_history=[], return_inspections=[], community_users=[],
-        equipment_status=equipment_status, is_manager=False, role=current_user.role)
+        equipment_status=equipment_status, is_manager=False, role=current_user.role,
+        instructor_mode=instructor_mode, pending_borrowings=pending_borrowings,
+        active_borrowings=active_borrowings,
+        instructor_identity_id=identity.user_id,
+        dashboard_view=dashboard_view, dashboard_tabs=dashboard_tabs,
+        equipment_total=equipment_total, equipment_page=equipment_page,
+        my_borrowing_total=my_borrowing_total, my_issue_total=my_issue_total)
 
 
 def community_item_available(item):
@@ -3772,6 +3978,56 @@ def community_edit_equipment(equipment_id):
     return redirect(url_for('equipment_dashboard'))
 
 
+@app.route('/instructor/equipment', methods=['POST'])
+@login_required
+def instructor_add_equipment():
+    if current_user.role != 'instructor':
+        return redirect(url_for('index'))
+    identity = ensure_community_user(current_user._get_current_object())
+    local_code = re.sub(r'[^A-Z0-9-]+', '-', str(request.form.get('equipment_code', '')).strip().upper()).strip('-')
+    name = str(request.form.get('equipment_name', '')).strip()
+    if not local_code or not name:
+        flash('An item code and name are required.', 'error')
+        return redirect(url_for('borrower_dashboard', view='instructor_items'))
+    code = f'INS-{identity.user_id}-{local_code}'
+    if CommunityEquipment.query.filter_by(equipment_code=code).first():
+        flash('You already have an item with that code. Choose another item code.', 'error')
+        return redirect(url_for('borrower_dashboard', view='instructor_items'))
+    category_name = str(request.form.get('category', '')).strip() or 'Instructor Equipment'
+    lab_name = str(request.form.get('laboratory', '')).strip() or f'Instructor {identity.user_id} Equipment'
+    category = CommunityEquipmentCategory.query.filter_by(category_name=category_name).first()
+    if category is None:
+        category = CommunityEquipmentCategory(category_name=category_name)
+        db.session.add(category)
+        db.session.flush()
+    laboratory = CommunityLaboratory.query.filter_by(laboratory_name=lab_name).first()
+    if laboratory is None:
+        laboratory = CommunityLaboratory(laboratory_name=lab_name)
+        db.session.add(laboratory)
+        db.session.flush()
+    serial_number = str(request.form.get('serial_number', '')).strip() or None
+    if serial_number and CommunityEquipment.query.filter_by(serial_number=serial_number).first():
+        flash('That serial number is already registered.', 'error')
+        return redirect(url_for('borrower_dashboard', view='instructor_items'))
+    item = CommunityEquipment(
+        laboratory_id=laboratory.laboratory_id, category_id=category.category_id,
+        equipment_code=code, equipment_name=name,
+        brand=str(request.form.get('brand', '')).strip() or None,
+        model=str(request.form.get('model', '')).strip() or None,
+        serial_number=serial_number,
+        description=str(request.form.get('description', '')).strip() or None,
+        owner_user_id=identity.user_id)
+    db.session.add(item)
+    db.session.flush()
+    change_community_equipment_status(item, 'Available', current_user._get_current_object(), 'Instructor registered lending item')
+    db.session.add(CommunityEquipmentQRCode(equipment_id=item.equipment_id,
+        qr_value=f'PYPONDO-EQUIPMENT:{code}:{uuid.uuid4().hex[:12]}'))
+    community_audit('Registered instructor lending item', 'equipment', item.equipment_id, new_value=code)
+    db.session.commit()
+    flash('Your item is listed in the borrowing catalog and assigned to your instructor account.', 'success')
+    return redirect(url_for('borrower_dashboard', view='instructor_items'))
+
+
 @app.route('/community/borrow/<int:equipment_id>', methods=['POST'])
 @login_required
 def community_borrow_request(equipment_id):
@@ -3801,14 +4057,20 @@ def community_borrow_request(equipment_id):
 @app.route('/community/borrowing/<int:borrowing_id>/review', methods=['POST'])
 @login_required
 def community_review_borrowing(borrowing_id):
-    if not current_user.is_management:
-        return redirect(url_for('index'))
     borrowing = db.session.get(CommunityBorrowing, borrowing_id)
     decision = str(request.form.get('decision', '')).strip().lower()
     if not borrowing or borrowing.borrowing_status != 'Pending' or decision not in {'approve', 'decline'}:
         flash('This request is no longer pending.', 'error')
-        return redirect(url_for('equipment_dashboard'))
+        return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard'))
+    owned_equipment = [line.equipment for line in borrowing.items]
+    has_instructor_owned_item = any(item.owner_user_id is not None for item in owned_equipment)
     identity = ensure_community_user(current_user._get_current_object())
+    is_owner_instructor = (current_user.role == 'instructor' and owned_equipment
+                           and all(item.owner_user_id == identity.user_id for item in owned_equipment))
+    can_review = current_user.is_admin or (is_owner_instructor if has_instructor_owned_item else current_user.is_management)
+    if not can_review:
+        flash('Only the instructor who owns these items can approve or decline this request.', 'error')
+        return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard'))
     if decision == 'approve' and all(community_item_available(line.equipment) for line in borrowing.items):
         borrowing.borrowing_status = 'Borrowed'
         borrowing.approved_by = identity.user_id
@@ -3823,11 +4085,13 @@ def community_review_borrowing(borrowing_id):
         action = 'Declined equipment borrowing'
     else:
         flash('One or more items are no longer available.', 'error')
-        return redirect(url_for('equipment_dashboard'))
+        return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard',
+                                **({'view': 'approvals'} if current_user.can_manage_equipment else {'view': 'instructor_requests'})))
     community_audit(action, 'borrowings', borrowing.borrowing_id)
     db.session.commit()
     flash(f'Borrowing request {decision}d.', 'success')
-    return redirect(url_for('equipment_dashboard'))
+    return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard',
+                            **({'view': 'approvals'} if current_user.can_manage_equipment else {'view': 'instructor_requests'})))
 
 
 @app.route('/community/return/<int:borrowing_item_id>', methods=['POST'])
@@ -4239,13 +4503,13 @@ def download_equipment_report():
     stream = io.StringIO()
     writer = csv.writer(stream)
     writer.writerow(['Equipment code', 'Equipment name', 'Laboratory', 'Category', 'Brand', 'Model', 'Serial number', 'Acquisition date', 'Acquisition cost', 'Current status', 'Description'])
-    for item in CommunityEquipment.query.order_by(CommunityEquipment.equipment_code).all():
-        latest = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(
-            CommunityEquipmentStatusHistory.changed_at.desc(), CommunityEquipmentStatusHistory.status_history_id.desc()).first()
+    equipment_rows = CommunityEquipment.query.order_by(CommunityEquipment.equipment_code).all()
+    status_by_equipment = community_latest_equipment_statuses([item.equipment_id for item in equipment_rows])
+    for item in equipment_rows:
         writer.writerow([item.equipment_code, item.equipment_name, item.laboratory.laboratory_name,
             item.category.category_name, item.brand or '', item.model or '', item.serial_number or '',
             item.acquisition_date.isoformat() if item.acquisition_date else '', item.acquisition_cost or '',
-            latest.status.status_name if latest else 'Unknown', item.description or ''])
+            status_by_equipment.get(item.equipment_id, 'Unknown'), item.description or ''])
     return app.response_class(stream.getvalue(), mimetype='text/csv', headers={
         'Content-Disposition': 'attachment; filename=equipment-report.csv'
     })

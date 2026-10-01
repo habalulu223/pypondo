@@ -7,7 +7,7 @@
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #0b0c15; --card: #151922; --line: #00f3ff; --ok: #00ff9d; --warn: #ff0055; --text: #e0e6ed; }
+        :root { --bg: #0b0c15; --card: #151922; --line: #e21f3d; --ok: #d91c39; --warn: #ff0055; --text: #e0e6ed; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; font-size: 17px; line-height: 1.45; padding: 18px; }
         .top { display: flex; justify-content: space-between; align-items: center; gap: 14px; border-bottom: 2px solid var(--line); padding-bottom: 12px; margin-bottom: 18px; }
         .top h1 { margin: 0; font-family: 'Orbitron', sans-serif; font-size: 1.35rem; color: var(--line); letter-spacing: 1px; }
@@ -23,7 +23,7 @@
             border-radius: 6px;
             font-size: 1rem;
             font-weight: 700;
-            box-shadow: 0 0 14px rgba(0, 243, 255, 0.18);
+            box-shadow: 0 0 14px rgba(226,31,61, 0.18);
             transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
             cursor: pointer;
             box-sizing: border-box;
@@ -32,7 +32,7 @@
             background: var(--line);
             color: #000;
             border-color: var(--line);
-            box-shadow: 0 0 24px rgba(0, 243, 255, 0.32);
+            box-shadow: 0 0 24px rgba(226,31,61, 0.32);
         }
         .warn { border-color: var(--line); color: var(--line); }
         .warn:hover { background: var(--line); color: #000; }
@@ -41,7 +41,7 @@
             color: var(--line);
         }
         .history-cancel:hover { background: var(--line); color: #000; }
-        .flash { margin-bottom: 12px; padding: 12px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(0, 255, 157, 0.08); color: var(--ok); font-weight: 700; }
+        .flash { margin-bottom: 12px; padding: 12px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(217,28,57, 0.08); color: var(--ok); font-weight: 700; }
         .status { margin-bottom: 14px; padding: 18px; border: 1px solid #2d3650; border-radius: 8px; background: #101725; }
         .status strong { color: var(--ok); }
         .status-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 10px; }
@@ -59,7 +59,7 @@
             border: 1px solid var(--line);
             border-radius: 10px;
             background: linear-gradient(180deg, #121a2a, #0d121d);
-            box-shadow: 0 0 20px rgba(0, 243, 255, 0.15);
+            box-shadow: 0 0 20px rgba(226,31,61, 0.15);
             padding: 16px;
         }
         .desktop-tab h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); }
@@ -70,7 +70,7 @@
         .quick-amounts button:hover { border-color: var(--line); color: var(--line); }
         .subtle { color: #a9bdd2; font-size: 0.95rem; line-height: 1.5; }
         label { display: block; margin: 12px 0 5px; color: #c9d8e8; font-weight: 700; }
-        input:focus, .btn:focus, button:focus { outline: 3px solid rgba(0, 243, 255, 0.35); outline-offset: 2px; }
+        input:focus, .btn:focus, button:focus { outline: 3px solid rgba(226,31,61, 0.35); outline-offset: 2px; }
         .history-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #29324a; font-size: 0.84rem; }
         .history-main { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex: 1; min-width: 0; }
         .history-main span:last-child { text-align: right; }
@@ -98,7 +98,7 @@
         }
         @media (max-width: 900px) { .grid, .status-grid { grid-template-columns: 1fr; } .top { align-items: flex-start; flex-direction: column; } .top-actions { width: 100%; } .top-actions .btn, .top-actions button { flex: 1 1 180px; text-align: center; } }
     </style>
-</head>
+{% include '_dashboard_container_theme.html' %}</head>
 <body>
     {% include '_animated_background.html' %}
     {% include '_startup_splash.html' %}
