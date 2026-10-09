@@ -7,10 +7,23 @@
 :root{color-scheme:dark;--bg:#07111c;--panel:#111e2b;--line:#294158;--ink:#eaf1f8;--muted:#9bafc3;--accent:#d91c39;--blue:#ffffff;--warn:#ffc16c;--danger:#ff7883}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,sans-serif}header,main{max-width:1250px;margin:auto;padding:20px}header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)}h1,h2,h3{margin:0 0 12px}h2{font-size:1.2rem}small,.muted{color:var(--muted)}a{color:var(--blue)}.dash-nav{display:flex;gap:8px;overflow-x:auto;padding:0 20px 14px;border-bottom:1px solid var(--line)}.dash-nav a{white-space:nowrap;text-decoration:none;color:var(--muted);padding:8px 12px;border-radius:8px}.dash-nav a[aria-current=page]{background:#153449;color:var(--blue);font-weight:700}.dash-nav a:hover{background:#122b3a;color:var(--ink)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:14px 0}.panel,.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin:14px 0}.stats{display:flex;gap:10px;flex-wrap:wrap}.stat{background:#102535;border:1px solid #1e4356;border-radius:10px;padding:10px 14px}form{display:grid;gap:8px;margin:10px 0}input,select,textarea,button{font:inherit;color:var(--ink);background:#091521;border:1px solid #36516c;border-radius:7px;padding:9px}textarea{min-height:58px}button{cursor:pointer;background:#176b58;border-color:var(--accent);font-weight:650}.inline{display:flex;gap:8px;flex-wrap:wrap}.inline>*{flex:1 1 130px}.flash{padding:11px;border-radius:8px;background:#14372e;margin:10px 0}.tag{display:inline-block;padding:3px 8px;border-radius:99px;background:#20364a;color:var(--accent);font-size:.85rem}.columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}.row{padding:10px 0;border-bottom:1px solid #25394c}.user-table-wrap{max-height:62vh;overflow:auto;border:1px solid var(--line);border-radius:9px}.user-table{width:100%;min-width:760px;border-collapse:collapse}.user-table th,.user-table td{padding:9px 11px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}.user-table th{position:sticky;top:0;background:#132436;color:var(--muted);font-size:.82rem;text-transform:uppercase;z-index:1}.user-table select,.user-table button{margin:0;padding:7px 9px}.user-table button{white-space:nowrap}.user-table-wrap{max-height:62vh;overflow:auto;border:1px solid var(--line);border-radius:9px}.user-table{width:100%;min-width:760px;border-collapse:collapse}.user-table th,.user-table td{padding:9px 11px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}.user-table th{position:sticky;top:0;background:#132436;color:var(--muted);font-size:.82rem;text-transform:uppercase;z-index:1}.user-table select,.user-table button{margin:0;padding:7px 9px}.user-table button{white-space:nowrap}.danger{color:var(--danger)}@media(max-width:600px){header{align-items:flex-start;gap:8px;flex-direction:column}}
 .neon-separator{color:#d91c39;text-shadow:0 0 8px rgba(55,255,228,.75)}header h1{color:#ffffff;text-shadow:0 0 14px rgba(226,31,61,.4)}.panel,.card{background:linear-gradient(145deg,rgba(15,31,47,.94),rgba(8,20,32,.92));border-color:rgba(72,209,230,.34);box-shadow:inset 0 1px rgba(255,255,255,.025),0 0 18px rgba(226,31,61,.045);transition:border-color .2s ease,box-shadow .2s ease,transform .2s ease}.panel:hover,.card:hover{border-color:rgba(226,31,61,.68);box-shadow:inset 0 1px rgba(255,255,255,.04),0 0 22px rgba(226,31,61,.13)}button{color:#03151c;background:linear-gradient(120deg,#d91c39,#ffffff 55%,#ffffff);border:1px solid #ffffff;box-shadow:0 0 9px rgba(226,31,61,.32),inset 0 1px rgba(255,255,255,.42);text-shadow:0 1px rgba(255,255,255,.25);transition:transform .16s ease,box-shadow .16s ease,filter .16s ease}button:hover{filter:brightness(1.12);transform:translateY(-1px);box-shadow:0 0 16px rgba(226,31,61,.55),0 0 28px rgba(226,31,61,.2),inset 0 1px rgba(255,255,255,.55)}button:active{transform:translateY(0) scale(.985)}button:focus-visible,a:focus-visible{outline:2px solid #ffffff;outline-offset:3px}.dash-nav a[aria-current=page]{background:linear-gradient(110deg,rgba(24,117,120,.42),rgba(34,103,157,.32));color:#ffffff;box-shadow:inset 0 0 0 1px rgba(226,31,61,.38),0 0 14px rgba(226,31,61,.16)}.dash-nav a:hover{color:#ffffff;box-shadow:0 0 12px rgba(226,31,61,.2)}.tag{border:1px solid rgba(85,255,220,.28);box-shadow:0 0 9px rgba(226,31,61,.08)}input:focus,select:focus,textarea:focus{outline:1px solid #d91c39;border-color:#d91c39;box-shadow:0 0 10px rgba(226,31,61,.2)}
 :root{--bg:#16090d;--panel:#240c13;--line:#9d3348;--ink:#fff5f6;--muted:#e0bfc5;--accent:#ff596e;--blue:#fff}.panel,.card{background:linear-gradient(145deg,rgba(57,13,24,.96),rgba(25,8,14,.96));border-color:rgba(255,255,255,.32);box-shadow:inset 0 1px rgba(255,255,255,.06),0 0 20px rgba(255,34,62,.12)}.panel:hover,.card:hover{border-color:rgba(255,255,255,.72);box-shadow:inset 0 1px rgba(255,255,255,.1),0 0 24px rgba(255,34,62,.24)}.stat{background:linear-gradient(135deg,rgba(80,14,27,.92),rgba(30,9,15,.95));border-color:rgba(255,255,255,.32);box-shadow:0 0 13px rgba(255,34,62,.12)}.row,.user-table th,.user-table td{border-color:rgba(255,255,255,.18)}.user-table th{background:#48101d;color:#fff}.tag{background:rgba(255,255,255,.09);color:#fff;border-color:rgba(255,255,255,.42)}input,select,textarea{background:#210b11;border-color:rgba(255,255,255,.36);color:#fff}.dash-nav a[aria-current=page]{background:linear-gradient(110deg,rgba(190,25,48,.55),rgba(255,255,255,.12));color:#fff;border:1px solid rgba(255,255,255,.46);box-shadow:0 0 14px rgba(255,35,63,.22)}:root{--panel:#fff;--line:#f0aab4;--ink:#311018;--muted:#704d54;--accent:#e21f3d;--blue:#b5122c}.panel,.card,.stat{background:linear-gradient(145deg,#fff,#fff8f9);border-color:rgba(190,25,48,.3);color:#311018;box-shadow:0 5px 22px rgba(100,10,24,.12),inset 0 1px #fff}.panel:hover,.card:hover{border-color:rgba(190,25,48,.62);box-shadow:0 7px 26px rgba(160,15,38,.18),inset 0 1px #fff}.muted,.stat span,.card p{color:#704d54}.tag{background:#fff0f2;color:#a31028;border-color:#ef9aa8}.row,.user-table th,.user-table td{border-color:#f0c4ca}.user-table th{background:#ffecef;color:#5b1d28}.user-table-wrap{border-color:#e9a8b3}input,select,textarea{background:#fff;color:#311018;border-color:#d98b98}input::placeholder,textarea::placeholder{color:#87666c}input:focus,select:focus,textarea:focus{outline:1px solid #d31332;border-color:#d31332;box-shadow:0 0 9px rgba(211,19,50,.2)}button,.card a,.workspace-link,.tunnel-actions button{color:#fff;background:linear-gradient(135deg,#f13b55,#b80f2b);border:1px solid #ff8393;box-shadow:0 3px 12px rgba(174,12,38,.28),inset 0 1px rgba(255,255,255,.3);text-shadow:0 1px rgba(80,0,12,.25)}button:hover,.card a:hover,.workspace-link:hover,.tunnel-actions button:hover{filter:brightness(1.1);box-shadow:0 0 17px rgba(222,20,54,.5),0 4px 14px rgba(150,0,25,.25)}.tunnel-actions .stop{background:linear-gradient(135deg,#9e1027,#6f0719);color:#fff;border-color:#d04a5d}.dash-nav a{color:#704d54}.dash-nav a[aria-current=page]{background:linear-gradient(110deg,#fff0f2,#ffe2e7);color:#a31028;border:1px solid #e78897;box-shadow:0 0 12px rgba(211,19,50,.14)}.dash-nav a:hover{background:#fff0f2;color:#8f0e25}.flash{background:#fff0f2;color:#641220;border:1px solid #efb0ba}:root{--ink:#fff8f9;--muted:#57373d;--line:rgba(255,255,255,.72);--blue:#a50f28;--accent:#bd102d}.panel,.card,.stat{background:rgba(255,250,251,.84);border:1px solid rgba(255,255,255,.88);color:#291218;box-shadow:0 12px 32px rgba(40,0,8,.18),inset 0 1px rgba(255,255,255,.85)}.panel:hover,.card:hover{background:rgba(255,252,252,.9);border-color:#fff;box-shadow:0 15px 36px rgba(40,0,8,.23),0 0 18px rgba(255,255,255,.16);transform:translateY(-2px)}.panel h2,.panel h3,.card h2,.card h3,.stat strong{color:#681426}.panel p,.panel li,.panel label,.card p,.stat span,.row,.user-table{color:#291218}.muted,.panel .muted,.card .muted,.stat span{color:#57373d}.panel a,.card p a,.tunnel-url{color:#9b1028;text-decoration-thickness:1px;text-underline-offset:3px}.panel a:hover,.card p a:hover{color:#d01636}.tag{background:rgba(255,255,255,.74);color:#761327;border:1px solid rgba(145,15,39,.32)}input,select,textarea{background:rgba(255,255,255,.94);color:#291218;border:1px solid #c77d89}input::placeholder,textarea::placeholder{color:#705158;opacity:1}.user-table-wrap{background:rgba(255,255,255,.72);border-color:rgba(145,15,39,.28)}.user-table th{background:rgba(255,232,236,.96);color:#541421}.user-table td{color:#291218}.row,.user-table th,.user-table td{border-color:rgba(95,20,36,.18)}button,.card a,.workspace-link,.tunnel-actions button{color:#fff;background:linear-gradient(135deg,#e32948,#a90d29);border:1px solid #ff9aaa;border-radius:9px;box-shadow:0 5px 15px rgba(150,5,30,.28);font-weight:750;text-shadow:0 1px rgba(50,0,10,.25)}button:hover,.card a:hover,.workspace-link:hover,.tunnel-actions button:hover{background:linear-gradient(135deg,#fa3b5c,#bd102e);box-shadow:0 7px 20px rgba(150,5,30,.4);filter:none}.tunnel-actions .stop{background:linear-gradient(135deg,#8a0d24,#570715);color:#fff}.dash-nav a{color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.8)}.dash-nav a[aria-current=page]{background:rgba(255,245,247,.91);color:#731329;text-shadow:none;border:1px solid #fff;box-shadow:0 5px 18px rgba(0,0,0,.2)}.dash-nav a:hover{background:rgba(255,255,255,.2);color:#fff}.flash{background:rgba(255,246,247,.92);color:#541421;border:1px solid #fff}.empty{color:#57373d}.workspace-link{color:#fff}.issue b{color:#8d1026}</style>
-{% include '_dashboard_container_theme.html' %}</head>
+{% include '_dashboard_container_theme.html' %}<style>
+header{position:relative;max-width:none;padding:18px max(20px,calc((100% - 1250px)/2));background:linear-gradient(105deg,rgba(45,8,17,.97),rgba(18,9,15,.94) 58%,rgba(52,8,19,.96));border-bottom:1px solid rgba(255,75,103,.7);box-shadow:0 8px 30px rgba(226,31,61,.2),0 1px 18px rgba(226,31,61,.16);backdrop-filter:blur(12px)}
+header h1{color:#fff;text-shadow:0 0 8px rgba(255,64,91,.8),0 0 22px rgba(226,31,61,.5);letter-spacing:.04em}
+.community-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:9px;flex-wrap:wrap;color:#e4e4e4}
+.community-head-actions .identity{padding:0 5px;color:#e4e4e4}
+.community-head-actions .header-action-button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 14px;border:1px solid #ffb4c0;border-radius:9px;background:linear-gradient(135deg,#f13b55,#a90d29);color:#fff!important;text-decoration:none;font-weight:750;white-space:nowrap;opacity:1;visibility:visible;position:relative;z-index:2;box-shadow:0 0 14px rgba(255,40,72,.42),inset 0 1px rgba(255,255,255,.32);transition:transform .18s,box-shadow .18s}
+.community-head-actions .header-action-button:hover{color:#fff!important;transform:translateY(-1px);box-shadow:0 0 21px rgba(255,64,91,.7)}
+.availability-heading{color:#fff!important;text-shadow:0 0 8px rgba(255,76,103,.78),0 0 20px rgba(226,31,61,.45)}
+.community-head-actions a.profile-avatar-link{width:42px;height:42px;flex:none;padding:0;display:grid;place-items:center;overflow:hidden;border-radius:50%;border:2px solid rgba(255,180,192,.9);background:linear-gradient(145deg,#ff526d,#7c0b21);color:#fff;text-decoration:none;box-shadow:0 0 12px rgba(255,64,91,.55),inset 0 1px rgba(255,255,255,.45)}
+.community-head-actions a.profile-avatar-link:hover{transform:translateY(-1px) scale(1.05);box-shadow:0 0 20px rgba(255,64,91,.8)}
+.profile-avatar-link img{display:block;width:100%;height:100%;object-fit:cover}
+.profile-avatar-link svg{width:25px;height:25px;fill:currentColor}
+@media(max-width:700px){header{align-items:flex-start}.community-head-actions{justify-content:flex-start}}
+</style></head>
 <body>
 {% include '_animated_background.html' %}
-<header><div><h1>Community Equipment</h1><span class="muted">Normalized inventory, borrowing, maintenance, issues, and audit records</span></div><div><a href="{{ url_for('role_dashboard') }}">Dashboard</a> &middot; {% if is_manager %}<a href="{{ url_for('download_equipment_report') }}">CSV report</a> &middot; {% endif %}{{ current_user.full_name or current_user.username }} &middot; {{ role|replace('_',' ')|title }} &middot; <a href="{{ url_for('logout') }}">Log out</a></div></header>
+<header><div><h1>Community Equipment</h1><span class="muted">Normalized inventory, borrowing, maintenance, issues, and audit records</span></div><div class="community-head-actions"><a class="header-action-button" href="{{ url_for('role_dashboard') }}">Dashboard</a>{% if is_manager %}<a class="header-action-button" href="{{ url_for('download_equipment_report') }}">CSV report</a>{% endif %}<span class="identity">{{ current_user.full_name or current_user.username }} · {{ role|replace('_',' ')|title }}</span><a class="profile-avatar-link" href="{{ url_for('profile.profile_page') }}" aria-label="Open profile" title="Open profile">{% if current_user.profile_picture %}<img src="{{ url_for('profile.profile_picture') }}" alt="">{% else %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4.25 4.25 0 1 0 0-8.5A4.25 4.25 0 0 0 12 12Zm0 2c-4.42 0-8 2.24-8 5v1.5h16V19c0-2.76-3.58-5-8-5Z"/></svg>{% endif %}</a><a class="header-action-button" href="{{ url_for('logout') }}">Log out</a></div></header>
 <nav class="dash-nav" aria-label="Dashboard functions">{% for tab in dashboard_tabs %}<a href="{{ url_for('equipment_dashboard' if is_manager else 'borrower_dashboard', view=tab.key) }}" {% if dashboard_view == tab.key %}aria-current="page"{% endif %}>{{ tab.label }}</a>{% endfor %}</nav>
 <main>
 {% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash">{{ message }}</div>{% endfor %}{% endwith %}
@@ -23,15 +36,152 @@
 
 {% if (current_user.is_management and dashboard_view == 'approvals') or (instructor_mode and dashboard_view == 'instructor_requests') %}<div class="panel" id="approvals"><h2>Borrow requests awaiting approval</h2>{% for borrowing in pending_borrowings %}<div class="row"><b>#{{ borrowing.borrowing_id }} &middot; {{ borrowing.borrower.first_name }} {{ borrowing.borrower.last_name }}</b><br>{{ borrowing.purpose or 'No purpose given' }}<br><small>Due {{ borrowing.expected_return_date.strftime('%d %b %Y') }}</small><ul>{% for line in borrowing.items %}<li>{{ line.equipment.equipment_code }} &middot; {{ line.equipment.equipment_name }}{% if line.equipment.owner %} — listed by {{ line.equipment.owner.first_name }} {{ line.equipment.owner.last_name }}{% endif %}</li>{% endfor %}</ul><div class="inline"><form method="post" action="{{ url_for('community_review_borrowing', borrowing_id=borrowing.borrowing_id) }}"><input type="hidden" name="decision" value="approve"><button>Approve</button></form><form method="post" action="{{ url_for('community_review_borrowing', borrowing_id=borrowing.borrowing_id) }}"><input type="hidden" name="decision" value="decline"><button>Decline</button></form></div></div>{% else %}<p class="muted">No pending requests.</p>{% endfor %}</div>{% endif %}
 </section>{% endif %}
-{% if dashboard_view == 'catalogs' %}<section class="panel" id="catalogs"><h2>Catalogs</h2><p class="muted">Create and edit the lookup records used by equipment, statuses, and maintenance forms. Entries referenced by records are retained.</p><div class="grid">
-<div><h3>Categories</h3>{% for row in categories %}<form method="post" action="{{ url_for('community_save_catalog', catalog_type='category') }}"><input type="hidden" name="record_id" value="{{ row.category_id }}"><input name="name" value="{{ row.category_name }}" required><input name="description" value="{{ row.description or '' }}" placeholder="Description"><button>Save category</button></form>{% endfor %}<form method="post" action="{{ url_for('community_save_catalog', catalog_type='category') }}"><input name="name" placeholder="New category" required><input name="description" placeholder="Description"><button>Add category</button></form></div>
-<div><h3>Laboratories</h3>{% for row in laboratories %}<form method="post" action="{{ url_for('community_save_catalog', catalog_type='laboratory') }}"><input type="hidden" name="record_id" value="{{ row.laboratory_id }}"><input name="name" value="{{ row.laboratory_name }}" required><input name="location" value="{{ row.location or '' }}" placeholder="Location"><input name="description" value="{{ row.description or '' }}" placeholder="Description"><button>Save laboratory</button></form>{% endfor %}<form method="post" action="{{ url_for('community_save_catalog', catalog_type='laboratory') }}"><input name="name" placeholder="New laboratory" required><input name="location" placeholder="Location"><input name="description" placeholder="Description"><button>Add laboratory</button></form></div>
-<div><h3>Equipment statuses</h3>{% for row in statuses %}<form method="post" action="{{ url_for('community_save_catalog', catalog_type='status') }}"><input type="hidden" name="record_id" value="{{ row.status_id }}"><input name="name" value="{{ row.status_name }}" required><input name="description" value="{{ row.description or '' }}" placeholder="Description"><button>Save status</button></form>{% endfor %}<form method="post" action="{{ url_for('community_save_catalog', catalog_type='status') }}"><input name="name" placeholder="New status" required><input name="description" placeholder="Description"><button>Add status</button></form></div>
-<div><h3>Maintenance priorities</h3><p class="muted">Choose a priority when creating a maintenance request.</p><div class="inline">{% for row in priorities %}<span class="tag">{{ row.priority_name }} &middot; Level {{ row.severity_level }}</span>{% else %}<span class="muted">No priorities configured.</span>{% endfor %}</div></div>
-</div></section>{% endif %}
+{% if dashboard_view == 'catalogs' %}<section class="panel" id="catalogs"><h2>Maintenance catalog</h2><p class="muted">Items with open maintenance requests, their due dates, and maintenance priority. Double-click a row to edit the due date and maintenance level.</p><div class="user-table-wrap"><table class="user-table maintenance-table"><thead><tr><th>Equipment</th><th>Item</th><th>Maintenance needed</th><th>Due date</th><th>Level</th><th>Save</th></tr></thead><tbody>
+{% for task in maintenance_requests %}<tr class="maintenance-edit-row" ondblclick="editMaintenanceRow(this)"><td>{{ task.equipment.equipment_code }}</td><td>{{ task.equipment.equipment_name }}</td><td>{{ task.request_description }}</td><td><span class="maintenance-value">{{ task.due_date.strftime('%d %b %Y') if task.due_date else 'Not scheduled' }}</span><input class="maintenance-editor" type="date" name="due_date" value="{{ task.due_date.isoformat() if task.due_date else '' }}" form="maintenance-edit-{{ task.request_id }}" disabled></td><td><span class="maintenance-value">{{ task.priority.priority_name }} ({{ task.priority.severity_level }})</span><select class="maintenance-editor" name="priority_id" form="maintenance-edit-{{ task.request_id }}" disabled>{% for priority in priorities %}<option value="{{ priority.priority_id }}" {% if priority.priority_id == task.priority_id %}selected{% endif %}>{{ priority.priority_name }} (Level {{ priority.severity_level }})</option>{% endfor %}</select></td><td><form id="maintenance-edit-{{ task.request_id }}" method="post" action="{{ url_for('community_edit_maintenance_request', request_id=task.request_id) }}"></form><button class="maintenance-save" type="submit" form="maintenance-edit-{{ task.request_id }}" disabled>Save</button></td></tr>{% else %}<tr><td colspan="6" class="muted">No open maintenance requests.</td></tr>{% endfor %}
+</tbody></table></div><p class="muted">Level uses the configured maintenance priority. Create a request from the Maintenance tab to add an item here.</p><h2>Catalog settings</h2><p class="muted">Double-click any row to open the full settings editor for that catalog item. Entries referenced by records are retained.</p>
+<div class="panel catalog-panel">
+  <div class="catalog-table-wrap">
+    <table class="catalog-table catalog-overview-table">
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Name</th>
+          <th>Location / Level</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in categories %}
+        <tr class="catalog-row" data-type="category" data-record-id="{{ row.category_id }}" data-name="{{ row.category_name }}" data-description="{{ row.description or '' }}" ondblclick="openCatalogSettings(this)">
+          <td>Category</td>
+          <td>{{ row.category_name }}</td>
+          <td>—</td>
+          <td>{{ row.description or '—' }}</td>
+        </tr>
+        {% endfor %}
+        {% for row in laboratories %}
+        <tr class="catalog-row" data-type="laboratory" data-record-id="{{ row.laboratory_id }}" data-name="{{ row.laboratory_name }}" data-location="{{ row.location or '' }}" data-description="{{ row.description or '' }}" ondblclick="openCatalogSettings(this)">
+          <td>Laboratory</td>
+          <td>{{ row.laboratory_name }}</td>
+          <td>{{ row.location or '—' }}</td>
+          <td>{{ row.description or '—' }}</td>
+        </tr>
+        {% endfor %}
+        {% for row in statuses %}
+        <tr class="catalog-row" data-type="status" data-record-id="{{ row.status_id }}" data-name="{{ row.status_name }}" data-description="{{ row.description or '' }}" ondblclick="openCatalogSettings(this)">
+          <td>Status</td>
+          <td>{{ row.status_name }}</td>
+          <td>—</td>
+          <td>{{ row.description or '—' }}</td>
+        </tr>
+        {% endfor %}
+        {% for row in priorities %}
+        <tr class="catalog-row" data-type="priority" data-record-id="{{ row.priority_id }}" data-name="{{ row.priority_name }}" data-severity-level="{{ row.severity_level }}" data-description="{{ row.description or '' }}" ondblclick="openCatalogSettings(this)">
+          <td>Priority</td>
+          <td>{{ row.priority_name }}</td>
+          <td>Level {{ row.severity_level }}</td>
+          <td>{{ row.description or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<div id="catalogSettingsModal" class="catalog-modal hidden" role="dialog" aria-modal="true" aria-labelledby="catalogSettingsTitle">
+  <div class="catalog-modal-card">
+    <div class="catalog-modal-header">
+      <h3 id="catalogSettingsTitle">Catalog settings</h3>
+      <button type="button" class="catalog-close-btn" aria-label="Close catalog settings" onclick="closeCatalogSettings()">×</button>
+    </div>
+    <form id="catalogSettingsForm" method="post">
+      <input type="hidden" name="record_id" id="catalog_record_id">
+      <input type="hidden" name="catalog_type" id="catalog_type">
+      <div class="catalog-modal-grid">
+        <label class="catalog-full-width">
+          <span>Catalog type</span>
+          <select id="catalog_type_selector" onchange="updateCatalogType(this.value)">
+            <option value="category">Category</option>
+            <option value="laboratory">Laboratory</option>
+            <option value="status">Equipment status</option>
+            <option value="priority">Maintenance priority</option>
+          </select>
+        </label>
+        <label>
+          <span>Name</span>
+          <input type="text" id="catalog_name" name="name" required>
+        </label>
+        <label id="catalog_location_wrap" class="hidden-field">
+          <span>Location</span>
+          <input type="text" id="catalog_location" name="location">
+        </label>
+        <label id="catalog_severity_wrap" class="hidden-field">
+          <span>Level</span>
+          <input type="number" id="catalog_severity_level" name="severity_level" min="1" step="1">
+        </label>
+        <label class="catalog-full-width">
+          <span>Description</span>
+          <textarea id="catalog_description" name="description"></textarea>
+        </label>
+      </div>
+      <div class="catalog-modal-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="catalog-secondary-btn" onclick="resetCatalogForm()">New item</button>
+      </div>
+    </form>
+  </div>
+</div>
+</section><script>function editMaintenanceRow(row){if(row.classList.contains('editing'))return;row.classList.add('editing');row.querySelectorAll('.maintenance-editor').forEach(function(input){input.disabled=false;});row.querySelectorAll('.maintenance-value').forEach(function(value){value.hidden=true;});var save=row.querySelector('.maintenance-save');if(save){save.disabled=false;}var first=row.querySelector('input.maintenance-editor');if(first)first.focus();}
+function updateCatalogType(type){
+  var form = document.getElementById('catalogSettingsForm');
+  form.action = '/community/catalog/' + type;
+  document.getElementById('catalog_type').value = type;
+
+  var locationWrap = document.getElementById('catalog_location_wrap');
+  var severityWrap = document.getElementById('catalog_severity_wrap');
+  locationWrap.classList.toggle('hidden-field', type !== 'laboratory');
+  severityWrap.classList.toggle('hidden-field', type !== 'priority');
+
+  var title = document.getElementById('catalogSettingsTitle');
+  title.textContent = type.charAt(0).toUpperCase() + type.slice(1) + ' settings';
+}
+function openCatalogSettings(row){
+  var type = row.dataset.type;
+  var recordId = row.dataset.recordId || '';
+  document.getElementById('catalog_type_selector').value = type;
+  updateCatalogType(type);
+
+  var form = document.getElementById('catalogSettingsForm');
+  form.action = '/community/catalog/' + type;
+  document.getElementById('catalog_record_id').value = recordId;
+  document.getElementById('catalog_name').value = row.dataset.name || '';
+  document.getElementById('catalog_description').value = row.dataset.description || '';
+  document.getElementById('catalog_location').value = row.dataset.location || '';
+  document.getElementById('catalog_severity_level').value = row.dataset.severityLevel || '';
+
+  var modal = document.getElementById('catalogSettingsModal');
+  modal.classList.remove('hidden');
+}
+function closeCatalogSettings(){
+  document.getElementById('catalogSettingsModal').classList.add('hidden');
+}
+function resetCatalogForm(){
+  var form = document.getElementById('catalogSettingsForm');
+  form.reset();
+  document.getElementById('catalog_record_id').value = '';
+  document.getElementById('catalog_type').value = '';
+  document.getElementById('catalog_type_selector').value = 'category';
+  updateCatalogType('category');
+  form.action = '/community/catalog/category';
+  document.getElementById('catalogSettingsTitle').textContent = 'New catalog item';
+  document.getElementById('catalogSettingsModal').classList.remove('hidden');
+}
+window.addEventListener('keydown', function(event){
+  if (event.key === 'Escape') closeCatalogSettings();
+});
+</script><style>.maintenance-table{min-width:900px}.maintenance-table .maintenance-editor{display:none;margin:0;min-width:130px}.maintenance-table tr.editing .maintenance-editor{display:block}.maintenance-table tr.editing .maintenance-save{display:inline-block}.maintenance-table .maintenance-save{display:none}.maintenance-table td{max-width:340px}.maintenance-table td:nth-child(3){white-space:normal;min-width:180px}.maintenance-table tr:not(.editing){cursor:default}.maintenance-table tr:not(.editing):hover{background:rgba(211,19,50,.06)}.catalog-panel{padding:16px}.catalog-table-wrap{border:1px solid var(--line);border-radius:9px;overflow:auto;background:rgba(12,19,28,.3)}.catalog-table{width:100%;border-collapse:collapse}.catalog-table th,.catalog-table td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}.catalog-table tbody tr:hover{background:rgba(211,19,50,.06);cursor:pointer}.catalog-row{transition:background .15s ease}.catalog-modal{position:fixed;inset:0;background:rgba(3,7,12,.68);display:flex;align-items:center;justify-content:center;z-index:1000}.catalog-modal.hidden{display:none}.catalog-modal-card{width:min(640px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.34)}.catalog-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.catalog-close-btn{background:transparent;border:none;font-size:1.5rem;cursor:pointer;color:var(--ink)}.catalog-modal-grid{display:grid;grid-template-columns:repeat(2,minmax(180px,1fr));gap:12px}.catalog-full-width{grid-column:1 / -1}.catalog-modal-grid label{display:grid;gap:6px;color:var(--muted)}.catalog-modal-grid input,.catalog-modal-grid textarea{width:100%}.catalog-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.catalog-secondary-btn{background:transparent}.hidden-field{display:none}.catalog-table .muted{display:block;padding:8px 0}.catalog-table th{text-align:left}</style>{% endif %}
 {% if instructor_mode and dashboard_view == 'instructor_requests' and active_borrowings %}<section class="panel"><h2>Items currently borrowed</h2>{% for borrowing in active_borrowings %}<div class="row"><b>#{{ borrowing.borrowing_id }} · {{ borrowing.borrower.first_name }} {{ borrowing.borrower.last_name }}</b> · {{ borrowing.borrowing_status }}<ul>{% for line in borrowing.items if line.equipment.owner_user_id == instructor_identity_id %}<li>{{ line.equipment.equipment_code }} · {{ line.equipment.equipment_name }}{% if line.equipment.owner %} — listed by {{ line.equipment.owner.first_name }} {{ line.equipment.owner.last_name }}{% endif %} · due {{ borrowing.expected_return_date.strftime('%d %b %Y') }}</li>{% endfor %}</ul></div>{% endfor %}</section>{% endif %}{% if current_user.is_management and dashboard_view == 'approvals' and active_borrowings %}<section class="panel"><h2>Active borrowings and return inspections</h2>{% for borrowing in active_borrowings %}<div class="row"><b>#{{ borrowing.borrowing_id }} &middot; {{ borrowing.borrower.first_name }} {{ borrowing.borrower.last_name }}</b> &middot; due {{ borrowing.expected_return_date.strftime('%d %b %Y') }}<ul>{% for line in borrowing.items %}<li>{{ line.equipment.equipment_code }} &middot; {{ line.equipment.equipment_name }}{% if line.equipment.owner %} — listed by {{ line.equipment.owner.first_name }} {{ line.equipment.owner.last_name }}{% endif %}<form method="post" action="{{ url_for('community_inspect_return', borrowing_item_id=line.borrowing_item_id) }}"><div class="inline"><select name="condition_status"><option>Good</option><option>Fair</option><option>Damaged</option><option>Poor</option></select><input name="remarks" placeholder="Return inspection remarks"><button>Check in</button></div></form></li>{% endfor %}</ul></div>{% endfor %}</section>{% endif %}
 
-{% if dashboard_view in ('inventory', 'equipment', 'maintenance', 'instructor_items') %}{% if is_manager %}<h2 id="inventory">Equipment register</h2>{% else %}<h2 id="inventory">{% if dashboard_view == 'instructor_items' %}My lending items{% else %}Available equipment{% endif %}</h2>{% endif %}
+{% if dashboard_view in ('inventory', 'equipment', 'maintenance', 'instructor_items') %}{% if is_manager %}<h2 id="inventory" class="availability-heading">Equipment register</h2>{% else %}<h2 id="inventory" class="availability-heading">{% if dashboard_view == 'instructor_items' %}My lending items{% else %}Available equipment{% endif %}</h2>{% endif %}
 <section class="grid">
 {% for item in equipment %}<article class="card"><div class="inline"><h3>{{ item.equipment_name }}</h3><span class="tag">{{ equipment_status.get(item.equipment_id,'Unknown') }}</span></div><p class="muted">{{ item.equipment_code }}{% if item.owner %} · Owned by {{ item.owner.first_name }} {{ item.owner.last_name }}{% endif %} &middot; {{ item.category.category_name }} &middot; {{ item.laboratory.laboratory_name }}</p><p>{{ item.brand or '' }} {{ item.model or '' }}{% if item.serial_number %}<br>Serial: {{ item.serial_number }}{% endif %}</p>{% if item.description %}<p>{{ item.description }}</p>{% endif %}
 {% if is_manager %}{% if dashboard_view == 'inventory' %}<p><a href="{{ url_for('community_equipment_qr', equipment_id=item.equipment_id) }}">QR data</a></p><form method="post" action="{{ url_for('community_manage_equipment_qr', equipment_id=item.equipment_id) }}"><select name="action"><option value="regenerate">Regenerate QR</option><option value="deactivate">Deactivate QR</option><option value="activate">Activate QR</option></select><button>Update QR</button></form>

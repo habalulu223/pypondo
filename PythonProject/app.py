@@ -28,6 +28,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import atexit
 from functools import wraps
+try:
+    from .profile_routes import create_profile_blueprint
+except ImportError:
+    from profile_routes import create_profile_blueprint
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 app = Flask(
@@ -373,6 +377,8 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(32), nullable=False, default="student")
     full_name = db.Column(db.String(160), nullable=True)
     is_active_staff = db.Column(db.Boolean, nullable=False, default=True)
+    profile_picture = db.Column(db.LargeBinary, nullable=True)
+    profile_picture_mime = db.Column(db.String(32), nullable=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -399,6 +405,9 @@ class User(UserMixin, db.Model):
     @property
     def is_management(self):
         return bool(self.is_admin or self.role in {"dean", "it_manager", "laboratory_custodian"})
+
+
+app.register_blueprint(create_profile_blueprint(db, User))
 
 
 class Equipment(db.Model):
@@ -871,6 +880,10 @@ def ensure_user_role_columns():
         db.session.execute(text("ALTER TABLE user ADD COLUMN full_name VARCHAR(160)"))
     if "is_active_staff" not in cols:
         db.session.execute(text("ALTER TABLE user ADD COLUMN is_active_staff BOOLEAN DEFAULT 1"))
+    if "profile_picture" not in cols:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN profile_picture BLOB"))
+    if "profile_picture_mime" not in cols:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN profile_picture_mime VARCHAR(32)"))
     db.session.execute(text("UPDATE user SET is_admin = 1 WHERE username = 'admin' AND is_admin = 0"))
     db.session.execute(text("UPDATE user SET role = 'administrator' WHERE is_admin = 1 AND (role IS NULL OR role = 'student')"))
     # Very old databases had user accounts without password hashes. Give these
@@ -904,11 +917,6 @@ def room_for_ip(value):
 
 def ensure_core_seed_data():
     seeded = False
-
-    if not PC.query.first():
-        for i in range(1, 6):
-            db.session.add(PC(name=f"PC-{i}"))
-        seeded = True
 
     if not User.query.filter_by(username="admin").first():
         admin = User(username="admin", is_admin=True, role="administrator", full_name="System Administrator")
@@ -963,9 +971,17 @@ def ensure_community_reference_data():
                               ('Lost', 'Reported missing or lost')]:
         if not CommunityEquipmentStatus.query.filter_by(status_name=name).first():
             db.session.add(CommunityEquipmentStatus(status_name=name, description=description))
+    priorities = CommunityMaintenancePriority.query.all()
+    existing_priority_names = {priority.priority_name for priority in priorities}
+    used_severity_levels = {priority.severity_level for priority in priorities}
     for name, level in [('Low', 1), ('Medium', 2), ('High', 3), ('Critical', 4)]:
-        if not CommunityMaintenancePriority.query.filter_by(priority_name=name).first():
+        # Existing installations may already use a default severity for a
+        # custom priority name. Preserve that catalog entry and only seed a
+        # default when both its name and severity are available.
+        if name not in existing_priority_names and level not in used_severity_levels:
             db.session.add(CommunityMaintenancePriority(priority_name=name, severity_level=level))
+            existing_priority_names.add(name)
+            used_severity_levels.add(level)
     if not CommunityLaboratory.query.first():
         db.session.add(CommunityLaboratory(laboratory_name='General Storage', description='Default location; edit to match the campus laboratory.'))
     if not CommunityEquipmentCategory.query.first():
@@ -3604,6 +3620,11 @@ def equipment_dashboard():
             CommunityMaintenanceSchedule.schedule_date).limit(100).all()
         maintenance_records = CommunityMaintenanceRecord.query.order_by(
             CommunityMaintenanceRecord.maintenance_date.desc()).limit(40).all()
+    elif dashboard_view == 'catalogs':
+        requests = CommunityMaintenanceRequest.query.filter(
+            CommunityMaintenanceRequest.request_status.in_(['Pending', 'In Progress'])
+        ).order_by(CommunityMaintenanceRequest.due_date.asc(),
+                   CommunityMaintenanceRequest.requested_at.desc()).limit(300).all()
 
     issues = CommunityIssue.query.order_by(CommunityIssue.reported_at.desc()).limit(100).all() if dashboard_view == 'reports' else []
     audit_logs = CommunityAuditLog.query.order_by(CommunityAuditLog.created_at.desc()).limit(50).all() if dashboard_view == 'reports' else []
@@ -4229,6 +4250,38 @@ def community_schedule_maintenance(equipment_id):
     db.session.commit()
     flash('Maintenance schedule created.', 'success')
     return redirect(url_for('equipment_dashboard'))
+
+
+@app.route('/community/maintenance/request/<int:request_id>/edit', methods=['POST'])
+@login_required
+def community_edit_maintenance_request(request_id):
+    if not current_user.can_manage_equipment:
+        return redirect(url_for('index'))
+    task = db.session.get(CommunityMaintenanceRequest, request_id)
+    if not task:
+        flash('Maintenance request was not found.', 'error')
+        return redirect(url_for('equipment_dashboard', view='catalogs'))
+    try:
+        priority_id = int(request.form.get('priority_id', ''))
+        priority = db.session.get(CommunityMaintenancePriority, priority_id)
+    except (TypeError, ValueError):
+        priority = None
+    due_date_value = str(request.form.get('due_date', '')).strip()
+    try:
+        due_date = datetime.strptime(due_date_value, '%Y-%m-%d').date() if due_date_value else None
+    except ValueError:
+        flash('Enter a valid maintenance due date.', 'error')
+        return redirect(url_for('equipment_dashboard', view='catalogs'))
+    if not priority:
+        flash('Choose a valid maintenance priority.', 'error')
+        return redirect(url_for('equipment_dashboard', view='catalogs'))
+    task.priority_id = priority.priority_id
+    task.due_date = due_date
+    community_audit('Updated maintenance level and due date', 'maintenance_requests', task.request_id,
+                    new_value=f'{priority.priority_name}; due {due_date or "not scheduled"}')
+    db.session.commit()
+    flash('Maintenance plan updated.', 'success')
+    return redirect(url_for('equipment_dashboard', view='catalogs'))
 
 
 @app.route('/community/maintenance/schedule/<int:schedule_id>/complete', methods=['POST'])

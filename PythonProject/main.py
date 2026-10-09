@@ -9,6 +9,7 @@ import sys
 import json
 import threading
 import time
+from datetime import datetime
 from urllib import request as http_request
 from urllib import error as http_error
 from urllib import parse as http_parse
@@ -177,82 +178,80 @@ class LoginScreen(Screen):
         self.add_widget(self.layout)
 
     def test_connection(self, instance):
-        server = self.server_input.text.strip()
-        port = self.port_input.text.strip()
         try:
-            port_int = int(port)
+            server, port_int = self._server_address()
             base_url = f"http://{server}:{port_int}"
-            response = http_request.urlopen(f"{base_url}/api/server-info", timeout=5)
-            if response.status == 200:
-                self.status_label.text = "Connection successful!"
-                self.status_label.color = (0, 1, 0, 1)
-            else:
-                self.status_label.text = f"Server responded with status {response.status}"
-                self.status_label.color = (1, 0.5, 0, 1)
+            with http_request.urlopen(f"{base_url}/api/server-info", timeout=5) as response:
+                if response.status == 200:
+                    self.status_label.text = "Connection successful. Server is ready."
+                    self.status_label.color = (0, 0.65, 0, 1)
+                else:
+                    self.status_label.text = f"Server responded with status {response.status}"
+                    self.status_label.color = (1, 0.5, 0, 1)
+        except ValueError as exc:
+            self.status_label.text = str(exc)
+            self.status_label.color = (1, 0, 0, 1)
         except Exception as e:
             self.status_label.text = f"Connection failed: {str(e)}"
             self.status_label.color = (1, 0, 0, 1)
 
+    def _server_address(self):
+        server = self.server_input.text.strip()
+        if not server or any(char.isspace() for char in server):
+            raise ValueError("Enter a valid server IP address or hostname.")
+        try:
+            port = int(self.port_input.text.strip())
+        except ValueError as exc:
+            raise ValueError("Port must be a number between 1 and 65535.") from exc
+        if not 1 <= port <= 65535:
+            raise ValueError("Port must be a number between 1 and 65535.")
+        return server, port
+
     def do_login(self, instance):
         username = self.username_input.text.strip()
-        password = self.password_input.text.strip()
-        server = self.server_input.text.strip()
-        port = self.port_input.text.strip()
-
+        password = self.password_input.text
         if not username or not password:
-            self.status_label.text = "Please enter username and password"
+            self.status_label.text = "Enter your username and password to continue."
             self.status_label.color = (1, 0, 0, 1)
             return
-
         try:
-            port_int = int(port)
-        except:
-            self.status_label.text = "Invalid port number"
+            server, port = self._server_address()
+        except ValueError as exc:
+            self.status_label.text = str(exc)
             self.status_label.color = (1, 0, 0, 1)
             return
 
         self.login_button.disabled = True
-        self.status_label.text = "Logging in..."
-        self.status_label.color = (0, 0, 1, 1)
-
-        # Perform login in background thread
-        threading.Thread(target=self._perform_login, args=(username, password, server, port_int), daemon=True).start()
+        self.status_label.text = "Signing in…"
+        self.status_label.color = (0.1, 0.4, 0.9, 1)
+        threading.Thread(target=self._perform_login, args=(username, password, server, port), daemon=True).start()
 
     def _perform_login(self, username, password, server, port):
         try:
             base_url = f"http://{server}:{port}"
-            login_data = {"username": username, "password": password}
-            data = http_parse.urlencode(login_data).encode('utf-8')
-
-            req = http_request.Request(f"{base_url}/api/mobile/login", data=data, method='POST')
-            req.add_header('Content-Type', 'application/x-www-form-urlencoded')
-
+            data = http_parse.urlencode({"username": username, "password": password}).encode("utf-8")
+            req = http_request.Request(f"{base_url}/api/mobile/login", data=data, method="POST")
+            req.add_header("Content-Type", "application/x-www-form-urlencoded")
             with http_request.urlopen(req, timeout=10) as response:
-                result = json.loads(response.read().decode('utf-8'))
-                
-                if result.get("ok"):
-                    Clock.schedule_once(lambda dt: self._login_success(
-                        server, port, result["username"], result["user_id"], result["balance"]
-                    ), 0)
-                else:
-                    Clock.schedule_once(lambda dt: self._login_failed(result.get("error", "Login failed")), 0)
-
+                result = json.loads(response.read().decode("utf-8"))
+            if result.get("ok"):
+                Clock.schedule_once(lambda dt: self._login_success(
+                    server, port, result["username"], result["user_id"], result["balance"]
+                ), 0)
+            else:
+                Clock.schedule_once(lambda dt: self._login_failed(result.get("error", "Sign in failed.")), 0)
         except Exception as e:
-            Clock.schedule_once(lambda dt: self._login_failed(f"Login failed: {str(e)}"), 0)
+            Clock.schedule_once(lambda dt: self._login_failed(f"Sign in failed: {str(e)}"), 0)
 
     def _login_success(self, server, port, username, user_id, balance):
-        self.status_label.text = "Login successful!"
-        self.status_label.color = (0, 1, 0, 1)
+        self.status_label.text = "Sign in successful."
+        self.status_label.color = (0, 0.65, 0, 1)
         self.login_button.disabled = False
-
-        # Switch to main screen
         app = App.get_running_app()
-        app.server_host = server
-        app.server_port = port
-        app.username = username
-        app.user_id = user_id
-        app.balance = balance
-        app.root.current = 'main'
+        app.server_host, app.server_port = server, port
+        app.username, app.user_id, app.balance = username, user_id, balance
+        app.save_server_settings()
+        app.root.current = "main"
 
     def _login_failed(self, message):
         self.status_label.text = message
@@ -282,7 +281,7 @@ class MainScreen(Screen):
         
         # Bookings list
         self.bookings_scroll = ScrollView()
-        self.bookings_layout = BoxLayout(orientation='vertical', size_hint_y=None)
+        self.bookings_layout = GridLayout(cols=3, size_hint_y=None, spacing=dp(1))
         self.bookings_layout.bind(minimum_height=self.bookings_layout.setter('height'))
         self.bookings_scroll.add_widget(self.bookings_layout)
         bookings_content.add_widget(self.bookings_scroll)
@@ -433,19 +432,26 @@ class MainScreen(Screen):
             Clock.schedule_once(lambda dt: self._update_bookings([]), 0)
 
     def _update_bookings(self, bookings):
-        # Clear existing bookings
         self.bookings_layout.clear_widgets()
-
         if not bookings:
-            self.bookings_layout.add_widget(Label(text="No bookings found", size_hint_y=None, height=dp(40)))
+            self.bookings_layout.cols = 1
+            self.bookings_layout.add_widget(Label(text="No bookings yet. Make a booking below.", size_hint_y=None, height=dp(56)))
             return
 
+        self.bookings_layout.cols = 3
+        for heading in ("PC", "DATE & TIME", "STATUS"):
+            self.bookings_layout.add_widget(Label(text=heading, bold=True, size_hint_y=None, height=dp(38)))
         for booking in bookings:
-            booking_card = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(80), padding=dp(10))
-            booking_card.add_widget(Label(text=f"PC: {booking['pc_name']} | {booking['date']} {booking['time']}", font_size=dp(14)))
-            status_color = (0, 1, 0, 1) if booking['status'] == 'confirmed' else (1, 0.5, 0, 1)
-            booking_card.add_widget(Label(text=f"Status: {booking['status']}", font_size=dp(12), color=status_color))
-            self.bookings_layout.add_widget(booking_card)
+            status = str(booking.get("status", "Unknown"))
+            status_color = (0, 0.65, 0, 1) if status.lower() in {"confirmed", "approved"} else (0.8, 0.4, 0, 1)
+            for value, color in (
+                (booking.get("pc_name", "—"), (1, 1, 1, 1)),
+                (f"{booking.get('date', '—')}\n{booking.get('time', '')}", (1, 1, 1, 1)),
+                (status.title(), status_color),
+            ):
+                cell = Label(text=str(value), color=color, size_hint_y=None, height=dp(58), halign="center", valign="middle")
+                cell.bind(size=lambda widget, _size: setattr(widget, "text_size", widget.size))
+                self.bookings_layout.add_widget(cell)
 
     def _fetch_pcs(self):
         app = App.get_running_app()
@@ -493,7 +499,6 @@ class MainScreen(Screen):
             Clock.schedule_once(lambda dt: self._update_updates([]), 0)
 
     def _update_updates(self, updates):
-        # Clear existing updates
         self.updates_layout.clear_widgets()
 
         if not updates:
@@ -510,26 +515,16 @@ class MainScreen(Screen):
                 'minor': (0, 0.5, 1, 1)       # Blue for minor updates
             }.get(update.get('update_type', 'minor'), (0.5, 0.5, 0.5, 1))
             
-            update_card = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(120), padding=dp(10))
-            
-            # Header with version and type
-            header_text = f"v{update['version']} - {update['update_type'].upper()}"
+            update_card = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(150), padding=dp(10), spacing=dp(3))
+            header_text = f"v{update.get('version', '—')} · {str(update.get('update_type', 'update')).upper()}"
             header_label = Label(text=header_text, font_size=dp(14), color=type_color, bold=True, halign='left')
             update_card.add_widget(header_label)
-            
-            # Title
-            title_label = Label(text=update['title'], font_size=dp(16), bold=True, halign='left', valign='top')
-            title_label.text_size = (self.updates_layout.width - dp(20), None)
-            title_label.bind(size=title_label.setter('text_size'))
+            title_label = Label(text=update.get('title', 'Update'), font_size=dp(16), bold=True, halign='left', valign='top')
+            title_label.bind(size=lambda widget, _size: setattr(widget, 'text_size', (max(widget.width, dp(100)), None)))
             update_card.add_widget(title_label)
-            
-            # Description
-            desc_label = Label(text=update['description'], font_size=dp(12), halign='left', valign='top')
-            desc_label.text_size = (self.updates_layout.width - dp(20), None)
-            desc_label.bind(size=desc_label.setter('text_size'))
+            desc_label = Label(text=update.get('description', ''), font_size=dp(12), halign='left', valign='top')
+            desc_label.bind(size=lambda widget, _size: setattr(widget, 'text_size', (max(widget.width, dp(100)), None)))
             update_card.add_widget(desc_label)
-            
-            # Timestamp
             if update.get('timestamp'):
                 timestamp_str = update['timestamp'].replace('T', ' ').split('.')[0] if 'T' in update['timestamp'] else update['timestamp']
                 time_label = Label(text=timestamp_str, font_size=dp(10), color=(0.5, 0.5, 0.5, 1), halign='right')
@@ -608,8 +603,16 @@ class MainScreen(Screen):
         date = self.date_input.text
         time = self.time_input.text
 
-        if pc == 'Select PC' or pc == 'No PCs available' or not date or not time:
-            self.status_label.text = "Please fill all fields"
+        if pc in {'Select PC', 'No PCs available', 'Loading PCs...'}:
+            self.status_label.text = "Choose an available PC first."
+            self.status_label.color = (1, 0, 0, 1)
+            return
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+            datetime.strptime(time, "%H:%M")
+        except ValueError:
+            self.status_label.text = "Enter a valid date (YYYY-MM-DD) and time (HH:MM)."
+            self.status_label.color = (1, 0, 0, 1)
             return
 
         app = App.get_running_app()
@@ -740,6 +743,9 @@ class MainScreen(Screen):
 
     def do_logout(self, instance):
         app = App.get_running_app()
+        app.username = None
+        app.user_id = None
+        app.balance = 0.0
         app.root.current = 'login'
         self.status_label.text = ""
 
@@ -769,9 +775,20 @@ class PyPondoMobileApp(App):
                 with open('mobile_config.json', 'r') as f:
                     config = json.load(f)
                     self.server_host = config.get('server_host', DEFAULT_SERVER_HOST)
-                    self.server_port = config.get('server_port', DEFAULT_SERVER_PORT)
-        except:
-            pass
+                    self.server_port = int(config.get('server_port', DEFAULT_SERVER_PORT))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            self.server_host, self.server_port = DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT
+        login_screen = self.root.get_screen('login')
+        login_screen.server_input.text = self.server_host
+        login_screen.port_input.text = str(self.server_port)
+
+    def save_server_settings(self):
+        """Remember the server address only; never persist login credentials."""
+        try:
+            with open('mobile_config.json', 'w', encoding='utf-8') as config_file:
+                json.dump({"server_host": self.server_host, "server_port": self.server_port}, config_file, indent=2)
+        except OSError as exc:
+            print(f"Could not save server settings: {exc}")
 
 
 def main():
