@@ -108,6 +108,7 @@
         <div class="top-actions">
             <button type="button" class="btn minimize-timer-btn" onclick="handleMinimizeClickDesktop(event)">Go to Desktop</button>
             <a class="btn" href="{{ url_for('client_bookings') }}">My Bookings</a>
+            <a class="btn" href="{{ url_for('profile.profile_page') }}">My Profile</a>
             <a class="btn warn" href="{{ url_for('logout') }}" onclick="clearDashboardTimerState()">Sign Out</a>
         </div>
     </div>
@@ -150,9 +151,6 @@
             <p id="desktop-access-note">You have enough balance to use this PC.</p>
             <p>Tap Go to Desktop when you are ready.</p>
             <p>Keep this window open so your time can be tracked.</p>
-            {% if kiosk_mode %}
-                <p style="color:#ffb36b;">Kiosk lock is enabled. Window close controls are disabled.</p>
-            {% endif %}
         </div>
 
         <div class="card">
@@ -241,12 +239,6 @@
             setTimeout(attempt, 200);
             setTimeout(attempt, 1000);
         }
-
-        withPywebviewApi(function (api) {
-            if (api.enable_kiosk_lock) {
-                api.enable_kiosk_lock();
-            }
-        });
 
         var dashboardTimer = (function () {
             var storageKey = 'pypondo.timer.started_at.user.{{ current_user.id }}';
@@ -548,59 +540,6 @@
                 field.value = amount;
             }
         }
-
-        function isTypingField(target) {
-            if (!target || !target.tagName) {
-                return false;
-            }
-            var tag = target.tagName.toLowerCase();
-            return tag === 'input' || tag === 'textarea' || target.isContentEditable;
-        }
-
-        // Block Windows shortcuts and dangerous key combinations
-        document.addEventListener('keydown', function(event) {
-            // Always allow normal typing in form fields, but still suppress unsafe OS combos.
-            if (isTypingField(event.target) || isTypingField(document.activeElement)) {
-                if (
-                    (event.altKey && event.key === 'Tab') ||
-                    (event.altKey && event.key === 'Escape') ||
-                    (event.ctrlKey && event.altKey && event.key === 'Delete') ||
-                    event.key === 'Meta' ||
-                    event.key === 'Win' ||
-                    event.key === 'OS' ||
-                    event.keyCode === 91 || event.keyCode === 92 ||
-                    (event.code && event.code.toLowerCase().includes('meta')) ||
-                    (event.altKey && event.key === 'F4') ||
-                    (event.ctrlKey && event.key === 'w') ||
-                    (event.ctrlKey && event.key === 'W') ||
-                    (event.ctrlKey && event.key === 'Escape') ||
-                    (event.ctrlKey && event.altKey && event.key === 'Escape')
-                ) {
-                    event.preventDefault();
-                    return false;
-                }
-                return;
-            }
-
-            if (
-                (event.altKey && event.key === 'Tab') ||
-                (event.altKey && event.key === 'Escape') ||
-                (event.ctrlKey && event.altKey && event.key === 'Delete') ||
-                event.key === 'Meta' ||
-                event.key === 'Win' ||
-                event.key === 'OS' ||
-                event.keyCode === 91 || event.keyCode === 92 ||
-                (event.code && event.code.toLowerCase().includes('meta')) ||
-                (event.altKey && event.key === 'F4') ||
-                (event.ctrlKey && event.key === 'w') ||
-                (event.ctrlKey && event.key === 'W') ||
-                (event.ctrlKey && event.key === 'Escape') ||
-                (event.ctrlKey && event.altKey && event.key === 'Escape')
-            ) {
-                event.preventDefault();
-                return false;
-            }
-        });
 
         // Termination dialog functionality
         let terminateDialog = document.getElementById('terminate-dialog');

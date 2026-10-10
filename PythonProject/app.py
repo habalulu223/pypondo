@@ -57,18 +57,21 @@ CORS(app, resources={
 assets_dir = os.path.join(basedir, 'assets')
 configured_data_dir = os.getenv('PYPONDO_DATA_DIR', '').strip()
 configured_main_db = os.getenv('PYPONDO_DB_PATH', '').strip()
+configured_community_db = os.getenv('PYPONDO_COMMUNITY_DB_PATH', '').strip()
 default_db_path = os.path.join(os.path.abspath(configured_data_dir), 'pccafe.db') if configured_data_dir else os.path.join(basedir, 'pccafe.db')
 database_path = os.path.abspath(configured_main_db or default_db_path)
 provided_community_db = r'D:\Users\jush\Downloads\sample.db'
-if os.path.isfile(provided_community_db):
-    default_community_db = provided_community_db
+if configured_community_db:
+    default_community_db = configured_community_db
 elif configured_data_dir:
     default_community_db = os.path.join(os.path.abspath(configured_data_dir), 'community_equipment.db')
+elif os.path.isfile(provided_community_db):
+    default_community_db = provided_community_db
 elif configured_main_db:
     default_community_db = os.path.join(os.path.dirname(database_path), 'community_equipment.db')
 else:
     default_community_db = os.path.join(basedir, 'instance', 'community_equipment.db')
-community_db_path = os.path.abspath(os.getenv("PYPONDO_COMMUNITY_DB_PATH", default_community_db))
+community_db_path = os.path.abspath(default_community_db)
 os.makedirs(os.path.dirname(database_path), exist_ok=True)
 os.makedirs(os.path.dirname(community_db_path), exist_ok=True)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + database_path
@@ -2913,8 +2916,8 @@ def get_mobile_updates_feed():
         {
             "version": APP_VERSION,
             "update_type": "feature",
-            "title": "Mobile API enabled",
-            "description": "The server now exposes mobile login, bookings, PC availability, top-up, and assistant endpoints.",
+            "title": "Mobile QR equipment lookup",
+            "description": "Scan equipment labels to view item details, current condition, and recorded malfunction reports. Server pairing QR codes remain available from the admin dashboard.",
             "timestamp": timestamp
         },
         {
@@ -3071,6 +3074,59 @@ def api_mobile_pairing():
     return jsonify(payload), 200
 
 
+@app.route('/mobile/pairing')
+@login_required
+def mobile_pairing_page():
+    if not current_user.is_admin:
+        abort(403)
+    targets = get_mobile_pairing_targets()
+    return render_template('mobile_pairing.html', pairing_targets=targets,
+        pairing_primary=targets[0] if targets else None,
+        public_tunnel=get_public_tunnel_snapshot())
+
+
+@app.route('/api/mobile/equipment/scan')
+def api_mobile_equipment_scan():
+    qr_value = str(request.args.get('qr', '')).strip()
+    if not qr_value or len(qr_value) > 255:
+        return jsonify({"ok": False, "error": "Scan a PyPondo equipment QR code."}), 400
+
+    qr = CommunityEquipmentQRCode.query.filter_by(qr_value=qr_value, is_active=True).first()
+    if not qr or not qr.equipment:
+        return jsonify({"ok": False, "error": "This equipment QR code is unknown or has been deactivated."}), 404
+
+    item = qr.equipment
+    latest_history = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(
+        CommunityEquipmentStatusHistory.changed_at.desc(), CommunityEquipmentStatusHistory.status_history_id.desc()
+    ).first()
+    issues = CommunityIssue.query.filter_by(equipment_id=item.equipment_id).order_by(
+        CommunityIssue.reported_at.desc(), CommunityIssue.issue_id.desc()
+    ).limit(25).all()
+    return jsonify({
+        "ok": True,
+        "equipment": {
+            "equipment_id": item.equipment_id,
+            "equipment_code": item.equipment_code,
+            "equipment_name": item.equipment_name,
+            "brand": item.brand,
+            "model": item.model,
+            "serial_number": item.serial_number,
+            "description": item.description,
+            "laboratory": item.laboratory.laboratory_name if item.laboratory else None,
+            "location": item.laboratory.location if item.laboratory else None,
+            "category": item.category.category_name if item.category else None,
+            "status": latest_history.status.status_name if latest_history and latest_history.status else "Unknown",
+            "status_updated_at": latest_history.changed_at.isoformat() if latest_history else None,
+            "status_remarks": latest_history.remarks if latest_history else None,
+            "malfunction_reports": [{
+                "title": issue.issue_title,
+                "description": issue.issue_description,
+                "reported_at": issue.reported_at.isoformat() if issue.reported_at else None,
+            } for issue in issues],
+        },
+    }), 200
+
+
 @app.route('/api/mobile/login', methods=['POST'])
 def api_mobile_login():
     username = str(get_request_value("username", "")).strip()
@@ -3127,6 +3183,73 @@ def api_mobile_pcs():
 @app.route('/api/mobile/updates', methods=['GET'])
 def api_mobile_updates():
     return jsonify({"ok": True, "updates": get_mobile_updates_feed()}), 200
+
+
+@app.route('/api/mobile/profile', methods=['GET', 'POST'])
+def api_mobile_profile():
+    user, error = get_mobile_user_from_request()
+    if error:
+        return error
+
+    if request.method == 'GET':
+        return jsonify({
+            "ok": True,
+            "profile": {
+                "user_id": user.id,
+                "username": user.username,
+                "full_name": user.full_name or user.username,
+                "role": user.role or "student",
+                "balance": round(float(user.pondo or 0.0), 2),
+                "has_profile_picture": bool(user.profile_picture and user.profile_picture_mime),
+            }
+        }), 200
+
+    payload = request.get_json(silent=True) if request.is_json else request.form
+    payload = payload or {}
+    action = str(payload.get('action') or '').strip()
+    if action == 'change_password':
+        current_password = str(payload.get('current_password') or '')
+        new_password = str(payload.get('new_password') or '')
+        if not user.check_password(current_password):
+            return jsonify({"ok": False, "error": "Current password is incorrect."}), 400
+        if len(new_password) < 8:
+            return jsonify({"ok": False, "error": "New password must be at least 8 characters."}), 400
+        if new_password == current_password:
+            return jsonify({"ok": False, "error": "Choose a password different from your current one."}), 400
+        user.set_password(new_password)
+        db.session.commit()
+        return jsonify({"ok": True, "message": "Password updated."}), 200
+
+    if action == 'upload_picture':
+        if not user.check_password(str(request.form.get('current_password') or '')):
+            return jsonify({"ok": False, "error": "Enter your current password to change your profile picture."}), 400
+        image = request.files.get('profile_picture')
+        image_data = image.stream.read(2 * 1024 * 1024 + 1) if image else b''
+        image_type = None
+        if image_data.startswith(b"\x89PNG\r\n\x1a\n"):
+            image_type = "image/png"
+        elif image_data.startswith(b"\xff\xd8\xff"):
+            image_type = "image/jpeg"
+        elif len(image_data) >= 12 and image_data[:4] == b"RIFF" and image_data[8:12] == b"WEBP":
+            image_type = "image/webp"
+        if len(image_data) > 2 * 1024 * 1024:
+            return jsonify({"ok": False, "error": "Profile pictures must be 2 MB or smaller."}), 400
+        if image_type not in {"image/jpeg", "image/png", "image/webp"}:
+            return jsonify({"ok": False, "error": "Upload a valid JPG, PNG, or WebP image."}), 400
+        user.profile_picture = image_data
+        user.profile_picture_mime = image_type
+        db.session.commit()
+        return jsonify({"ok": True, "message": "Profile picture updated."}), 200
+
+    if action == 'remove_picture':
+        if not user.check_password(str(request.form.get('current_password') or '')):
+            return jsonify({"ok": False, "error": "Enter your current password to remove your profile picture."}), 400
+        user.profile_picture = None
+        user.profile_picture_mime = None
+        db.session.commit()
+        return jsonify({"ok": True, "message": "Profile picture removed."}), 200
+
+    return jsonify({"ok": False, "error": "Unsupported profile action."}), 400
 
 
 @app.route('/api/mobile/book', methods=['POST'])
@@ -4376,10 +4499,36 @@ def community_update_status(equipment_id):
 @app.route('/community/qr/<int:equipment_id>')
 @login_required
 def community_equipment_qr(equipment_id):
+    item = db.session.get(CommunityEquipment, equipment_id)
+    if not item:
+        abort(404)
+    qr = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id, is_active=True).first()
+    if qr is None:
+        existing = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id).first()
+        if existing is not None:
+            abort(404)
+        qr = CommunityEquipmentQRCode(equipment_id=equipment_id,
+            qr_value=f'PYPONDO-EQUIPMENT:{item.equipment_code}:{uuid.uuid4().hex[:12]}', is_active=True)
+        db.session.add(qr)
+        db.session.commit()
+    return render_template('equipment_qr.html', qr=qr, item=item)
+
+
+@app.route('/community/qr/<int:equipment_id>/image')
+@login_required
+def community_equipment_qr_image(equipment_id):
     qr = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id, is_active=True).first_or_404()
-    return jsonify({'equipment_id': equipment_id, 'qr_value': qr.qr_value,
-        'equipment_code': qr.equipment.equipment_code, 'equipment_name': qr.equipment.equipment_name,
-        'laboratory': qr.equipment.laboratory.laboratory_name, 'category': qr.equipment.category.category_name})
+    try:
+        import qrcode
+        from qrcode.image.svg import SvgPathImage
+    except ImportError:
+        return jsonify({'ok': False, 'error': 'QR image support is not installed on this server.'}), 503
+    qr_code = qrcode.QRCode(box_size=10, border=4)
+    qr_code.add_data(qr.qr_value)
+    qr_code.make(fit=True)
+    image = qr_code.make_image(image_factory=SvgPathImage)
+    output = io.BytesIO(image.to_string())
+    return send_file(output, mimetype='image/svg+xml', download_name=f"equipment-{equipment_id}-qr.svg", max_age=300)
 
 
 @app.route('/community/qr/<int:equipment_id>', methods=['POST'])

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect PyPondo Mobile</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:#16090d;color:#fff7f8;font:15px/1.5 system-ui,sans-serif;padding:24px}
+    main{width:min(760px,100%);margin:4vh auto}.card{padding:24px;border:1px solid rgba(255,100,126,.55);border-radius:18px;background:linear-gradient(145deg,rgba(57,13,24,.96),rgba(25,8,14,.96));box-shadow:0 12px 36px rgba(190,20,48,.18)}
+    h1{margin:0 0 6px;font-size:clamp(1.5rem,4vw,2.2rem)}.muted{color:#d3b8bd;margin:0 0 18px}.pairing{display:grid;grid-template-columns:minmax(180px,240px) 1fr;gap:22px;align-items:center}
+    .qr{width:100%;aspect-ratio:1;background:#fff;padding:10px;border-radius:12px}.address{font-family:Consolas,monospace;word-break:break-all;padding:10px;border:1px solid rgba(255,140,158,.42);border-radius:9px;background:rgba(0,0,0,.24)}
+    a.button{display:inline-block;margin-top:16px;padding:9px 13px;border-radius:8px;color:#fff;text-decoration:none;font-weight:700;background:linear-gradient(135deg,#e32948,#a90d29);border:1px solid #ff9aaa}
+    .alt{margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,.14)}.alt div{margin:7px 0;word-break:break-all;color:#f1dce0}.empty{padding:20px;border:1px dashed #994153;border-radius:12px;color:#f1c9d0}
+    @media(max-width:560px){body{padding:14px}.card{padding:18px}.pairing{grid-template-columns:1fr}.qr{max-width:240px;margin:auto}}
+  </style>
+</head>
+<body>
+  <main><section class="card">
+    <h1>Connect the PyPondo mobile app</h1>
+    <p class="muted">Open the app, choose <strong>Scan Pairing QR</strong>, and point your camera at this code.</p>
+    {% if pairing_primary %}
+      <div class="pairing">
+        <img class="qr" src="{{ pairing_primary.qr_image_url }}" alt="PyPondo mobile pairing QR code">
+        <div>
+          <p>Server route: <strong>{{ public_tunnel.status|title if public_tunnel else 'Ready' }}</strong></p>
+          <div class="address">{{ pairing_primary.address }}</div>
+          {% if public_tunnel and public_tunnel.url %}<p class="muted">Public route: {{ public_tunnel.url }}</p>{% endif %}
+          <a class="button" href="{{ pairing_primary.pairing_url }}" target="_blank" rel="noopener">Open pairing endpoint</a>
+        </div>
+      </div>
+      {% if pairing_targets|length > 1 %}<div class="alt"><strong>Other available server routes</strong>{% for target in pairing_targets[1:] %}<div>{{ target.address }}</div>{% endfor %}</div>{% endif %}
+    {% else %}
+      <div class="empty">The server is running, but no reachable address is available for QR pairing. Check the server network connection and reload this page.</div>
+    {% endif %}
+    <a class="button" href="{{ url_for('index') }}">Back to dashboard</a>
+  </section></main>
+</body>
+</html>

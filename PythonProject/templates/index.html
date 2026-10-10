@@ -119,6 +119,7 @@
                 Logged in as: <strong style="color: white;">{{ current_user.username }}</strong>
                 {% if current_user.is_admin %} <span style="color: var(--neon-red);">(ADMIN)</span> {% endif %}
             </span>
+            {% if current_user.is_admin and mobile_pairing_primary %}<a class="btn" href="{{ url_for('mobile_pairing_page') }}" style="font-size:.72rem;padding:6px 9px;margin-right:8px;">PHONE QR</a>{% endif %}
             <a href="/logout" style="color:var(--neon-red); text-decoration:none; border:1px solid var(--neon-red); padding:5px 10px; font-size:0.8em; border-radius: 4px;">LOGOUT</a>
         </div>
     </div>
@@ -536,11 +537,6 @@
     </div>
 
     <script>
-        // Enable kiosk lock when admin is logged in
-        if (window.pywebview && window.pywebview.api && window.pywebview.api.enable_kiosk_lock) {
-            window.pywebview.api.enable_kiosk_lock();
-        }
-
         function setTopup(amount) {
             var field = document.getElementById('topupAmount');
             if (field) field.value = amount;
@@ -673,57 +669,6 @@
             });
         }
 
-        function isTypingField(target) {
-            if (!target || !target.tagName) {
-                return false;
-            }
-            var tag = target.tagName.toLowerCase();
-            return tag === 'input' || tag === 'textarea' || target.isContentEditable;
-        }
-
-        // Block Windows shortcuts and dangerous key combinations
-        document.addEventListener('keydown', function(event) {
-            if (isTypingField(event.target) || isTypingField(document.activeElement)) {
-                if (
-                    (event.altKey && event.key === 'Tab') ||
-                    (event.altKey && event.key === 'Escape') ||
-                    (event.ctrlKey && event.altKey && event.key === 'Delete') ||
-                    event.key === 'Meta' ||
-                    event.key === 'Win' ||
-                    event.key === 'OS' ||
-                    event.keyCode === 91 || event.keyCode === 92 ||
-                    (event.code && event.code.toLowerCase().includes('meta')) ||
-                    (event.altKey && event.key === 'F4') ||
-                    (event.ctrlKey && event.key === 'w') ||
-                    (event.ctrlKey && event.key === 'W') ||
-                    (event.ctrlKey && event.key === 'Escape') ||
-                    (event.ctrlKey && event.altKey && event.key === 'Escape')
-                ) {
-                    event.preventDefault();
-                    return false;
-                }
-                return;
-            }
-
-            if (
-                (event.altKey && event.key === 'Tab') ||
-                (event.altKey && event.key === 'Escape') ||
-                (event.ctrlKey && event.altKey && event.key === 'Delete') ||
-                event.key === 'Meta' ||
-                event.key === 'Win' ||
-                event.key === 'OS' ||
-                event.keyCode === 91 || event.keyCode === 92 ||
-                (event.code && event.code.toLowerCase().includes('meta')) ||
-                (event.altKey && event.key === 'F4') ||
-                (event.ctrlKey && event.key === 'w') ||
-                (event.ctrlKey && event.key === 'W') ||
-                (event.ctrlKey && event.key === 'Escape') ||
-                (event.ctrlKey && event.altKey && event.key === 'Escape')
-            ) {
-                event.preventDefault();
-                return false;
-            }
-        });
     </script>
 </body>
 </html>

@@ -3,7 +3,6 @@ import sys
 import socket
 import threading
 import time
-import webbrowser
 import logging
 import re
 import subprocess
@@ -11,225 +10,14 @@ from urllib import request as http_request
 from urllib import error as http_error
 from urllib import parse as http_parse
 
-# ---------------------------------------------------------------------------
-# low‑level keyboard hook for blocking Windows key combos on Windows machines
-# ---------------------------------------------------------------------------
-# The web-based client attempts to prevent dangerous shortcuts using JavaScript,
-# but the Win key is handled by the operating system and the browser often
-# never dispatches the event.  When the desktop UI is running in kiosk mode we
-# install a global keyboard hook so that pressing the Windows key (or related
-# combinations) never reaches the shell.  The hook runs in a background thread
-# and is automatically started when the UI launches.
-if os.name == 'nt':
-    import ctypes
-    from ctypes import wintypes
-
-    _win_hook_id = None
-    # handles returned when we use the optional "keyboard" package
-    _keyboard_module = None
-    _keyboard_blocked_keys = []
-    _keyboard_hook_handles = []
-    _keyboard_hotkey_handles = []
-    _keyboard_proc_ref = None
-
-    class _KBDLLHOOKSTRUCT(ctypes.Structure):
-        # dwExtraInfo may be defined as ULONG_PTR; some Python versions do not
-        # expose this attribute in wintypes, so fall back to a generic
-        # pointer-sized integer.
-        ULONG_PTR_TYPE = getattr(wintypes, 'ULONG_PTR', wintypes.WPARAM)
-        _fields_ = [
-            ("vkCode", wintypes.DWORD),
-            ("scanCode", wintypes.DWORD),
-            ("flags", wintypes.DWORD),
-            ("time", wintypes.DWORD),
-            ("dwExtraInfo", ULONG_PTR_TYPE),
-        ]
-
-    def _keyboard_proc(nCode, wParam, lParam):
-        # nCode == 0 means HC_ACTION
-        if nCode == 0:
-            kb = ctypes.cast(lParam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
-            vk = kb.vkCode
-            alt_down = bool(kb.flags & 0x20)  # LLKHF_ALTDOWN
-            ctrl_down = bool(ctypes.windll.user32.GetAsyncKeyState(0x11) & 0x8000)  # VK_CONTROL
-            # VK_LWIN (0x5B) and VK_RWIN (0x5C) are the left/right Windows keys
-            if vk in (0x5B, 0x5C):
-                if is_verbose_logging_enabled():
-                    print(f"[HOOK] blocking win key vk={vk}")
-                return 1  # non‑zero to suppress the key
-            # block highlights when alt is held
-            if alt_down and vk in (0x09, 0x1B, 0x73):  # tab, esc, F4
-                if is_verbose_logging_enabled():
-                    print(f"[HOOK] blocking alt+vk={vk}")
-                return 1
-            if ctrl_down and vk == 0x1B:  # Ctrl+Esc
-                if is_verbose_logging_enabled():
-                    print(f"[HOOK] blocking ctrl+vk={vk}")
-                return 1
-            # ctrl+alt combinations
-            if alt_down and ctrl_down:
-                if vk in (0x2E, 0x57):  # Delete, W
-                    if is_verbose_logging_enabled():
-                        print(f"[HOOK] blocking ctrl+alt+vk={vk}")
-                    return 1
-        # pass through everything else
-        return ctypes.windll.user32.CallNextHookEx(_win_hook_id, nCode, wParam, lParam)
-
-    def _run_hook_loop():
-        msg = wintypes.MSG()
-        user32 = ctypes.windll.user32
-        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-            user32.TranslateMessage(ctypes.byref(msg))
-            user32.DispatchMessageW(ctypes.byref(msg))
-
-    def install_windows_key_blocker():
-        """Set up suppression of sensitive key combinations.
-
-        When possible we use the ``keyboard`` package and call ``block_key()``
-        so Win/Alt-based escapes are suppressed globally. We also install a raw
-        Win32 low-level hook as a fallback/safety net for environments where the
-        keyboard package cannot suppress system combos reliably. The function is
-        safe to call multiple times; only one raw hook will be active.
-        """
-        if os.name != 'nt':
-            return
-        global _win_hook_id
-        global _keyboard_module, _keyboard_blocked_keys
-        global _keyboard_hook_handles, _keyboard_hotkey_handles
-        global _keyboard_proc_ref
-
-        # avoid duplicate registration
-        if _win_hook_id is not None:
-            return
-
-        has_keyboard_suppression = bool(_keyboard_hook_handles or _keyboard_hotkey_handles or _keyboard_blocked_keys)
-        if not has_keyboard_suppression:
-            # attempt high-level library first
-            try:
-                import keyboard as _kb
-                _keyboard_module = _kb
-                if is_verbose_logging_enabled():
-                    print("[INFO] installing keyboard.block_key suppression")
-
-                blocked_keys = (
-                    'left windows',
-                    'right windows',
-                    'windows',
-                )
-                hotkeys = (
-                    'alt+tab',
-                    'alt+esc',
-                    'alt+f4',
-                    'ctrl+alt+delete',
-                    'ctrl+w',
-                    'ctrl+esc',
-                    'ctrl+alt+esc',
-                )
-
-                installed_any = False
-                for key_name in blocked_keys:
-                    try:
-                        hook_handle = _kb.block_key(key_name)
-                        _keyboard_blocked_keys.append(key_name)
-                        if hook_handle is not None:
-                            _keyboard_hook_handles.append(hook_handle)
-                        installed_any = True
-                    except Exception as key_exc:
-                        if is_verbose_logging_enabled():
-                            print(f"[WARN] block_key('{key_name}') failed: {key_exc}")
-
-                for hotkey in hotkeys:
-                    try:
-                        hotkey_handle = _kb.add_hotkey(hotkey, lambda: None, suppress=True, trigger_on_release=False)
-                        _keyboard_hotkey_handles.append(hotkey_handle)
-                        installed_any = True
-                    except Exception as hotkey_exc:
-                        if is_verbose_logging_enabled():
-                            print(f"[WARN] add_hotkey('{hotkey}') failed: {hotkey_exc}")
-                if is_verbose_logging_enabled() and installed_any:
-                    print("[INFO] keyboard package suppression installed")
-            except Exception as exc:
-                if is_verbose_logging_enabled():
-                    print("[WARN] keyboard library hook failed:", exc)
-                # fall back to manual hook
-
-        if _win_hook_id is not None:
-            return
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-        WH_KEYBOARD_LL = 13
-        hook_proc_type = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
-        _keyboard_proc_ref = hook_proc_type(_keyboard_proc)
-        _win_hook_id = user32.SetWindowsHookExW(WH_KEYBOARD_LL, _keyboard_proc_ref, kernel32.GetModuleHandleW(None), 0)
-        if not _win_hook_id:
-            if is_verbose_logging_enabled():
-                print(f"[WARN] SetWindowsHookExW failed with error: {ctypes.GetLastError()}")
-            return
-        thread = threading.Thread(target=_run_hook_loop, daemon=True)
-        thread.start()
-
-    def uninstall_windows_key_blocker():
-        """Remove any active suppression hook."""
-        global _win_hook_id
-        global _keyboard_module, _keyboard_blocked_keys
-        global _keyboard_hook_handles, _keyboard_hotkey_handles
-        global _keyboard_proc_ref
-
-        # first remove keyboard library hooks/hotkeys if present
-        if _keyboard_module:
-            try:
-                for hotkey_handle in _keyboard_hotkey_handles:
-                    try:
-                        _keyboard_module.remove_hotkey(hotkey_handle)
-                    except Exception:
-                        pass
-                _keyboard_hotkey_handles = []
-
-                if hasattr(_keyboard_module, "unblock_key"):
-                    for key_name in _keyboard_blocked_keys:
-                        try:
-                            _keyboard_module.unblock_key(key_name)
-                        except Exception:
-                            pass
-                else:
-                    for hook_handle in _keyboard_hook_handles:
-                        try:
-                            _keyboard_module.unhook(hook_handle)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-            _keyboard_blocked_keys = []
-            _keyboard_hook_handles = []
-            _keyboard_module = None
-
-        # then remove raw win32 hook
-        if _win_hook_id:
-            ctypes.windll.user32.UnhookWindowsHookEx(_win_hook_id)
-            _win_hook_id = None
-        _keyboard_proc_ref = None
-
-else:
-    def install_windows_key_blocker():
-        pass
-    def uninstall_windows_key_blocker():
-        pass
-
-# make sure hook is removed on process exit if it was installed
-import atexit
-atexit.register(uninstall_windows_key_blocker)
-
-# ---------------------------------------------------------------------------
-
-
-APP_TITLE = "CyberCore"
+APP_TITLE = "PyPondo"
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0").strip() or "0.0.0.0"
 APP_PORT = int(os.getenv("APP_PORT", "5000"))
 APP_DATA_DIR_NAME = "CyberCore"
 APP_MODE = (os.getenv("PYPONDO_APP_MODE", "client").strip().lower() or "client")
+if APP_MODE == "kiosk":
+    APP_MODE = "client"
 SERVER_HOST_FILE = os.getenv("PYPONDO_SERVER_HOST_FILE", "server_host.txt").strip() or "server_host.txt"
-STARTUP_VALUE_NAME = os.getenv("PYPONDO_STARTUP_VALUE_NAME", "CyberCoreClient").strip() or "CyberCoreClient"
 
 
 def hidden_subprocess_kwargs():
@@ -266,17 +54,7 @@ def env_flag(name, default=False):
 
 
 def is_client_mode():
-    return APP_MODE in {"client", "kiosk"}
-
-
-def is_client_app_mode():
     return APP_MODE == "client"
-
-
-def kiosk_lock_enabled():
-    if env_flag("PYPONDO_ALLOW_EXIT", default=False):
-        return False
-    return env_flag("PYPONDO_KIOSK_MODE", default=is_client_mode())
 
 
 def get_start_path():
@@ -512,7 +290,10 @@ def probe_server_base_url(base_url):
     root = str(base_url or "").rstrip("/")
     if not root:
         return False
-    for path in ("/login", "/api/agent/register-lan"):
+    # Prefer the explicit health endpoint so the desktop client can verify
+    # that the updated PyPondo server is ready before opening its UI. Keep the
+    # legacy routes as fallbacks for older installations.
+    for path in ("/api/health", "/login", "/api/agent/register-lan"):
         target = root + path
         try:
             with http_request.urlopen(target, timeout=1.2):
@@ -802,85 +583,6 @@ def get_server_host_candidate_paths():
     return paths
 
 
-def get_windows_startup_command(app_mode=None):
-    if app_mode is None:
-        app_mode = APP_MODE
-    
-    env_part = ""
-    if app_mode != APP_MODE:
-        env_part = f'set "PYPONDO_APP_MODE={app_mode}" && '
-    
-    if is_frozen_bundle():
-        exe_dir = os.path.dirname(sys.executable)
-        return f'cmd /c "cd /d "{exe_dir}" && {env_part}"{sys.executable}""'
-
-    pythonw_path = sys.executable
-    lower_exec = pythonw_path.lower()
-    if lower_exec.endswith("python.exe"):
-        pythonw_candidate = pythonw_path[:-10] + "pythonw.exe"
-        if os.path.exists(pythonw_candidate):
-            pythonw_path = pythonw_candidate
-
-    script_path = os.path.abspath(__file__)
-    script_dir = os.path.dirname(script_path)
-    return f'cmd /c "cd /d "{script_dir}" && {env_part}"{pythonw_path}" "{script_path}""'
-
-
-def ensure_windows_startup_registration():
-    if os.name != "nt" or not is_client_mode():
-        return
-    if env_flag("PYPONDO_DISABLE_AUTO_STARTUP", default=False):
-        return
-
-    # For kiosk mode, set startup to run in client mode
-    startup_mode = "client" if APP_MODE == "kiosk" else APP_MODE
-
-    try:
-        command = get_windows_startup_command(startup_mode)
-        reg_query = subprocess.run(
-            [
-                "reg",
-                "query",
-                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                "/v",
-                STARTUP_VALUE_NAME,
-            ],
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            capture_output=True,
-            check=False,
-            **hidden_subprocess_kwargs(),
-        )
-
-        already_set = reg_query.returncode == 0 and command in (reg_query.stdout or "")
-        if already_set:
-            return
-
-        subprocess.run(
-            [
-                "reg",
-                "add",
-                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                "/v",
-                STARTUP_VALUE_NAME,
-                "/t",
-                "REG_SZ",
-                "/d",
-                command,
-                "/f",
-            ],
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            capture_output=True,
-            check=False,
-            **hidden_subprocess_kwargs(),
-        )
-    except Exception:
-        return
-
-
 def get_default_data_dir():
     if is_frozen_bundle():
         local_app_data = os.getenv("LOCALAPPDATA", "").strip() or os.getenv("APPDATA", "").strip()
@@ -890,23 +592,73 @@ def get_default_data_dir():
 
 
 def configure_default_data_dir():
-    if os.getenv("PYPONDO_DB_PATH", "").strip() or os.getenv("PYPONDO_DATA_DIR", "").strip():
+    if not is_frozen_bundle():
+        if os.getenv("PYPONDO_DB_PATH", "").strip() or os.getenv("PYPONDO_DATA_DIR", "").strip():
+            return
+
+        runtime_dir = get_runtime_base_dir()
+        legacy_db = os.path.join(runtime_dir, "pccafe.db")
+        if os.path.exists(legacy_db):
+            os.environ["PYPONDO_DB_PATH"] = legacy_db
+            return
+
+        data_dir = get_default_data_dir()
+        os.makedirs(data_dir, exist_ok=True)
+        os.environ["PYPONDO_DATA_DIR"] = data_dir
         return
 
     runtime_dir = get_runtime_base_dir()
-    legacy_db = os.path.join(runtime_dir, "pccafe.db")
-    if os.path.exists(legacy_db):
-        os.environ["PYPONDO_DB_PATH"] = legacy_db
-        return
-
     data_dir = get_default_data_dir()
     os.makedirs(data_dir, exist_ok=True)
-    os.environ["PYPONDO_DATA_DIR"] = data_dir
+    source_project_dir = os.path.dirname(runtime_dir)
+    running_from_project_dist = os.path.isfile(os.path.join(source_project_dir, "desktop_app.py"))
+
+    if not os.getenv("PYPONDO_DB_PATH", "").strip():
+        explicit_data_dir = os.getenv("PYPONDO_DATA_DIR", "").strip()
+        database_candidates = [
+            os.path.join(runtime_dir, "pccafe.db"),
+            os.path.join(os.path.dirname(runtime_dir), "pccafe.db"),
+        ]
+        if running_from_project_dist:
+            database_candidates.insert(0, os.path.join(source_project_dir, "pccafe.db"))
+        if explicit_data_dir:
+            database_candidates.insert(0, os.path.join(os.path.abspath(explicit_data_dir), "pccafe.db"))
+
+        existing_database = next((path for path in database_candidates if os.path.isfile(path)), None)
+        os.environ["PYPONDO_DB_PATH"] = existing_database or os.path.join(
+            os.path.abspath(explicit_data_dir) if explicit_data_dir else data_dir, "pccafe.db"
+        )
+
+    if not os.getenv("PYPONDO_COMMUNITY_DB_PATH", "").strip():
+        community_candidates = [
+            os.path.join(runtime_dir, "community_equipment.db"),
+            os.path.join(os.path.dirname(runtime_dir), "community_equipment.db"),
+            r"D:\Users\jush\Downloads\sample.db",
+        ]
+        if running_from_project_dist:
+            community_candidates.insert(0, r"D:\Users\jush\Downloads\sample.db")
+        existing_community_db = next((path for path in community_candidates if os.path.isfile(path)), None)
+        os.environ["PYPONDO_COMMUNITY_DB_PATH"] = existing_community_db or os.path.join(
+            os.path.abspath(os.getenv("PYPONDO_DATA_DIR", "").strip()) or data_dir,
+            "community_equipment.db",
+        )
+
+    seed_dir = os.path.join(get_runtime_resource_dir(), "database-seed")
+    seed_targets = (
+        ("pccafe.db", os.getenv("PYPONDO_DB_PATH", "").strip()),
+        ("community_equipment.db", os.getenv("PYPONDO_COMMUNITY_DB_PATH", "").strip()),
+    )
+    for seed_name, target_path in seed_targets:
+        source_path = os.path.join(seed_dir, seed_name)
+        if seed_name == "community_equipment.db" and not os.path.isfile(source_path):
+            source_path = os.path.join(seed_dir, "sample.db")
+        if target_path and not os.path.exists(target_path) and os.path.isfile(source_path):
+            os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
+            shutil.copy2(source_path, target_path)
 
 
 def configure_runtime_defaults():
-    if not os.getenv("PYPONDO_KIOSK_MODE", "").strip():
-        os.environ["PYPONDO_KIOSK_MODE"] = "1" if is_client_mode() else "0"
+    os.environ["PYPONDO_KIOSK_MODE"] = "0"
 
 
 configure_default_data_dir()
@@ -958,64 +710,6 @@ def run_flask(host, port):
         pass
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
     server.app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
-
-
-def launch_browser_control_window(url):
-    import tkinter as tk
-    from tkinter import ttk
-
-    def open_in_browser():
-        webbrowser.open(url)
-
-    if kiosk_lock_enabled():
-        try:
-            install_windows_key_blocker()
-        except Exception as exc:
-            if is_verbose_logging_enabled():
-                print(f"[WARN] Failed to install kiosk lock in browser mode: {exc}")
-
-    root = tk.Tk()
-    root.title(APP_TITLE)
-
-    # Only the standard client app is forced fullscreen and borderless.
-    if is_client_app_mode():
-        root.overrideredirect(True)
-        try:
-            root.attributes("-fullscreen", True)
-        except Exception:
-            screen_w = root.winfo_screenwidth()
-            screen_h = root.winfo_screenheight()
-            root.geometry(f"{screen_w}x{screen_h}+0+0")
-    else:
-        root.geometry("520x220")
-        root.minsize(460, 200)
-
-    if kiosk_lock_enabled():
-        root.protocol("WM_DELETE_WINDOW", lambda: None)
-        root.bind("<Alt-F4>", lambda event: "break")
-        root.bind("<Control-w>", lambda event: "break")
-
-    frame = ttk.Frame(root, padding=16)
-    frame.pack(fill="both", expand=True)
-
-    title_text = "PyPondo is running."
-    if kiosk_lock_enabled():
-        title_text = "PyPondo client kiosk is locked."
-    ttk.Label(frame, text=title_text, font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=(0, 8))
-    ttk.Label(
-        frame,
-        text="Login is required before desktop access is unlocked."
-    ).pack(anchor="w", pady=(0, 12))
-    ttk.Label(frame, text=url, foreground="#1f5fbf").pack(anchor="w", pady=(0, 16))
-
-    button_row = ttk.Frame(frame)
-    button_row.pack(fill="x")
-    ttk.Button(button_row, text="Open App", command=open_in_browser).pack(side="left")
-    if not kiosk_lock_enabled():
-        ttk.Button(button_row, text="Exit", command=root.destroy).pack(side="right")
-
-    open_in_browser()
-    root.mainloop()
 
 
 def normalize_timer_started_at(raw_value):
@@ -1148,16 +842,9 @@ def run_timer_window(started_at_ms=None):
 
 
 def launch_ui(url):
+    ui_error = "pywebview is not installed."
     try:
         import webview  # type: ignore
-
-        # Install lock immediately so it is active even before JS bridge is ready.
-        if kiosk_lock_enabled():
-            try:
-                install_windows_key_blocker()
-            except Exception as exc:
-                if is_verbose_logging_enabled():
-                    print(f"[WARN] Failed to pre-enable kiosk lock: {exc}")
 
         timer_process = None
         timer_process_lock = threading.Lock()
@@ -1220,38 +907,11 @@ def launch_ui(url):
                 def stop_timer(self):
                     return stop_timer_window()
                 
-                def enable_kiosk_lock(self):
-                    """Enable keyboard blocking (Alt+Tab, etc.) for logged-in users"""
-                    if kiosk_lock_enabled():
-                        try:
-                            install_windows_key_blocker()
-                            return True
-                        except Exception as e:
-                            if is_verbose_logging_enabled():
-                                print(f"[WARN] Failed to enable kiosk lock: {e}")
-                            return False
-                    return False
-                
-                def disable_kiosk_lock(self):
-                    """Disable keyboard blocking for login screen"""
-                    try:
-                        uninstall_windows_key_blocker()
-                        return True
-                    except Exception as e:
-                        if is_verbose_logging_enabled():
-                            print(f"[WARN] Failed to disable kiosk lock: {e}")
-                        return False
-                
                 def terminate(self, secret_key):
                     # Secret key to terminate the client app
                     if secret_key == "PYPONDO_TERMINATE_2026":
                         try:
                             stop_timer_window()
-                        except Exception:
-                            pass
-                        try:
-                            # remove the keyboard hook so it doesn't linger after exit
-                            uninstall_windows_key_blocker()
                         except Exception:
                             pass
                         try:
@@ -1266,44 +926,64 @@ def launch_ui(url):
                 url=url,
                 width=1280,
                 height=820,
-                min_size=(980, 700),
-                resizable=not is_client_mode(),
-                frameless=is_client_app_mode(),
-                fullscreen=is_client_app_mode(),
+                min_size=(800, 600),
+                resizable=True,
+                frameless=False,
+                fullscreen=False,
                 easy_drag=False,
                 js_api=Api()
             )
             window_obj = window
-            if kiosk_lock_enabled():
-                def prevent_close():
-                    return True
-
-                try:
-                    window.events.closing += prevent_close
-                except Exception:
-                    pass
             webview.start()
             stop_timer_window()
             return True
         except Exception as exc:
+            ui_error = str(exc)
             if is_verbose_logging_enabled():
-                print(f"pywebview failed, falling back to browser mode: {exc}")
+                print(f"pywebview window failed: {exc}")
     except Exception as exc:
+        ui_error = str(exc)
         if is_verbose_logging_enabled():
-            print(f"pywebview not available, using browser mode instead: {exc}")
+            print(f"pywebview is not available: {exc}")
 
+    message = (
+        "PyPondo could not open its built-in desktop window. "
+        "Install the WebView2 Runtime and rebuild/reinstall the desktop app.\n\n"
+        f"Details: {ui_error}"
+    )
+    if is_verbose_logging_enabled():
+        print(message)
     try:
-        launch_browser_control_window(url)
-        return True
-    except Exception as exc:
-        print(f"Fallback UI failed: {exc}")
-        print("Trying direct browser launch.")
-        webbrowser.open(url)
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            return True
+        import tkinter as tk
+        from tkinter import messagebox
+
+        dialog = tk.Tk()
+        dialog.withdraw()
+        messagebox.showerror("PyPondo desktop window unavailable", message, parent=dialog)
+        dialog.destroy()
+    except Exception:
+        pass
+    return False
+
+
+def show_remote_server_required_message(headless=False):
+    message = (
+        "The PyPondo server is not running or cannot be reached. "
+        "Start the server on the same network, then open PyPondo Online again."
+    )
+    print(message)
+    if headless:
+        return
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        dialog = tk.Tk()
+        dialog.withdraw()
+        messagebox.showwarning("PyPondo server required", message, parent=dialog)
+        dialog.destroy()
+    except Exception:
+        pass
 
 
 def main():
@@ -1338,48 +1018,28 @@ def main():
             return 1
 
     headless_mode = str(os.getenv("PYPONDO_HEADLESS", "")).strip().lower() in {"1", "true", "yes"}
+    remote_only_mode = env_flag("PYPONDO_REMOTE_ONLY", default=False)
 
-    # Kiosk lock is pre-enabled when client UI launches. API calls can still
-    # re-apply or disable it if needed.
-    if is_client_mode() and kiosk_lock_enabled() and not headless_mode:
-        try:
-            install_windows_key_blocker()
-        except Exception as exc:
-            if is_verbose_logging_enabled():
-                print(f"[WARN] Failed to pre-install kiosk lock at startup: {exc}")
-
-    # Special handling for kiosk mode: launch client app
-    if APP_MODE == "kiosk":
-        if is_verbose_logging_enabled():
-            print("[INFO] Kiosk mode: launching client app...")
-        try:
-            if is_frozen_bundle():
-                exe_dir = os.path.dirname(sys.executable)
-                cmd = f'cmd /c "cd /d "{exe_dir}" && set "PYPONDO_APP_MODE=client" && "{sys.executable}""'
-            else:
-                pythonw_path = sys.executable
-                lower_exec = pythonw_path.lower()
-                if lower_exec.endswith("python.exe"):
-                    pythonw_candidate = pythonw_path[:-10] + "pythonw.exe"
-                    if os.path.exists(pythonw_candidate):
-                        pythonw_path = pythonw_candidate
-                script_path = os.path.abspath(__file__)
-                script_dir = os.path.dirname(script_path)
-                cmd = f'cmd /c "cd /d "{script_dir}" && set "PYPONDO_APP_MODE=client" && "{pythonw_path}" "{script_path}""'
-            
-            subprocess.run(cmd, shell=True, **hidden_subprocess_kwargs())
-        except Exception as exc:
-            if is_verbose_logging_enabled():
-                print(f"[ERROR] Failed to launch client app: {exc}")
-        return 0
-
-    ensure_windows_startup_registration()
-
-    if is_client_mode() and not env_flag("PYPONDO_FORCE_LOCAL_SERVER", default=False):
+    if is_client_mode() and (remote_only_mode or not env_flag("PYPONDO_FORCE_LOCAL_SERVER", default=False)):
         if is_verbose_logging_enabled():
             print("[INFO] Client mode: searching for remote admin server...")
         manual_candidates = get_manual_host_candidates()
-        remote_base_url = discover_remote_server_base_url()
+        if remote_only_mode:
+            # The online build must search broadly because it has no local
+            # server fallback.
+            remote_base_url = discover_remote_server_base_url()
+        else:
+            # The standalone build should open quickly. Only check explicitly
+            # configured server addresses; broad LAN discovery can involve
+            # hundreds of sequential timeouts before the local server starts.
+            remote_base_url = None
+            for manual_host in manual_candidates:
+                for candidate in build_base_urls_from_host_value(manual_host):
+                    if probe_server_base_url(candidate):
+                        remote_base_url = candidate.rstrip("/")
+                        break
+                if remote_base_url:
+                    break
         
         if remote_base_url:
             launch_url = f"{remote_base_url}{get_start_path()}"
@@ -1390,15 +1050,13 @@ def main():
                 print(f"Server ready at {launch_url}")
                 return 0
 
-            if kiosk_lock_enabled():
-                while True:
-                    if not launch_ui(launch_url):
-                        return 1
-                    time.sleep(0.3)
-            else:
-                if not launch_ui(launch_url):
-                    return 1
+            if not launch_ui(launch_url):
+                return 1
             return 0
+
+        if remote_only_mode:
+            show_remote_server_required_message(headless=headless_mode)
+            return 1
 
         # If manual server is configured in server_host.txt but not currently reachable,
         # fall back to local mode instead of prompting user
@@ -1431,14 +1089,8 @@ def main():
         print(f"Server ready at {launch_url}")
         return 0
 
-    if kiosk_lock_enabled():
-        while True:
-            if not launch_ui(launch_url):
-                return 1
-            time.sleep(0.3)
-    else:
-        if not launch_ui(launch_url):
-            return 1
+    if not launch_ui(launch_url):
+        return 1
     return 0
 
 

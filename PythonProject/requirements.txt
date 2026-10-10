@@ -14,6 +14,10 @@ Werkzeug==2.3.7
 
 # HTTP/Request handling
 requests==2.31.0
+qrcode>=7.4.2,<9
+
+# Native Windows desktop window (the app hosts its own local PyPondo server)
+pywebview
 
 # Utilities
 python-dotenv==1.0.0

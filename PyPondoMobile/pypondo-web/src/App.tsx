@@ -49,6 +49,42 @@ type BookingPayload = {
   bookings: MobileBooking[]
 }
 
+type MobileProfile = {
+  user_id: number
+  username: string
+  full_name: string
+  role: string
+  balance: number
+  has_profile_picture: boolean
+}
+
+type ProfilePayload = { ok: boolean; profile: MobileProfile }
+
+type EquipmentIssue = {
+  title: string
+  description: string
+  reported_at?: string | null
+}
+
+type ScannedEquipment = {
+  equipment_id: number
+  equipment_code: string
+  equipment_name: string
+  brand?: string | null
+  model?: string | null
+  serial_number?: string | null
+  description?: string | null
+  laboratory?: string | null
+  location?: string | null
+  category?: string | null
+  status: string
+  status_updated_at?: string | null
+  status_remarks?: string | null
+  malfunction_reports: EquipmentIssue[]
+}
+
+type EquipmentPayload = { ok: boolean; equipment: ScannedEquipment }
+
 type MobilePc = {
   id: number
   name: string
@@ -89,7 +125,7 @@ type AssistantPayload = {
 }
 
 type ConnectionStatus = 'idle' | 'testing' | 'connected' | 'error'
-type TabKey = 'overview' | 'bookings' | 'pcs' | 'topup' | 'assistant' | 'updates'
+type TabKey = 'overview' | 'bookings' | 'pcs' | 'topup' | 'products' | 'profile' | 'assistant' | 'updates'
 
 type StoredConfig = {
   serverAddress: string
@@ -134,6 +170,7 @@ const QR_PAIRING_PATH_PATTERN = /\/api\/mobile\/pairing\/?$/i
 const QR_SCAN_INTERVAL_MS = 300
 const DEFAULT_SCANNER_MESSAGE =
   'Point the camera at the pairing QR from your desktop to connect over LAN or a public route.'
+const DEFAULT_PRODUCT_SCANNER_MESSAGE = 'Point the camera at a PyPondo equipment QR code to view its details and reports.'
 const TAB_META: Record<TabKey, { label: string; hint: string }> = {
   overview: {
     label: 'Overview',
@@ -151,6 +188,8 @@ const TAB_META: Record<TabKey, { label: string; hint: string }> = {
     label: 'Top-up',
     hint: 'Create a balance request from the phone.',
   },
+  products: { label: 'Scan item', hint: 'Scan equipment QR codes to view details and malfunction history.' },
+  profile: { label: 'Profile', hint: 'Account details, profile picture, and password.' },
   assistant: {
     label: 'Assistant',
     hint: 'Ask about account activity and cafe operations.',
@@ -385,6 +424,7 @@ function App() {
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scannerStatus, setScannerStatus] = useState<ScannerStatus>('idle')
   const [scannerMessage, setScannerMessage] = useState(DEFAULT_SCANNER_MESSAGE)
+  const [scannerMode, setScannerMode] = useState<'server' | 'equipment'>('server')
 
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const scannerDetectorRef = useRef<BarcodeDetectorInstance | null>(null)
@@ -392,6 +432,7 @@ function App() {
   const scannerTimerRef = useRef<number | null>(null)
   const scannerBusyRef = useRef(false)
   const scannerRunningRef = useRef(false)
+  const scannerModeRef = useRef<'server' | 'equipment'>('server')
 
   // Discovery state
   const [discoveredServers, setDiscoveredServers] = useState<DiscoveredServer[]>([])
@@ -410,6 +451,13 @@ function App() {
   const [bookings, setBookings] = useState<MobileBooking[]>([])
   const [pcs, setPcs] = useState<MobilePc[]>([])
   const [updates, setUpdates] = useState<MobileUpdate[]>([])
+  const [scannedEquipment, setScannedEquipment] = useState<ScannedEquipment | null>(null)
+  const [equipmentScanBusy, setEquipmentScanBusy] = useState(false)
+  const [profile, setProfile] = useState<MobileProfile | null>(null)
+  const [currentProfilePassword, setCurrentProfilePassword] = useState('')
+  const [picturePassword, setPicturePassword] = useState('')
+  const [newProfilePassword, setNewProfilePassword] = useState('')
+  const [profileBusy, setProfileBusy] = useState(false)
   const [assistantMessages, setAssistantMessages] = useState<ChatMessage[]>([
     {
       id: 1,
@@ -435,7 +483,11 @@ function App() {
 
     if (storedConfig?.serverAddress) {
       setServerAddress(storedConfig.serverAddress)
-      void connectToServer(storedConfig.serverAddress, true)
+      void connectToServer(storedConfig.serverAddress, true).then((connected) => {
+        if (!connected) {
+          void startServerDiscovery(true)
+        }
+      })
     } else {
       void startServerDiscovery(true)
     }
@@ -492,7 +544,7 @@ function App() {
     stopScannerHardware()
     setScannerOpen(false)
     setScannerStatus('idle')
-    setScannerMessage(DEFAULT_SCANNER_MESSAGE)
+    setScannerMessage(scannerModeRef.current === 'equipment' ? DEFAULT_PRODUCT_SCANNER_MESSAGE : DEFAULT_SCANNER_MESSAGE)
   }
 
   function scheduleScannerPass() {
@@ -508,6 +560,25 @@ function App() {
   async function applyScannedQr(rawValue: string) {
     stopScannerHardware()
     setScannerStatus('starting')
+    if (scannerModeRef.current === 'equipment') {
+      setScannedEquipment(null)
+      setScannerMessage('Equipment QR found. Loading item details and reports...')
+      setEquipmentScanBusy(true)
+      try {
+        if (!baseUrl) throw new Error('Connect to a PyPondo server before scanning equipment.')
+        const payload = await readJson<EquipmentPayload>(`${baseUrl}/api/mobile/equipment/scan?qr=${encodeURIComponent(rawValue)}`)
+        setScannedEquipment(payload.equipment)
+        setActiveTab('products')
+        setScannerOpen(false)
+        setScannerStatus('idle')
+        setConnectionMessage(`Loaded ${payload.equipment.equipment_name} and its malfunction history.`)
+      } catch (error) {
+        setScannerOpen(true)
+        setScannerStatus('error')
+        setScannerMessage(error instanceof Error ? error.message : 'Could not load this equipment QR.')
+      } finally { setEquipmentScanBusy(false) }
+      return
+    }
     setScannerMessage('QR found. Loading the server details...')
 
     try {
@@ -562,7 +633,10 @@ function App() {
     scheduleScannerPass()
   }
 
-  async function startQrScanner() {
+  async function startQrScanner(mode: 'server' | 'equipment' = 'server') {
+    scannerModeRef.current = mode
+    setScannerMode(mode)
+    setScannerMessage(mode === 'equipment' ? DEFAULT_PRODUCT_SCANNER_MESSAGE : DEFAULT_SCANNER_MESSAGE)
     const BarcodeDetectorImpl = window.BarcodeDetector
     if (!navigator.mediaDevices?.getUserMedia || !BarcodeDetectorImpl) {
       setScannerOpen(true)
@@ -576,7 +650,7 @@ function App() {
     stopScannerHardware()
     setScannerOpen(true)
     setScannerStatus('starting')
-    setScannerMessage('Allow camera access, then point it at the desktop pairing QR.')
+    setScannerMessage(mode === 'equipment' ? 'Allow camera access, then point it at the equipment QR.' : 'Allow camera access, then point it at the desktop pairing QR.')
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -602,7 +676,7 @@ function App() {
       await videoRef.current.play()
 
       setScannerStatus('active')
-      setScannerMessage('Scanning for the PyPondo pairing QR...')
+      setScannerMessage(mode === 'equipment' ? 'Scanning for equipment QR codes...' : 'Scanning for the PyPondo pairing QR...')
       scheduleScannerPass()
     } catch (error) {
       stopScannerHardware()
@@ -671,7 +745,7 @@ function App() {
           ? 'Offline'
           : 'Ready'
 
-  async function connectToServer(addressOverride?: string, silent = false) {
+  async function connectToServer(addressOverride?: string, silent = false): Promise<boolean> {
     const candidateAddress = (addressOverride ?? serverAddress).trim()
 
     try {
@@ -696,6 +770,7 @@ function App() {
       )
       writeStoredConfig(resolvedAddress)
       setServerAddress(resolvedAddress)
+      return true
     } catch (error) {
       setBaseUrl('')
       setServerInfo(null)
@@ -705,6 +780,7 @@ function App() {
           ? error.message
           : 'Could not reach the PyPondo server from this device.',
       )
+      return false
     }
   }
 
@@ -764,7 +840,7 @@ function App() {
     setRefreshBusy(true)
 
     try {
-      const [pcsPayload, updatesPayload, bookingsPayload] = await Promise.all([
+      const [pcsPayload, updatesPayload, bookingsPayload, profilePayload] = await Promise.all([
         readJson<PcsPayload>(`${baseUrl}/api/mobile/pcs`),
         readJson<UpdatesPayload>(`${baseUrl}/api/mobile/updates`),
         session
@@ -772,12 +848,16 @@ function App() {
               `${baseUrl}/api/mobile/bookings?user_id=${encodeURIComponent(String(session.userId))}`,
             )
           : Promise.resolve<BookingPayload>({ ok: true, bookings: [] }),
+        session
+          ? readJson<ProfilePayload>(`${baseUrl}/api/mobile/profile?user_id=${encodeURIComponent(String(session.userId))}`)
+          : Promise.resolve<ProfilePayload>({ ok: true, profile: null as unknown as MobileProfile }),
       ])
 
       startTransition(() => {
         setPcs(pcsPayload.pcs ?? [])
         setUpdates(updatesPayload.updates ?? [])
         setBookings(bookingsPayload.bookings ?? [])
+        setProfile(profilePayload.profile)
       })
 
       if (!selectedPcId && pcsPayload.pcs.length > 0) {
@@ -795,6 +875,67 @@ function App() {
     } finally {
       setRefreshBusy(false)
     }
+  }
+
+  async function submitProfilePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!session || !currentProfilePassword || newProfilePassword.length < 8) return
+    setProfileBusy(true)
+    try {
+      const payload = await readJson<{ ok: boolean; message: string }>(`${baseUrl}/api/mobile/profile`, {
+        body: createFormBody({ action: 'change_password', current_password: currentProfilePassword, new_password: newProfilePassword, user_id: session.userId }),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, method: 'POST',
+      })
+      setConnectionMessage(payload.message)
+      setCurrentProfilePassword('')
+      setNewProfilePassword('')
+    } catch (error) {
+      setConnectionMessage(error instanceof Error ? error.message : 'Could not update password.')
+    } finally { setProfileBusy(false) }
+  }
+
+  async function uploadProfilePicture(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget
+    const file = input.files?.[0]
+    if (!session || !file) return
+    if (!picturePassword) {
+      setConnectionMessage('Enter your current password before changing your profile picture.')
+      return
+    }
+    const body = new FormData()
+    body.set('action', 'upload_picture')
+    body.set('user_id', String(session.userId))
+    body.set('current_password', picturePassword)
+    body.set('profile_picture', file)
+    setProfileBusy(true)
+    try {
+      await readJson(`${baseUrl}/api/mobile/profile`, { body, method: 'POST' })
+      await refreshData()
+      setPicturePassword('')
+      setConnectionMessage('Profile picture updated.')
+    } catch (error) {
+      setConnectionMessage(error instanceof Error ? error.message : 'Could not upload profile picture.')
+    } finally { setProfileBusy(false); input.value = '' }
+  }
+
+  async function removeProfilePicture() {
+    if (!session) return
+    if (!picturePassword) {
+      setConnectionMessage('Enter your current password before changing your profile picture.')
+      return
+    }
+    setProfileBusy(true)
+    try {
+      await readJson(`${baseUrl}/api/mobile/profile`, {
+        body: createFormBody({ action: 'remove_picture', current_password: picturePassword, user_id: session.userId }),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, method: 'POST',
+      })
+      await refreshData()
+      setPicturePassword('')
+      setConnectionMessage('Profile picture removed.')
+    } catch (error) {
+      setConnectionMessage(error instanceof Error ? error.message : 'Could not remove profile picture.')
+    } finally { setProfileBusy(false) }
   }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
@@ -846,6 +987,10 @@ function App() {
     setSession(null)
     writeStoredSession(null)
     setBookings([])
+    setProfile(null)
+    setCurrentProfilePassword('')
+    setPicturePassword('')
+    setNewProfilePassword('')
     setConnectionMessage('Signed out on this device.')
   }
 
@@ -1151,8 +1296,8 @@ function App() {
             <div className="qr-scanner-panel">
               <div className="scanner-head">
                 <div>
-                  <p className="section-label">Camera Pairing</p>
-                  <h3>Scan the desktop pairing QR</h3>
+                  <p className="section-label">{scannerMode === 'equipment' ? 'Equipment lookup' : 'Camera pairing'}</p>
+                  <h3>{scannerMode === 'equipment' ? 'Scan an equipment QR code' : 'Scan the desktop pairing QR'}</h3>
                 </div>
                 <button className="ghost-button scanner-close" onClick={closeQrScanner} type="button">
                   Close
@@ -1185,7 +1330,7 @@ function App() {
               <p className="status-line">{scannerMessage}</p>
 
               <div className="button-row scanner-actions">
-                <button className="secondary-button" onClick={() => void startQrScanner()} type="button">
+                <button className="secondary-button" onClick={() => void startQrScanner(scannerModeRef.current)} type="button">
                   Restart camera
                 </button>
                 <label className="ghost-button file-picker-button">
@@ -1278,7 +1423,7 @@ function App() {
               </div>
 
               <div className="tab-row" role="tablist" aria-label="Mobile app sections">
-                {(['overview', 'bookings', 'pcs', 'topup', 'assistant', 'updates'] as TabKey[]).map((tab) => (
+                {(['overview', 'bookings', 'pcs', 'topup', 'products', 'profile', 'assistant', 'updates'] as TabKey[]).map((tab) => (
                   <button
                     key={tab}
                     className={tab === activeTab ? 'tab-button active' : 'tab-button'}
@@ -1309,6 +1454,9 @@ function App() {
                         </button>
                         <button className="ghost-button action-button" onClick={() => setActiveTab('pcs')} type="button">
                           Check PCs
+                        </button>
+                        <button className="ghost-button action-button" disabled={!baseUrl || equipmentScanBusy} onClick={() => void startQrScanner('equipment')} type="button">
+                          {equipmentScanBusy ? 'Loading item…' : 'Scan equipment QR'}
                         </button>
                         <button className="ghost-button action-button" onClick={() => setActiveTab('assistant')} type="button">
                           Ask assistant
@@ -1428,6 +1576,35 @@ function App() {
                 </section>
               ) : null}
 
+              {activeTab === 'profile' ? (
+                <section className="content-stack">
+                  <div className="content-card">
+                    <h3>Account details</h3>
+                    {profile ? (
+                      <>
+                        <div className="list-item"><strong>{profile.full_name}</strong><span>{profile.role}</span></div>
+                        <div className="list-item"><strong>Username</strong><span>{profile.username}</span></div>
+                        <div className="list-item"><strong>Balance</strong><span>{formatCurrency(profile.balance)}</span></div>
+                      </>
+                    ) : <p className="empty-copy">Sign in to view your account profile.</p>}
+                    <p className="section-copy">{profile?.has_profile_picture ? 'A profile picture is saved.' : 'No profile picture is saved.'} Enter your current password to make a change.</p>
+                    <label className="field-label" htmlFor="picturePassword">Current password</label>
+                    <input id="picturePassword" className="text-field" autoComplete="current-password" disabled={!session || profileBusy} onChange={(event) => setPicturePassword(event.target.value)} type="password" value={picturePassword} />
+                    <label className="field-label" htmlFor="profilePicture">Profile picture · JPG, PNG, or WebP up to 2 MB</label>
+                    <input id="profilePicture" className="text-field" accept="image/jpeg,image/png,image/webp" disabled={!session || profileBusy} onChange={uploadProfilePicture} type="file" />
+                    {profile?.has_profile_picture ? <button className="ghost-button" disabled={profileBusy} onClick={() => void removeProfilePicture()} type="button">Remove picture</button> : null}
+                  </div>
+                  <form className="content-card" onSubmit={submitProfilePassword}>
+                    <h3>Change password</h3>
+                    <label className="field-label" htmlFor="profileCurrentPassword">Current password</label>
+                    <input id="profileCurrentPassword" className="text-field" autoComplete="current-password" disabled={!session || profileBusy} onChange={(event) => setCurrentProfilePassword(event.target.value)} type="password" value={currentProfilePassword} />
+                    <label className="field-label" htmlFor="profileNewPassword">New password (at least 8 characters)</label>
+                    <input id="profileNewPassword" className="text-field" autoComplete="new-password" disabled={!session || profileBusy} minLength={8} onChange={(event) => setNewProfilePassword(event.target.value)} type="password" value={newProfilePassword} />
+                    <button className="primary-button" disabled={!session || profileBusy || newProfilePassword.length < 8} type="submit">{profileBusy ? 'Saving…' : 'Update password'}</button>
+                  </form>
+                </section>
+              ) : null}
+
               {activeTab === 'pcs' ? (
                 <section className="content-card">
                   <h3>PC availability</h3>
@@ -1444,6 +1621,48 @@ function App() {
                   ) : (
                     <p className="empty-copy">No PCs are exposed by the mobile API yet.</p>
                   )}
+                </section>
+              ) : null}
+
+              {activeTab === 'products' ? (
+                <section className="content-stack">
+                  <div className="content-card product-scan-card">
+                    <div className="panel-head">
+                      <div><p className="section-label">Equipment lookup</p><h3>Scan a product or asset</h3></div>
+                      <button className="primary-button compact-button" disabled={!baseUrl || equipmentScanBusy} onClick={() => void startQrScanner('equipment')} type="button">
+                        {equipmentScanBusy ? 'Loading…' : 'Scan QR'}
+                      </button>
+                    </div>
+                    <p className="section-copy">Scan a PyPondo equipment label to see its description, location, current status, and any recorded malfunction reports.</p>
+                  </div>
+                  {scannedEquipment ? (
+                    <>
+                      <div className="content-card">
+                        <div className="equipment-title-row">
+                          <div><p className="section-label">{scannedEquipment.equipment_code} · {scannedEquipment.category || 'Equipment'}</p><h3>{scannedEquipment.equipment_name}</h3></div>
+                          <span className={`pill ${/maintenance|repair|broken/i.test(scannedEquipment.status) ? 'warn' : 'success'}`}>{scannedEquipment.status}</span>
+                        </div>
+                        <p className="section-copy">{scannedEquipment.description || 'No description has been added.'}</p>
+                        <div className="equipment-details-grid">
+                          <div><span>Brand / model</span><strong>{[scannedEquipment.brand, scannedEquipment.model].filter(Boolean).join(' ') || 'Not recorded'}</strong></div>
+                          <div><span>Serial number</span><strong>{scannedEquipment.serial_number || 'Not recorded'}</strong></div>
+                          <div><span>Laboratory</span><strong>{scannedEquipment.laboratory || 'Not assigned'}</strong></div>
+                          <div><span>Location</span><strong>{scannedEquipment.location || 'Not recorded'}</strong></div>
+                          <div><span>Status updated</span><strong>{formatTimestamp(scannedEquipment.status_updated_at || undefined)}</strong></div>
+                        </div>
+                        {scannedEquipment.status_remarks ? <p className="section-copy equipment-remarks">Latest status note: {scannedEquipment.status_remarks}</p> : null}
+                      </div>
+                      <div className="content-card">
+                        <h3>Malfunction reports</h3>
+                        {scannedEquipment.malfunction_reports.length ? scannedEquipment.malfunction_reports.map((issue, index) => (
+                          <article className="equipment-issue" key={`${issue.title}-${issue.reported_at}-${index}`}>
+                            <div><strong>{issue.title}</strong><span>{formatTimestamp(issue.reported_at || undefined)}</span></div>
+                            <p>{issue.description}</p>
+                          </article>
+                        )) : <p className="empty-copy">No malfunction reports have been recorded for this equipment.</p>}
+                      </div>
+                    </>
+                  ) : <div className="content-card"><p className="empty-copy">Scan an equipment QR code to load its record.</p></div>}
                 </section>
               ) : null}
 
