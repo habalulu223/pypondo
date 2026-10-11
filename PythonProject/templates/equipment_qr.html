@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ item.equipment_name }} QR | PyPondo</title>
+  <style>
+    :root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#243247;background:#f3f5f9}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;padding:24px;display:grid;place-items:center;background:radial-gradient(circle at 15% 10%,#e4edf8 0,transparent 35%),#f3f5f9}
+    .qr-card{width:min(100%,520px);padding:clamp(22px,5vw,34px);text-align:center;background:#fff;border:1px solid #dfe5ee;border-radius:20px;box-shadow:0 18px 50px rgba(23,32,51,.09)}
+    .eyebrow{color:#68778d;font-size:.78rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+    h1{margin:9px 0;color:#1f3048;font-size:clamp(1.7rem,6vw,2.2rem)}
+    .description{margin:0;color:#68778d}
+    .status{display:inline-block;margin-top:10px;padding:4px 11px;border-radius:999px;font-size:.76rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+    .status.active{background:#e4f6ec;color:#1f7a46}
+    .status.inactive{background:#fdeceb;color:#b3261e}
+    .qr-image{display:block;width:min(100%,300px);height:auto;margin:24px auto;border:9px solid #fff;border-radius:12px;box-shadow:0 0 0 1px #e1e7f0,0 8px 24px rgba(25,42,70,.08)}
+    .meta{display:flex;flex-direction:column;gap:4px;margin:0 auto 14px;max-width:360px;color:#53637a;font-size:.9rem}
+    .payload{padding:12px;background:#f4f7fb;border:1px solid #e5ebf3;border-radius:10px;color:#53637a;font-size:.88rem;overflow-wrap:anywhere}
+    .actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:20px}
+    .actions a,.actions button{display:inline-flex;align-items:center;justify-content:center;min-height:43px;padding:11px 15px;border:1px solid #315d91;border-radius:9px;background:#315d91;color:white;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
+    .actions .secondary{background:#f5f8fc;color:#24466f;border-color:#cbd8e8}
+    .actions a:hover,.actions button:hover{filter:brightness(.94)}
+    @media print{body{min-height:auto;padding:0;background:#fff}.qr-card{border:0;box-shadow:none}.actions,.status{display:none}.payload{background:#fff}}
+  </style>
+</head>
+<body>
+  {% include '_animated_background.html' %}
+  <main class="qr-card">
+    <div class="eyebrow">PyPondo equipment identification</div>
+    <h1>{{ item.equipment_name }}</h1>
+    <p class="description">Unique QR label for this registered equipment</p>
+    <span class="status {{ 'active' if qr.is_active else 'inactive' }}">{{ 'Active' if qr.is_active else 'Inactive' }}</span>
+    <img class="qr-image" src="{{ url_for('community_equipment_qr_image', equipment_id=item.equipment_id) }}" alt="QR code for {{ item.equipment_name }}">
+    <div class="meta">
+      <span>Code: {{ item.equipment_code }}</span>
+      <span>Category: {{ item.category.category_name }} &middot; Laboratory: {{ item.laboratory.laboratory_name }}</span>
+      {% if item.serial_number %}<span>Serial: {{ item.serial_number }}</span>{% endif %}
+      {% if qr.generated_at %}<span>Generated: {{ qr.generated_at.strftime('%Y-%m-%d %H:%M') }}</span>{% endif %}
+    </div>
+    <div class="payload">{{ qr.qr_value }}</div>
+    <div class="actions">
+      <button type="button" onclick="window.print()">Print label</button>
+      <a class="secondary" href="{{ url_for('community_equipment_qr_image', equipment_id=item.equipment_id) }}" download="{{ item.equipment_code }}-qr.svg">Download SVG</a>
+      <a class="secondary" href="{{ url_for('equipment_dashboard', view='inventory') }}">Back to inventory</a>
+    </div>
+  </main>
+</body>
+</html>
