@@ -7,27 +7,27 @@
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg-color: #0b0c15; --card-bg: #151922; --neon-blue: #00f3ff; --neon-red: #ff0055; --neon-green: #00ff9d; --text-main: #e0e6ed; }
+        :root { --bg-color: #0b0c15; --card-bg: #151922; --neon-blue: #e21f3d; --neon-red: #ff0055; --neon-green: #d91c39; --text-main: #e0e6ed; }
         body { background-color: var(--bg-color); color: var(--text-main); font-family: 'Roboto', sans-serif; margin: 0; padding: 20px; }
         h1, h2, h3 { font-family: 'Orbitron', sans-serif; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 20px; }
 
         .top-bar { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--neon-blue); padding-bottom: 15px; margin-bottom: 30px; }
-        .top-bar h1 { border: none; margin: 0; padding: 0; text-align: left; font-size: 1.8em; text-shadow: 0 0 10px rgba(0, 243, 255, 0.5); }
+        .top-bar h1 { border: none; margin: 0; padding: 0; text-align: left; font-size: 1.8em; text-shadow: 0 0 10px rgba(226,31,61, 0.5); }
 
         .container { display: flex; flex-wrap: wrap; gap: 30px; max-width: 1200px; margin: 0 auto; }
         .section { flex: 1; min-width: 300px; }
 
-        .alert { padding: 15px; margin-bottom: 20px; background: rgba(0, 255, 157, 0.1); border: 1px solid var(--neon-green); color: var(--neon-green); border-radius: 5px; text-align: center; font-weight: bold; }
+        .alert { padding: 15px; margin-bottom: 20px; background: rgba(217,28,57, 0.1); border: 1px solid var(--neon-green); color: var(--neon-green); border-radius: 5px; text-align: center; font-weight: bold; }
 
         .pc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
         .card { background-color: var(--card-bg); border: 1px solid #333; border-radius: 8px; padding: 20px; position: relative; transition: transform 0.3s, box-shadow 0.3s; overflow: hidden; }
         .card:hover { transform: translateY(-5px); }
 
-        .free { border-color: var(--neon-blue); box-shadow: 0 0 10px rgba(0, 243, 255, 0.1); }
+        .free { border-color: var(--neon-blue); box-shadow: 0 0 10px rgba(226,31,61, 0.1); }
         .occupied { border-color: var(--neon-red); box-shadow: 0 0 10px rgba(255, 0, 85, 0.1); }
 
         .status-badge { display: inline-block; padding: 5px 10px; border-radius: 4px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; }
-        .free .status-badge { background: rgba(0, 243, 255, 0.2); color: var(--neon-blue); }
+        .free .status-badge { background: rgba(226,31,61, 0.2); color: var(--neon-blue); }
         .occupied .status-badge { background: rgba(255, 0, 85, 0.2); color: var(--neon-red); }
 
         input[type="text"], input[type="number"], input[type="date"], input[type="time"] { width: 100%; padding: 10px; margin: 5px 0; background: #0b0c15; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
@@ -47,7 +47,7 @@
         .btn-red { border-color: var(--neon-red); color: var(--neon-red); width: 100%; text-align: center; box-sizing: border-box; }
         .btn-red:hover { background: var(--neon-red); color: white; box-shadow: 0 0 15px var(--neon-red); }
 
-        .add-pc-btn { font-size: 0.6em; padding: 5px 10px; margin-left: 15px; border-color: #00ff9d; color: #00ff9d; vertical-align: middle; }
+        .add-pc-btn { font-size: 0.6em; padding: 5px 10px; margin-left: 15px; border-color: #d91c39; color: #d91c39; vertical-align: middle; }
 
         .walk-in-link { display: block; font-size: 0.9em; color: #888; margin-top: 5px; text-decoration: none; border-bottom: 1px solid #444; padding: 5px 0; }
         .walk-in-link:hover { color: white; border-color: white; }
@@ -56,20 +56,20 @@
         th, td { padding: 15px; text-align: left; border-bottom: 1px solid #333; }
         th { background: #1f2430; color: var(--neon-green); font-family: 'Orbitron', sans-serif; }
         tr:hover { background: #1f2430; }
-        .pondo-btn { display: block; text-align: center; margin-bottom: 15px; background: linear-gradient(45deg, #00f3ff, #0066ff); color: white !important; border: none; font-weight: bold; }
+        .pondo-btn { display: block; text-align: center; margin-bottom: 15px; background: linear-gradient(45deg, #e21f3d, #a50f28); color: white !important; border: none; font-weight: bold; }
         .wallet-box { border: 1px solid #2b3a4d; border-radius: 10px; padding: 14px; margin-bottom: 15px; background: linear-gradient(180deg, #121927, #0c111a); }
         .wallet-balance { font-size: 2.2rem; color: var(--neon-green); margin: 6px 0 10px; font-family: 'Orbitron', sans-serif; }
         .quick-amounts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
-        .quick-amounts button { margin-top: 0; padding: 14px; font-size: 1rem; border-radius: 10px; background: rgba(0, 243, 255, 0.12); border: 1px solid rgba(0, 255, 157, 0.2); color: var(--text-main); }
+        .quick-amounts button { margin-top: 0; padding: 14px; font-size: 1rem; border-radius: 10px; background: rgba(226,31,61, 0.12); border: 1px solid rgba(217,28,57, 0.2); color: var(--text-main); }
         .btn-big { width: 100%; padding: 16px 22px; font-size: 1rem; border-radius: 12px; }
         .nav-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 18px; }
         .big-action-card { border: 1px solid #253047; border-radius: 16px; padding: 18px; background: rgba(255,255,255,0.04); margin-bottom: 18px; }
         .big-action-card p { margin: 8px 0 0; color: #9db0c6; font-size: 0.95rem; }
-        .user-guidance { background: rgba(0, 255, 157, 0.08); border: 1px solid rgba(0, 255, 157, 0.3); border-radius: 14px; padding: 16px; margin-bottom: 18px; color: #e8f7ef; }
+        .user-guidance { background: rgba(217,28,57, 0.08); border: 1px solid rgba(217,28,57, 0.3); border-radius: 14px; padding: 16px; margin-bottom: 18px; color: #e8f7ef; }
         .user-guidance strong { color: #ffffff; }
         .friendly-note { font-size: 0.95rem; color: #c8f7de; line-height: 1.5; }
         .status-badge { display: inline-block; padding: 8px 12px; border-radius: 999px; font-size: 0.9em; font-weight: bold; text-transform: uppercase; letter-spacing: 0.6px; }
-        .free .status-badge { background: rgba(0, 243, 255, 0.18); color: var(--neon-blue); }
+        .free .status-badge { background: rgba(226,31,61, 0.18); color: var(--neon-blue); }
         .occupied .status-badge { background: rgba(255, 0, 85, 0.18); color: var(--neon-red); }
         .card h3 { margin: 0 0 12px; font-size: 1.2rem; }
         .card p, .card small { font-size: 0.92rem; }
@@ -78,24 +78,24 @@
         .very-simple-label { display: block; font-size: 0.95rem; margin-bottom: 6px; color: #9db0c6; }
         .booking-date-input, .booking-time-input { font-size: 1rem; padding: 14px 12px; border-radius: 10px; }
         .booking-form button { margin-top: 12px; }
-        .pairing-card { margin-bottom: 18px; border: 1px solid rgba(0, 243, 255, 0.22); border-radius: 14px; padding: 14px; background: rgba(7, 12, 20, 0.82); }
+        .pairing-card { margin-bottom: 18px; border: 1px solid rgba(226,31,61, 0.22); border-radius: 14px; padding: 14px; background: rgba(7, 12, 20, 0.82); }
         .pairing-card h3 { margin: 6px 0 10px; font-size: 1rem; }
         .pairing-card p { margin: 0 0 12px; color: #9db0c6; font-size: 0.9rem; line-height: 1.45; }
         .pairing-grid { display: grid; gap: 14px; }
         .pairing-qr { width: min(100%, 240px); aspect-ratio: 1; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: #fff; padding: 10px; box-sizing: border-box; }
         .pairing-qr img { width: 100%; height: 100%; object-fit: contain; display: block; }
-        .pairing-address { display: inline-block; padding: 8px 10px; border-radius: 10px; background: rgba(0, 243, 255, 0.12); border: 1px solid rgba(0, 243, 255, 0.18); color: #eafcff; font-family: Consolas, monospace; font-size: 0.9rem; word-break: break-all; }
+        .pairing-address { display: inline-block; padding: 8px 10px; border-radius: 10px; background: rgba(226,31,61, 0.12); border: 1px solid rgba(226,31,61, 0.18); color: #eafcff; font-family: Consolas, monospace; font-size: 0.9rem; word-break: break-all; }
         .pairing-links { display: grid; gap: 8px; margin-top: 12px; }
         .pairing-links a { margin-top: 0; text-align: center; }
         .pairing-alt-list { margin-top: 12px; display: grid; gap: 8px; }
         .pairing-alt-item { padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: #c8d6e5; font-size: 0.84rem; word-break: break-all; }
         .admin-profile-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 15px; }
         .admin-profile-tab { width: 100%; min-height: 42px; margin-top: 0; padding: 10px 12px; box-sizing: border-box; text-align: center; border-color: #4d6078; color: #9db0c6; }
-        .admin-profile-tab.active { border-color: var(--neon-blue); color: var(--neon-blue); background: rgba(0, 243, 255, 0.1); }
+        .admin-profile-tab.active { border-color: var(--neon-blue); color: var(--neon-blue); background: rgba(226,31,61, 0.1); }
         .admin-tab-panel[hidden] { display: none; }
         .admin-pc-list { display: grid; gap: 12px; margin-bottom: 15px; }
         .admin-pc-panel { border: 1px solid #333; border-radius: 8px; padding: 12px; background: rgba(255,255,255,0.025); }
-        .admin-pc-panel.free { border-color: rgba(0, 243, 255, 0.55); }
+        .admin-pc-panel.free { border-color: rgba(226,31,61, 0.55); }
         .admin-pc-panel.occupied { border-color: rgba(255, 0, 85, 0.55); }
         .admin-pc-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
         .admin-pc-head h3 { margin: 0; font-size: 1rem; }
@@ -106,7 +106,7 @@
         .admin-inline-form button { width: 100%; }
         @media (min-width: 720px) { .pairing-grid { grid-template-columns: 240px minmax(0, 1fr); align-items: start; } }
     </style>
-</head>
+{% include '_dashboard_container_theme.html' %}</head>
 <body>
     {% include '_animated_background.html' %}
     {% include '_startup_splash.html' %}
@@ -154,7 +154,7 @@
                 {% if auto_charge_enabled %}
                     <a href="/admin/auto_charge/disable" class="btn add-pc-btn" style="border-color: #ff6b6b; color: #ff6b6b; margin-right: 10px;">DISABLE AUTO CHARGE</a>
                 {% else %}
-                    <a href="/admin/auto_charge/enable" class="btn add-pc-btn" style="border-color: #00ff9d; color: #00ff9d; margin-right: 10px;">ENABLE AUTO CHARGE</a>
+                    <a href="/admin/auto_charge/enable" class="btn add-pc-btn" style="border-color: #d91c39; color: #d91c39; margin-right: 10px;">ENABLE AUTO CHARGE</a>
                 {% endif %}
                 <button id="terminate-sys-btn" class="btn add-pc-btn" style="border-color: #ff6b6b; color: #ff6b6b; margin-right: 10px;">TERMINATE SYSTEM</button>
             </div>
@@ -206,7 +206,7 @@
                             <input id="booking_date_{{ pc.id }}" type="date" name="booking_date" class="booking-date-input" min="{{ today_date }}" value="{{ today_date }}" required>
                             <label class="very-simple-label" for="time_slot_{{ pc.id }}">Pick a time</label>
                             <input id="time_slot_{{ pc.id }}" type="time" name="time_slot" class="booking-time-input" required>
-                            <button type="submit" class="btn btn-big" style="background: #00ff9d; color: #000; border: none;">Reserve this PC</button>
+                            <button type="submit" class="btn btn-big" style="background: #d91c39; color: #000; border: none;">Reserve this PC</button>
                         </form>
                     {% endif %}
 
@@ -329,7 +329,7 @@
                 {% endif %}
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
                     <a href="/pondo" class="btn pondo-btn" style="grid-column: span 2;">+ LOAD CREDITS</a>
-                    <a href="/bookings" class="btn" style="border-color: #00ff9d; color: #00ff9d; text-align:center;">BOOKINGS</a>
+                    <a href="/bookings" class="btn" style="border-color: #d91c39; color: #d91c39; text-align:center;">BOOKINGS</a>
                     <a href="/logs" class="btn" style="border-color: #aaa; color: #aaa; text-align:center;">LOGS</a>
                     <a href="/admin/payments" class="btn" style="grid-column: span 2; border-color: #ffd166; color: #ffd166; text-align:center;">PAYMENTS</a>
                 </div>
@@ -466,8 +466,8 @@
                     <p class="friendly-note">Pick a ready computer below and tap the big button to reserve time. If the card is red, the computer is busy. If it is green, it is ready.</p>
                 </div>
                 <div class="nav-grid">
-                    <a href="/pondo" class="btn btn-big" style="background: linear-gradient(135deg, #00f3ff, #0066ff); color: #000; border: none;">Load Credits</a>
-                    <a href="/bookings" class="btn btn-big" style="border-color: #00ff9d; color: #00ff9d;">My Bookings</a>
+                    <a href="/pondo" class="btn btn-big" style="background: linear-gradient(135deg, #e21f3d, #a50f28); color: #000; border: none;">Load Credits</a>
+                    <a href="/bookings" class="btn btn-big" style="border-color: #d91c39; color: #d91c39;">My Bookings</a>
                     <a href="/logs" class="btn btn-big" style="border-color: #fff; color: #fff;">History</a>
                     <a href="/logout" class="btn btn-big" style="border-color: #ff6b6b; color: #ff6b6b;">Logout</a>
                 </div>
@@ -483,7 +483,7 @@
                             <button type="button" onclick="setTopup(500)">₱500</button>
                             <button type="button" onclick="setTopup(1000)">₱1000</button>
                         </div>
-                        <button type="submit" class="btn btn-big" style="background: #00ff9d; color: #000; border: none;">Save Payment Request</button>
+                        <button type="submit" class="btn btn-big" style="background: #d91c39; color: #000; border: none;">Save Payment Request</button>
                     </form>
                     <div class="pay-note">
                         Tap any amount to fill the box, then save your request.

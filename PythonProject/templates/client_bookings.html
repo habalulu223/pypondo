@@ -7,7 +7,7 @@
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #0b0c15; --card: #151922; --line: #00f3ff; --ok: #00ff9d; --warn: #ff0055; --text: #e0e6ed; }
+        :root { --bg: #0b0c15; --card: #151922; --line: #e21f3d; --ok: #d91c39; --warn: #ff0055; --text: #e0e6ed; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; padding: 16px; }
         .top { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--line); padding-bottom: 10px; margin-bottom: 18px; }
         .top h1 { margin: 0; font-family: 'Orbitron', sans-serif; font-size: 1.2rem; color: var(--line); letter-spacing: 1px; }
@@ -20,7 +20,7 @@
             padding: 8px 12px;
             border-radius: 4px;
             font-size: 0.85rem;
-            box-shadow: 0 0 14px rgba(0, 243, 255, 0.18);
+            box-shadow: 0 0 14px rgba(226,31,61, 0.18);
             transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
             cursor: pointer;
         }
@@ -28,7 +28,7 @@
             background: var(--line);
             color: #000;
             border-color: var(--line);
-            box-shadow: 0 0 24px rgba(0, 243, 255, 0.32);
+            box-shadow: 0 0 24px rgba(226,31,61, 0.32);
         }
         .warn { border-color: var(--line); color: var(--line); }
         .warn:hover { background: var(--line); color: #000; }
@@ -53,7 +53,7 @@
         }        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         .card { border: 1px solid #2d3650; border-radius: 8px; background: var(--card); padding: 14px; }
         .card h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); font-size: 1rem; }
-        .flash { margin-bottom: 12px; padding: 10px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(0, 255, 157, 0.08); color: var(--ok); font-weight: 700; }
+        .flash { margin-bottom: 12px; padding: 10px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(217,28,57, 0.08); color: var(--ok); font-weight: 700; }
         input, select { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 10px; border-radius: 4px; border: 1px solid #37415f; background: #0e1422; color: #fff; }
         table { width: 100%; border-collapse: collapse; margin-top: 8px; }
         th, td { border-bottom: 1px solid #29324a; padding: 8px; font-size: 0.86rem; text-align: left; }
@@ -77,7 +77,7 @@
         .history-cancel:hover { background: var(--warn); color: #fff; }
         @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     </style>
-</head>
+{% include '_dashboard_container_theme.html' %}</head>
 <body>
     {% include '_animated_background.html' %}
     {% include '_startup_splash.html' %}

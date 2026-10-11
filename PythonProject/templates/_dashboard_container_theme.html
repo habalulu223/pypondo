@@ -1,0 +1,91 @@
+<style>
+/* Shared translucent containers and red actions for dashboard pages. */
+.card,.panel,.pc,.item,.status,.status-item,.wallet-box,.user-guidance,
+.pairing-card,.pairing-alt-item,.method-option,.summary,.notice,.error-box,
+.booking-form,.history-row,.history-main,.admin-pc-panel,.admin-tab-panel,
+.admin-session-charge,.section,.shell,.stat,.payment-card,.room-table,
+.login-shell,.login-box,.register-box,.register,
+table {
+    color: #291218;
+    background: rgba(255, 250, 251, .82) !important;
+    border-color: rgba(255, 255, 255, .86) !important;
+    box-shadow: 0 10px 28px rgba(35, 0, 8, .16), inset 0 1px rgba(255, 255, 255, .82);
+}
+
+.card :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div,summary),
+.panel :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div,summary),
+.pc :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.item :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.status :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.status-item :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.wallet-box :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.user-guidance :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.pairing-card :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.pairing-alt-item :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.method-option :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.summary :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.notice :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.error-box :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.booking-form :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.history-row :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.history-main :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.admin-pc-panel :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.admin-tab-panel :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.admin-session-charge :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.section :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.shell :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.stat :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.payment-card :is(h1,h2,h3,h4,p,span,small,label,strong,b,td,th,li,div),
+.login-shell :is(h1,h2,h3,h4,p,span,small,label,strong,b,li,div),
+.login-box :is(h1,h2,h3,h4,p,span,small,label,strong,b,li,div),
+.register-box :is(h1,h2,h3,h4,p,span,small,label,strong,b,li,div),
+.register :is(h1,h2,h3,h4,p,span,small,label,strong,b,li,div),
+table :is(caption,thead,tbody,tfoot,tr,th,td,span,small,strong,b) {
+    color: #291218 !important;
+    text-shadow: none !important;
+}
+
+.card h1,.card h2,.card h3,.panel h1,.panel h2,.panel h3,
+.pc h1,.pc h2,.pc h3,.status-value,.summary-amount {
+    color: #681426;
+}
+
+.card p,.panel p,.item,.status-label,.status-value,.history-main,
+td,th,label,.helper,.fine-print,.subtle,.muted,.sub {
+    color: #57373d;
+}
+
+.card a:not(.btn):not(.card-action),.panel a:not(.btn),table a {
+    color: #a50f28;
+}
+
+.card .card-action { color: #fff !important; }
+
+input:not([type=checkbox]):not([type=radio]),select,textarea {
+    color: #291218;
+    background: rgba(255, 255, 255, .95);
+    border-color: #c77d89;
+}
+
+input::placeholder,textarea::placeholder { color: #705158; opacity: 1; }
+
+button,.btn,.back-btn,.del-btn,.warn,.confirm-btn,input[type=submit],
+.pondo-btn,.quick-amounts button,.history-cancel {
+    color: #fff !important;
+    background: linear-gradient(135deg,#e32948,#a90d29) !important;
+    border: 1px solid #ff9aaa !important;
+    box-shadow: 0 5px 15px rgba(150,5,30,.28),inset 0 1px rgba(255,255,255,.25);
+    text-shadow: 0 1px rgba(50,0,10,.25);
+}
+
+button:hover,.btn:hover,.back-btn:hover,.del-btn:hover,.warn:hover,
+.confirm-btn:hover,input[type=submit]:hover,.pondo-btn:hover,
+.quick-amounts button:hover,.history-cancel:hover {
+    color: #fff !important;
+    background: linear-gradient(135deg,#fa3b5c,#bd102e) !important;
+    box-shadow: 0 7px 20px rgba(150,5,30,.4);
+}
+
+.status-badge,.badge { background: rgba(255,235,239,.95); color: #761327; }
+.flash,.alert { color: #541421; background: rgba(255,246,247,.94); border-color: #e9a8b3; }
+</style>

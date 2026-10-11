@@ -20,14 +20,14 @@
             background: #151922;
             padding: 40px;
             border-radius: 10px;
-            border: 1px solid #00ff9d; /* Green for Register */
-            box-shadow: 0 0 30px rgba(0, 255, 157, 0.15);
+            border: 1px solid #d91c39; /* Green for Register */
+            box-shadow: 0 0 30px rgba(217,28,57, 0.15);
             width: 300px;
             text-align: center;
         }
         h1 {
             font-family: 'Orbitron', sans-serif;
-            color: #00ff9d;
+            color: #d91c39;
             margin-bottom: 30px;
             text-transform: uppercase;
         }
@@ -42,13 +42,13 @@
             box-sizing: border-box;
         }
         input:focus {
-            border-color: #00ff9d;
+            border-color: #d91c39;
             outline: none;
         }
         button {
             width: 100%;
             padding: 12px;
-            background: #00ff9d;
+            background: #d91c39;
             border: none;
             color: #000;
             font-weight: bold;
@@ -57,7 +57,7 @@
             transition: 0.3s;
         }
         button:hover {
-            box-shadow: 0 0 15px #00ff9d;
+            box-shadow: 0 0 15px #d91c39;
             background: white;
         }
         a {
@@ -70,7 +70,7 @@
         a:hover { color: white; }
         .error { color: #ff0055; margin-bottom: 15px; }
     </style>
-</head>
+{% include '_dashboard_container_theme.html' %}</head>
 <body>
     {% include '_animated_background.html' %}
     {% include '_startup_splash.html' %}

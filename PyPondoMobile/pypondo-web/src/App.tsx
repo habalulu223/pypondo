@@ -127,7 +127,7 @@ declare global {
 
 const CONFIG_STORAGE_KEY = 'pypondo.mobile.config.v2'
 const SESSION_STORAGE_KEY = 'pypondo.mobile.session.v2'
-const DEFAULT_SERVER_ADDRESS = ''
+const DEFAULT_SERVER_ADDRESS = 'https://cybercore'
 const DEFAULT_SERVER_PORT = 5000
 const QUICK_TOPUP_AMOUNTS = [100, 200, 500, 1000]
 const QR_PAIRING_PATH_PATTERN = /\/api\/mobile\/pairing\/?$/i
