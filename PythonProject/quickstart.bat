@@ -4,7 +4,7 @@ REM This script tests and runs PyPondo apps independently
 
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-
+1
 set "PYTHON_CMD=python"
 set "PYTHON_ARGS="
 if exist ".\.venv\Scripts\python.exe" (

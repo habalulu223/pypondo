@@ -24,6 +24,14 @@ if errorlevel 1 (
 )
 
 echo Building the independent Windows desktop application...
+if not defined PYPONDO_MAIN_DB_SEED if exist "pccafe.db" set "PYPONDO_MAIN_DB_SEED=pccafe.db"
+if not defined PYPONDO_COMMUNITY_DB_SEED (
+  if exist "community_equipment.db" (
+    set "PYPONDO_COMMUNITY_DB_SEED=community_equipment.db"
+  ) else if exist "instance\community_equipment.db" (
+    set "PYPONDO_COMMUNITY_DB_SEED=instance\community_equipment.db"
+  )
+)
 "%PYTHON%" -m PyInstaller --noconfirm --clean PyPondo.spec
 if errorlevel 1 (
   echo Desktop app build failed.
@@ -41,10 +49,13 @@ if errorlevel 1 (
 set "PYPONDO_BUILD_ONLINE="
 
 echo Copying the system database files beside the standalone app...
-copy /y "pccafe.db" "dist\pccafe.db" >nul
-if errorlevel 1 exit /b 1
-if exist "D:\Users\jush\Downloads\sample.db" (
-  copy /y "D:\Users\jush\Downloads\sample.db" "dist\community_equipment.db" >nul
+if defined PYPONDO_MAIN_DB_SEED (
+  copy /y "%PYPONDO_MAIN_DB_SEED%" "dist\pccafe.db" >nul
+  if errorlevel 1 exit /b 1
+)
+if defined PYPONDO_COMMUNITY_DB_SEED (
+  copy /y "%PYPONDO_COMMUNITY_DB_SEED%" "dist\community_equipment.db" >nul
+  if errorlevel 1 exit /b 1
 )
 if exist "server_host.txt" copy /y "server_host.txt" "dist\server_host.txt" >nul
 

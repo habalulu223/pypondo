@@ -11,12 +11,22 @@ server_host_file = os.path.join(project_dir, 'server_host.txt')
 if os.path.isfile(server_host_file):
     datas.append((server_host_file, '.'))
 if not online_build:
-    main_database = os.path.join(project_dir, 'pccafe.db')
-    community_database = r'D:\Users\jush\Downloads\sample.db'
+    main_database = os.getenv('PYPONDO_MAIN_DB_SEED', '').strip() or os.path.join(project_dir, 'pccafe.db')
+    community_database = os.getenv('PYPONDO_COMMUNITY_DB_SEED', '').strip()
+    if not community_database:
+        community_candidates = (
+            os.path.join(project_dir, 'community_equipment.db'),
+            os.path.join(project_dir, 'instance', 'community_equipment.db'),
+        )
+        community_database = next((path for path in community_candidates if os.path.isfile(path)), '')
+    if main_database and not os.path.isabs(main_database):
+        main_database = os.path.join(project_dir, main_database)
+    if community_database and not os.path.isabs(community_database):
+        community_database = os.path.join(project_dir, community_database)
     if os.path.isfile(main_database):
-        datas.append((main_database, 'database-seed'))
+        datas.append((main_database, os.path.join('database-seed', 'main')))
     if os.path.isfile(community_database):
-        datas.append((community_database, 'database-seed'))
+        datas.append((community_database, os.path.join('database-seed', 'community')))
 binaries = []
 hiddenimports = ['profile_routes']
 tmp_ret = collect_all('webview')

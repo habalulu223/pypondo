@@ -279,6 +279,11 @@ body header {
   background: #1f3048 !important;
   border-color: #314761 !important;
 }
+body header .user-menu {
+  color: #fff !important;
+  background: #1f3048 !important;
+  border-color: #314761 !important;
+}
 body header :is(h1, h2, h3, h4, p, span, small, strong, b, label, .muted, .brand, .user-menu) {
   color: #fff !important;
   -webkit-text-fill-color: #fff !important;
@@ -294,4 +299,23 @@ body :is(header, nav, [role="navigation"], .navbar, .nav-bar, .dash-nav, .user-m
   color: #fff !important;
   -webkit-text-fill-color: #fff !important;
   text-shadow: none !important;
+}
+body :is(.container, .card, .panel, .pc, .section, .analytics-tile, .analytics-card)
+  :is(button, input[type=submit], input[type=button], input[type=reset], .btn, .button, [role=button], .card-action a),
+body :is(.container, .card, .panel, .pc, .section, .analytics-tile, .analytics-card)
+  :is(button, input[type=submit], input[type=button], input[type=reset], .btn, .button, [role=button], .card-action a) * {
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+}
+body .card a:not(.profile-avatar-link):not(.header-action-button) {
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+  background: var(--ui-accent) !important;
+  border-color: var(--ui-accent) !important;
+}
+body .card a:not(.profile-avatar-link):not(.header-action-button):hover {
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+  background: #274d7b !important;
+  border-color: #274d7b !important;
 }

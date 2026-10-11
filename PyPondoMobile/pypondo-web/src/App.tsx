@@ -32,6 +32,7 @@ type LoginPayload = {
   user_id: number
   username: string
   balance: number
+  access_token: string
   app_version: string
   error?: string
 }
@@ -58,29 +59,13 @@ type MobileProfile = {
   has_profile_picture: boolean
 }
 
-type ProfilePayload = { ok: boolean; profile: MobileProfile }
-
-type EquipmentIssue = {
-  title: string
-  description: string
-  reported_at?: string | null
-}
+type ProfilePayload = { ok: boolean; profile: MobileProfile | null }
 
 type ScannedEquipment = {
-  equipment_id: number
   equipment_code: string
   equipment_name: string
-  brand?: string | null
-  model?: string | null
-  serial_number?: string | null
-  description?: string | null
-  laboratory?: string | null
-  location?: string | null
   category?: string | null
   status: string
-  status_updated_at?: string | null
-  status_remarks?: string | null
-  malfunction_reports: EquipmentIssue[]
 }
 
 type EquipmentPayload = { ok: boolean; equipment: ScannedEquipment }
@@ -135,6 +120,7 @@ type StoredSession = {
   balance: number
   userId: number
   username: string
+  accessToken: string
 }
 
 type ChatMessage = {
@@ -170,7 +156,7 @@ const QR_PAIRING_PATH_PATTERN = /\/api\/mobile\/pairing\/?$/i
 const QR_SCAN_INTERVAL_MS = 300
 const DEFAULT_SCANNER_MESSAGE =
   'Point the camera at the pairing QR from your desktop to connect over LAN or a public route.'
-const DEFAULT_PRODUCT_SCANNER_MESSAGE = 'Point the camera at a PyPondo equipment QR code to view its details and reports.'
+const DEFAULT_PRODUCT_SCANNER_MESSAGE = 'Sign in, then point the camera at a PyPondo equipment QR code to view basic item information.'
 const TAB_META: Record<TabKey, { label: string; hint: string }> = {
   overview: {
     label: 'Overview',
@@ -188,7 +174,7 @@ const TAB_META: Record<TabKey, { label: string; hint: string }> = {
     label: 'Top-up',
     hint: 'Create a balance request from the phone.',
   },
-  products: { label: 'Scan item', hint: 'Scan equipment QR codes to view details and malfunction history.' },
+  products: { label: 'Scan item', hint: 'Scan equipment QR codes to view basic item information.' },
   profile: { label: 'Profile', hint: 'Account details, profile picture, and password.' },
   assistant: {
     label: 'Assistant',
@@ -398,7 +384,33 @@ function readStoredSession(): StoredSession | null {
     if (!raw) {
       return null
     }
-    return JSON.parse(raw) as StoredSession
+    const storedSession: unknown = JSON.parse(raw)
+    if (
+      typeof storedSession !== 'object' ||
+      storedSession === null ||
+      !('accessToken' in storedSession) ||
+      typeof storedSession.accessToken !== 'string'
+    ) {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY)
+      return null
+    }
+    if (
+      !('balance' in storedSession) ||
+      typeof storedSession.balance !== 'number' ||
+      !('userId' in storedSession) ||
+      typeof storedSession.userId !== 'number' ||
+      !('username' in storedSession) ||
+      typeof storedSession.username !== 'string'
+    ) {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY)
+      return null
+    }
+    return {
+      accessToken: storedSession.accessToken,
+      balance: storedSession.balance,
+      userId: storedSession.userId,
+      username: storedSession.username,
+    }
   } catch {
     return null
   }
@@ -562,16 +574,21 @@ function App() {
     setScannerStatus('starting')
     if (scannerModeRef.current === 'equipment') {
       setScannedEquipment(null)
-      setScannerMessage('Equipment QR found. Loading item details and reports...')
+      setScannerMessage('Equipment QR found. Loading basic item information...')
       setEquipmentScanBusy(true)
       try {
         if (!baseUrl) throw new Error('Connect to a PyPondo server before scanning equipment.')
-        const payload = await readJson<EquipmentPayload>(`${baseUrl}/api/mobile/equipment/scan?qr=${encodeURIComponent(rawValue)}`)
+        if (!session?.accessToken) throw new Error('Sign in before scanning equipment.')
+        const payload = await readJson<EquipmentPayload>(`${baseUrl}/api/mobile/equipment/scan?qr=${encodeURIComponent(rawValue)}`, {
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+          },
+        })
         setScannedEquipment(payload.equipment)
         setActiveTab('products')
         setScannerOpen(false)
         setScannerStatus('idle')
-        setConnectionMessage(`Loaded ${payload.equipment.equipment_name} and its malfunction history.`)
+        setConnectionMessage(`Loaded basic information for ${payload.equipment.equipment_name}.`)
       } catch (error) {
         setScannerOpen(true)
         setScannerStatus('error')
@@ -850,7 +867,7 @@ function App() {
           : Promise.resolve<BookingPayload>({ ok: true, bookings: [] }),
         session
           ? readJson<ProfilePayload>(`${baseUrl}/api/mobile/profile?user_id=${encodeURIComponent(String(session.userId))}`)
-          : Promise.resolve<ProfilePayload>({ ok: true, profile: null as unknown as MobileProfile }),
+          : Promise.resolve<ProfilePayload>({ ok: true, profile: null }),
       ])
 
       startTransition(() => {
@@ -966,6 +983,7 @@ function App() {
       })
 
       const nextSession: StoredSession = {
+        accessToken: payload.access_token,
         balance: payload.balance,
         userId: payload.user_id,
         username: payload.username,
@@ -1633,7 +1651,7 @@ function App() {
                         {equipmentScanBusy ? 'Loading…' : 'Scan QR'}
                       </button>
                     </div>
-                    <p className="section-copy">Scan a PyPondo equipment label to see its description, location, current status, and any recorded malfunction reports.</p>
+                    <p className="section-copy">Sign in and scan a PyPondo equipment label to view its name, category, and current status.</p>
                   </div>
                   {scannedEquipment ? (
                     <>
@@ -1642,24 +1660,6 @@ function App() {
                           <div><p className="section-label">{scannedEquipment.equipment_code} · {scannedEquipment.category || 'Equipment'}</p><h3>{scannedEquipment.equipment_name}</h3></div>
                           <span className={`pill ${/maintenance|repair|broken/i.test(scannedEquipment.status) ? 'warn' : 'success'}`}>{scannedEquipment.status}</span>
                         </div>
-                        <p className="section-copy">{scannedEquipment.description || 'No description has been added.'}</p>
-                        <div className="equipment-details-grid">
-                          <div><span>Brand / model</span><strong>{[scannedEquipment.brand, scannedEquipment.model].filter(Boolean).join(' ') || 'Not recorded'}</strong></div>
-                          <div><span>Serial number</span><strong>{scannedEquipment.serial_number || 'Not recorded'}</strong></div>
-                          <div><span>Laboratory</span><strong>{scannedEquipment.laboratory || 'Not assigned'}</strong></div>
-                          <div><span>Location</span><strong>{scannedEquipment.location || 'Not recorded'}</strong></div>
-                          <div><span>Status updated</span><strong>{formatTimestamp(scannedEquipment.status_updated_at || undefined)}</strong></div>
-                        </div>
-                        {scannedEquipment.status_remarks ? <p className="section-copy equipment-remarks">Latest status note: {scannedEquipment.status_remarks}</p> : null}
-                      </div>
-                      <div className="content-card">
-                        <h3>Malfunction reports</h3>
-                        {scannedEquipment.malfunction_reports.length ? scannedEquipment.malfunction_reports.map((issue, index) => (
-                          <article className="equipment-issue" key={`${issue.title}-${issue.reported_at}-${index}`}>
-                            <div><strong>{issue.title}</strong><span>{formatTimestamp(issue.reported_at || undefined)}</span></div>
-                            <p>{issue.description}</p>
-                          </article>
-                        )) : <p className="empty-copy">No malfunction reports have been recorded for this equipment.</p>}
                       </div>
                     </>
                   ) : <div className="content-card"><p className="empty-copy">Scan an equipment QR code to load its record.</p></div>}

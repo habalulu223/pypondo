@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+
+PythonProject/build/
+PythonProject/dist/
+PythonProject/bin/*.apk

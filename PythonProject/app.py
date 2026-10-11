@@ -12,6 +12,7 @@ import json
 import os
 import re
 import ipaddress
+import secrets
 import shutil
 import subprocess
 import uuid
@@ -21,7 +22,10 @@ from urllib import request as http_request
 from urllib import error as http_error
 from urllib import parse as http_parse
 from sqlalchemy import event, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.engine import Engine
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from werkzeug.exceptions import RequestEntityTooLarge
 import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -29,9 +33,19 @@ import threading
 import atexit
 from functools import wraps
 try:
-    from .profile_routes import create_profile_blueprint
+    from .profile_routes import (
+        MAX_PROFILE_IMAGE_BYTES,
+        MAX_PROFILE_UPLOAD_OVERHEAD_BYTES,
+        create_profile_blueprint,
+        read_profile_image,
+    )
 except ImportError:
-    from profile_routes import create_profile_blueprint
+    from profile_routes import (
+        MAX_PROFILE_IMAGE_BYTES,
+        MAX_PROFILE_UPLOAD_OVERHEAD_BYTES,
+        create_profile_blueprint,
+        read_profile_image,
+    )
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 app = Flask(
@@ -60,13 +74,10 @@ configured_main_db = os.getenv('PYPONDO_DB_PATH', '').strip()
 configured_community_db = os.getenv('PYPONDO_COMMUNITY_DB_PATH', '').strip()
 default_db_path = os.path.join(os.path.abspath(configured_data_dir), 'pccafe.db') if configured_data_dir else os.path.join(basedir, 'pccafe.db')
 database_path = os.path.abspath(configured_main_db or default_db_path)
-provided_community_db = r'D:\Users\jush\Downloads\sample.db'
 if configured_community_db:
     default_community_db = configured_community_db
 elif configured_data_dir:
     default_community_db = os.path.join(os.path.abspath(configured_data_dir), 'community_equipment.db')
-elif os.path.isfile(provided_community_db):
-    default_community_db = provided_community_db
 elif configured_main_db:
     default_community_db = os.path.join(os.path.dirname(database_path), 'community_equipment.db')
 else:
@@ -77,7 +88,13 @@ os.makedirs(os.path.dirname(community_db_path), exist_ok=True)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + database_path
 app.config['SQLALCHEMY_BINDS'] = {'community': 'sqlite:///' + community_db_path}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'super_secret_cyber_key'
+secret_key = os.getenv('PYPONDO_SECRET_KEY', '').strip()
+if not secret_key:
+    deployment_environment = (os.getenv('PYPONDO_ENV') or os.getenv('FLASK_ENV', '')).strip().lower()
+    if deployment_environment == 'production':
+        raise RuntimeError('PYPONDO_SECRET_KEY must be configured in production.')
+    secret_key = secrets.token_urlsafe(32)
+app.config['SECRET_KEY'] = secret_key
 
 db = SQLAlchemy(app)
 
@@ -537,7 +554,7 @@ class AdminLog(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.now)
 
 
-# Community equipment ERD (sample.db). Kept alongside the cafe tables because
+# Community equipment ERD. Kept alongside the cafe tables because
 # the application also stores bookings, PC sessions, and payments.
 class CommunityRole(db.Model):
     __bind_key__ = 'community'
@@ -2869,6 +2886,41 @@ def get_mobile_user_from_request():
     return user, None
 
 
+MOBILE_API_TOKEN_MAX_AGE = 30 * 24 * 60 * 60
+
+
+def create_mobile_api_token(user):
+    serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'], salt='pypondo-mobile-api')
+    return serializer.dumps({"user_id": user.id})
+
+
+def get_mobile_user_from_token():
+    authorization = request.headers.get('Authorization', '')
+    scheme, separator, token = authorization.partition(' ')
+    if not separator or scheme.lower() != 'bearer' or not token.strip():
+        return None, (jsonify({"ok": False, "error": "Sign in to scan equipment."}), 401)
+
+    serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'], salt='pypondo-mobile-api')
+    try:
+        payload = serializer.loads(token.strip(), max_age=MOBILE_API_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return None, (jsonify({"ok": False, "error": "Your mobile session has expired. Sign in again."}), 401)
+    except BadSignature:
+        return None, (jsonify({"ok": False, "error": "Your mobile session is invalid. Sign in again."}), 401)
+
+    try:
+        user_id = int(payload.get("user_id"))
+    except (AttributeError, TypeError, ValueError):
+        return None, (jsonify({"ok": False, "error": "Your mobile session is invalid. Sign in again."}), 401)
+
+    user = db.session.get(User, user_id)
+    if not user or not user.is_active:
+        return None, (jsonify({"ok": False, "error": "Your mobile session is no longer valid. Sign in again."}), 401)
+    if user.is_admin or not (user.can_manage_equipment or user.can_borrow_equipment):
+        return None, (jsonify({"ok": False, "error": "Your account is not authorized to scan equipment."}), 403)
+    return user, None
+
+
 def serialize_mobile_booking(booking, now_dt=None):
     if now_dt is None:
         now_dt = datetime.now()
@@ -2990,6 +3042,27 @@ def bootstrap_schema():
 
 
 @app.before_request
+def limit_profile_picture_request_body():
+    if request.method == "POST" and request.path in {"/profile", "/api/mobile/profile"}:
+        request.max_content_length = MAX_PROFILE_IMAGE_BYTES + MAX_PROFILE_UPLOAD_OVERHEAD_BYTES
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_oversized_profile_picture_request(error):
+    if request.path not in {"/profile", "/api/mobile/profile"}:
+        return error.get_response()
+
+    app.logger.warning(
+        "Profile picture request rejected",
+        extra={"endpoint": request.path, "reason": "request_too_large"},
+    )
+    if request.path == "/api/mobile/profile":
+        return jsonify({"ok": False, "error": "Profile picture requests must be 2 MB or smaller."}), 413
+    flash("Profile picture requests must be 2 MB or smaller.", "error")
+    return redirect(url_for("profile.profile_page"))
+
+
+@app.before_request
 def allow_mobile_api_preflight():
     normalized_path = (request.path or "").rstrip("/")
     if request.method != "OPTIONS":
@@ -3015,8 +3088,15 @@ def add_mobile_api_cors_headers(response):
 
 @app.after_request
 def apply_professional_dashboard_theme(response):
-    """Apply the shared professional UI theme and cyber backdrop to HTML pages."""
-    if "text/html" not in response.content_type:
+    """Apply the shared theme only to the dashboard pages that use injection."""
+    themed_paths = {"/equipment", "/management", "/borrower", "/dean/pcs"}
+    if (
+        request.path not in themed_paths
+        or request.method != "GET"
+        or response.status_code != 200
+        or response.is_streamed
+        or "text/html" not in response.content_type
+    ):
         return response
 
     markup = response.get_data(as_text=True)
@@ -3097,6 +3177,10 @@ def mobile_pairing_page():
 
 @app.route('/api/mobile/equipment/scan')
 def api_mobile_equipment_scan():
+    _, error = get_mobile_user_from_token()
+    if error:
+        return error
+
     qr_value = str(request.args.get('qr', '')).strip()
     if not qr_value or len(qr_value) > 255:
         return jsonify({"ok": False, "error": "Scan a PyPondo equipment QR code."}), 400
@@ -3109,30 +3193,13 @@ def api_mobile_equipment_scan():
     latest_history = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(
         CommunityEquipmentStatusHistory.changed_at.desc(), CommunityEquipmentStatusHistory.status_history_id.desc()
     ).first()
-    issues = CommunityIssue.query.filter_by(equipment_id=item.equipment_id).order_by(
-        CommunityIssue.reported_at.desc(), CommunityIssue.issue_id.desc()
-    ).limit(25).all()
     return jsonify({
         "ok": True,
         "equipment": {
-            "equipment_id": item.equipment_id,
             "equipment_code": item.equipment_code,
             "equipment_name": item.equipment_name,
-            "brand": item.brand,
-            "model": item.model,
-            "serial_number": item.serial_number,
-            "description": item.description,
-            "laboratory": item.laboratory.laboratory_name if item.laboratory else None,
-            "location": item.laboratory.location if item.laboratory else None,
             "category": item.category.category_name if item.category else None,
             "status": latest_history.status.status_name if latest_history and latest_history.status else "Unknown",
-            "status_updated_at": latest_history.changed_at.isoformat() if latest_history else None,
-            "status_remarks": latest_history.remarks if latest_history else None,
-            "malfunction_reports": [{
-                "title": issue.issue_title,
-                "description": issue.issue_description,
-                "reported_at": issue.reported_at.isoformat() if issue.reported_at else None,
-            } for issue in issues],
         },
     }), 200
 
@@ -3147,6 +3214,8 @@ def api_mobile_login():
     user = User.query.filter_by(username=username).first()
     if not user or not user.check_password(password):
         return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+    if not user.is_active:
+        return jsonify({"ok": False, "error": "This account is inactive."}), 403
     if user.is_admin:
         return jsonify({"ok": False, "error": "Admin accounts are not supported by the mobile client"}), 403
 
@@ -3155,6 +3224,7 @@ def api_mobile_login():
         "user_id": user.id,
         "username": user.username,
         "balance": round(float(user.pondo or 0.0), 2),
+        "access_token": create_mobile_api_token(user),
         "app_version": APP_VERSION
     }), 200
 
@@ -3232,23 +3302,48 @@ def api_mobile_profile():
 
     if action == 'upload_picture':
         if not user.check_password(str(request.form.get('current_password') or '')):
+            app.logger.warning(
+                "Mobile profile picture upload rejected",
+                extra={"user_id": user.id, "reason": "password_mismatch"},
+            )
             return jsonify({"ok": False, "error": "Enter your current password to change your profile picture."}), 400
         image = request.files.get('profile_picture')
-        image_data = image.stream.read(2 * 1024 * 1024 + 1) if image else b''
-        image_type = None
-        if image_data.startswith(b"\x89PNG\r\n\x1a\n"):
-            image_type = "image/png"
-        elif image_data.startswith(b"\xff\xd8\xff"):
-            image_type = "image/jpeg"
-        elif len(image_data) >= 12 and image_data[:4] == b"RIFF" and image_data[8:12] == b"WEBP":
-            image_type = "image/webp"
-        if len(image_data) > 2 * 1024 * 1024:
+        try:
+            image_data, image_type, upload_error = read_profile_image(image)
+        except OSError as error:
+            app.logger.error(
+                "Mobile profile picture upload could not be read",
+                extra={
+                    "user_id": user.id,
+                    "reason": "read_error",
+                    "error_type": type(error).__name__,
+                },
+            )
+            return jsonify({"ok": False, "error": "The uploaded picture could not be read. Please try again."}), 500
+        if upload_error in {"missing", "too_large", "invalid_type"}:
+            app.logger.warning(
+                "Mobile profile picture upload rejected",
+                extra={"user_id": user.id, "reason": upload_error},
+            )
+        if upload_error == "too_large":
             return jsonify({"ok": False, "error": "Profile pictures must be 2 MB or smaller."}), 400
-        if image_type not in {"image/jpeg", "image/png", "image/webp"}:
+        if upload_error in {"missing", "invalid_type"}:
             return jsonify({"ok": False, "error": "Upload a valid JPG, PNG, or WebP image."}), 400
         user.profile_picture = image_data
         user.profile_picture_mime = image_type
-        db.session.commit()
+        try:
+            db.session.commit()
+        except SQLAlchemyError as error:
+            db.session.rollback()
+            app.logger.error(
+                "Mobile profile picture upload could not be saved",
+                extra={
+                    "user_id": user.id,
+                    "reason": "database_error",
+                    "error_type": type(error).__name__,
+                },
+            )
+            return jsonify({"ok": False, "error": "The picture could not be saved. Please try again."}), 500
         return jsonify({"ok": True, "message": "Profile picture updated."}), 200
 
     if action == 'remove_picture':

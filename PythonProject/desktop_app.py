@@ -633,10 +633,9 @@ def configure_default_data_dir():
         community_candidates = [
             os.path.join(runtime_dir, "community_equipment.db"),
             os.path.join(os.path.dirname(runtime_dir), "community_equipment.db"),
-            r"D:\Users\jush\Downloads\sample.db",
         ]
         if running_from_project_dist:
-            community_candidates.insert(0, r"D:\Users\jush\Downloads\sample.db")
+            community_candidates.insert(0, os.path.join(source_project_dir, "community_equipment.db"))
         existing_community_db = next((path for path in community_candidates if os.path.isfile(path)), None)
         os.environ["PYPONDO_COMMUNITY_DB_PATH"] = existing_community_db or os.path.join(
             os.path.abspath(os.getenv("PYPONDO_DATA_DIR", "").strip()) or data_dir,
@@ -645,13 +644,19 @@ def configure_default_data_dir():
 
     seed_dir = os.path.join(get_runtime_resource_dir(), "database-seed")
     seed_targets = (
-        ("pccafe.db", os.getenv("PYPONDO_DB_PATH", "").strip()),
-        ("community_equipment.db", os.getenv("PYPONDO_COMMUNITY_DB_PATH", "").strip()),
+        ("main", os.getenv("PYPONDO_DB_PATH", "").strip(), ("pccafe.db",)),
+        ("community", os.getenv("PYPONDO_COMMUNITY_DB_PATH", "").strip(),
+         ("community_equipment.db", "sample.db")),
     )
-    for seed_name, target_path in seed_targets:
-        source_path = os.path.join(seed_dir, seed_name)
-        if seed_name == "community_equipment.db" and not os.path.isfile(source_path):
-            source_path = os.path.join(seed_dir, "sample.db")
+    for seed_name, target_path, legacy_names in seed_targets:
+        source_dir = os.path.join(seed_dir, seed_name)
+        source_candidates = [
+            os.path.join(source_dir, name)
+            for name in sorted(os.listdir(source_dir))
+            if name.lower().endswith(".db") and os.path.isfile(os.path.join(source_dir, name))
+        ] if os.path.isdir(source_dir) else []
+        source_candidates.extend(os.path.join(seed_dir, name) for name in legacy_names)
+        source_path = next((path for path in source_candidates if os.path.isfile(path)), "")
         if target_path and not os.path.exists(target_path) and os.path.isfile(source_path):
             os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
             shutil.copy2(source_path, target_path)

@@ -19,7 +19,7 @@
 <section class="panel" aria-labelledby="account-heading">
 <h2 id="account-heading">Account details</h2>
 <div class="identity">
-{% if profile_user.profile_picture %}<img class="avatar" src="{{ url_for('profile.profile_picture') }}" alt="Profile picture for {{ profile_name }}">{% else %}<div class="avatar avatar-placeholder" aria-hidden="true">{{ profile_name[:1]|upper }}</div>{% endif %}
+{% if profile_user.profile_picture %}<img class="avatar" src="{{ url_for('profile.profile_picture', v=profile_picture_version) }}" alt="Profile picture for {{ profile_name }}">{% else %}<div class="avatar avatar-placeholder" aria-hidden="true">{{ profile_name[:1]|upper }}</div>{% endif %}
 <div><div class="identity-name">{{ profile_name }}</div><div class="identity-role">{{ profile_role }}</div></div>
 </div>
 <dl class="details"><div class="detail"><dt>Name</dt><dd>{{ profile_name }}</dd></div><div class="detail"><dt>Role</dt><dd>{{ profile_role }}</dd></div><div class="detail"><dt>Account ID</dt><dd>#{{ profile_user.id }}</dd></div><div class="detail"><dt>Username</dt><dd>{{ profile_user.username }}</dd></div></dl>
