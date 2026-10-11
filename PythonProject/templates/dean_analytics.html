@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dean Analytics · PyPondo</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='professional.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" referrerpolicy="no-referrer">
+  <style>
+    *{box-sizing:border-box}body{margin:0;padding:26px;line-height:1.5}.page{width:min(1240px,100%);margin:0 auto}
+    .top{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:24px}.eyebrow{color:#64748b;font-size:.78rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+    h1{margin:5px 0;font-size:clamp(1.6rem,3vw,2.2rem)}.muted{color:#68778d}.actions{display:flex;gap:10px;flex-wrap:wrap}
+    .action{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border:1px solid #dbe2ec;border-radius:9px;background:#fff;color:#2d405a;text-decoration:none;font-weight:700}
+    .action.primary{background:#315d91;color:#fff;border-color:#315d91}
+    .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}
+    .metric,.panel{min-width:0;padding:18px;background:#fff;border:1px solid #dfe5ee;border-radius:14px;box-shadow:0 3px 12px rgba(25,42,70,.06)}
+    .metric-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.metric-label{font-size:.85rem;color:#68778d;font-weight:650}
+    .metric-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:10px;background:#eaf1fa;color:#315d91}
+    .metric-value{display:block;margin-top:9px;color:#1f3048;font-size:1.6rem;font-weight:800;overflow-wrap:anywhere}.metric-sub{font-size:.8rem;color:#758298}
+    .columns{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-bottom:18px}.panel h2{margin:0 0 4px;color:#1f3048;font-size:1.05rem}.panel-intro{margin:0;color:#738096;font-size:.88rem}
+    .chart{display:grid;gap:13px;margin-top:20px}.bar-row{display:grid;grid-template-columns:76px minmax(0,1fr) 95px;gap:12px;align-items:center;color:#617087;font-size:.82rem}
+    .bar-track{height:10px;overflow:hidden;border-radius:99px;background:#edf1f6}.bar-fill{height:100%;border-radius:inherit;background:linear-gradient(90deg,#315d91,#69a0d4)}.bar-value{text-align:right;color:#31445f;font-weight:700}
+    .table-wrap{overflow:auto;margin-top:14px}table{width:100%;min-width:560px;border-collapse:collapse;font-size:.88rem}th,td{padding:11px 10px;border-bottom:1px solid #edf0f5;text-align:left;white-space:nowrap}th{color:#69788d;background:#f8fafc;font-size:.75rem;text-transform:uppercase}td{color:#35445a}
+    .info-list{display:grid;gap:0;margin-top:14px}.info-row{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #edf0f5;color:#68778d}.info-row strong{color:#31445f}
+    .flash{padding:12px 14px;margin-bottom:15px;border:1px solid #d4e7dc;border-radius:10px;background:#eef5f1;color:#2d6449}
+    @media(max-width:900px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.columns{grid-template-columns:1fr}}
+    @media(max-width:560px){body{padding:15px}.top{align-items:flex-start;flex-direction:column}.metrics{grid-template-columns:1fr 1fr}.metric,.panel{padding:15px}.bar-row{grid-template-columns:65px minmax(0,1fr) 75px;gap:8px}}
+  </style>
+</head>
+<body>
+  {% include '_animated_background.html' %}
+<main class="page">
+  <header class="top">
+    <div><div class="eyebrow">PyPondo · Reports</div><h1><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Dean Analytics</h1><div class="muted">Bookings, PC sessions, and recorded account activity.</div></div>
+    <div class="actions"><a class="action" href="{{ url_for('role_dashboard') }}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Dashboard</a><a class="action primary" href="{{ url_for('dean_dashboard') }}"><i class="fa-solid fa-desktop" aria-hidden="true"></i> PC monitor</a></div>
+  </header>
+  {% with messages=get_flashed_messages() %}{% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}{% endwith %}
+  <section class="metrics" aria-label="Analytics summary">
+    <article class="metric"><div class="metric-top"><span class="metric-label">Registered users</span><span class="metric-icon"><i class="fa-solid fa-users" aria-hidden="true"></i></span></div><strong class="metric-value">{{ users_total }}</strong><span class="metric-sub">Accounts in the database</span></article>
+    <article class="metric"><div class="metric-top"><span class="metric-label">Registered PCs</span><span class="metric-icon"><i class="fa-solid fa-desktop" aria-hidden="true"></i></span></div><strong class="metric-value">{{ pcs_total }}</strong><span class="metric-sub">Total PC records</span></article>
+    <article class="metric"><div class="metric-top"><span class="metric-label">Bookings</span><span class="metric-icon"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i></span></div><strong class="metric-value">{{ bookings_total }}</strong><span class="metric-sub">All recorded bookings</span></article>
+    <article class="metric"><div class="metric-top"><span class="metric-label">Active sessions</span><span class="metric-icon"><i class="fa-solid fa-clock" aria-hidden="true"></i></span></div><strong class="metric-value">{{ active_sessions }}</strong><span class="metric-sub">Currently open sessions</span></article>
+    <article class="metric"><div class="metric-top"><span class="metric-label">Session revenue</span><span class="metric-icon"><i class="fa-solid fa-peso-sign" aria-hidden="true"></i></span></div><strong class="metric-value">₱{{ '%.2f'|format(revenue_total) }}</strong><span class="metric-sub">Total recorded session costs</span></article>
+    <article class="metric"><div class="metric-top"><span class="metric-label">Credited top-ups</span><span class="metric-icon"><i class="fa-solid fa-wallet" aria-hidden="true"></i></span></div><strong class="metric-value">₱{{ '%.2f'|format(credited_topups) }}</strong><span class="metric-sub">Payments with credited timestamp</span></article>
+    <article class="metric"><div class="metric-top"><span class="metric-label">Sessions today</span><span class="metric-icon"><i class="fa-solid fa-calendar-day" aria-hidden="true"></i></span></div><strong class="metric-value">{{ today_sessions }}</strong><span class="metric-sub">Sessions started today</span></article>
+    <article class="metric"><div class="metric-top"><span class="metric-label">Revenue today</span><span class="metric-icon"><i class="fa-solid fa-chart-column" aria-hidden="true"></i></span></div><strong class="metric-value">₱{{ '%.2f'|format(today_revenue) }}</strong><span class="metric-sub">Recorded session costs</span></article>
+  </section>
+  <section class="columns">
+    <article class="panel"><h2><i class="fa-solid fa-chart-simple" aria-hidden="true"></i> Monthly session revenue</h2><p class="panel-intro">Recorded session costs for the last six months.</p><div class="chart">{% set max_value=monthly_values|max if monthly_values else 0 %}{% for label in monthly_labels %}{% set amount=monthly_values[loop.index0] %}<div class="bar-row"><span>{{ label }}</span><div class="bar-track"><div class="bar-fill" style="width:{{ (amount / max_value * 100) if max_value else 0 }}%"></div></div><span class="bar-value">₱{{ '%.2f'|format(amount) }}</span></div>{% endfor %}</div></article>
+    <article class="panel"><h2><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Data summary</h2><p class="panel-intro">Totals are calculated from existing PyPondo records.</p><div class="info-list"><div class="info-row"><span>All sessions</span><strong>{{ sessions_total }}</strong></div><div class="info-row"><span>All bookings</span><strong>{{ bookings_total }}</strong></div><div class="info-row"><span>Session revenue</span><strong>₱{{ '%.2f'|format(revenue_total) }}</strong></div><div class="info-row"><span>Credited top-ups</span><strong>₱{{ '%.2f'|format(credited_topups) }}</strong></div></div></article>
+  </section>
+  <section class="panel"><h2><i class="fa-solid fa-calendar-check" aria-hidden="true"></i> Recent bookings</h2><p class="panel-intro">Latest booking records in PyPondo.</p><div class="table-wrap"><table><thead><tr><th>Booking</th><th>User</th><th>PC</th><th>Date</th><th>Time</th></tr></thead><tbody>{% for booking in recent_bookings %}<tr><td>#{{ booking.id }}</td><td>{{ booking.user.username if booking.user else '—' }}</td><td>{{ booking.pc.name if booking.pc else '—' }}</td><td>{{ booking.booking_date or '—' }}</td><td>{{ booking.time_slot }}</td></tr>{% else %}<tr><td colspan="5">No bookings recorded yet.</td></tr>{% endfor %}</tbody></table></div></section>
+</main>
+</body>
+</html>

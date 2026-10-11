@@ -1,0 +1,297 @@
+/* Calm PyPondo theme based on the recent busengg design. */
+:root {
+  color-scheme: light;
+  --ui-bg: #f3f5f9;
+  --ui-card: #fff;
+  --ui-ink: #243247;
+  --ui-muted: #68778d;
+  --ui-border: #dfe5ee;
+  --ui-accent: #315d91;
+  --ui-accent-soft: #eaf1fa;
+  --ui-success: #287653;
+  --ui-danger: #a83e48;
+  --ui-shadow: 0 3px 12px rgba(25, 42, 70, .06);
+}
+html, body { background: var(--ui-bg) !important; color: var(--ui-ink) !important; }
+body { font-family: Inter, "Segoe UI", Arial, sans-serif !important; letter-spacing: normal !important; text-shadow: none !important; }
+.cyber-bg { opacity: .06 !important; filter: saturate(.25) !important; }
+h1, h2, h3, h4 { color: #1f3048 !important; font-family: Inter, "Segoe UI", Arial, sans-serif !important; letter-spacing: normal !important; text-shadow: none !important; }
+body h1, body h2, body h3, body h4 { color: #1f3048 !important; }
+body :is(div, p, span, strong, b, label, li, td, th, small, dt, dd, summary, caption, legend, output) {
+  color: var(--ui-ink) !important;
+  text-shadow: none !important;
+}
+body :is(.muted, .sub, .label, .tile-label, .helper, .fine-print, .subtle,
+  .metric-label, .metric-sub, .panel-intro, .eyebrow, .description, .subtitle, .info-row) {
+  color: var(--ui-muted) !important;
+}
+body :is(.tile-icon, .metric-icon, .icon),
+body :is(.tile-icon, .metric-icon, .icon) * { color: var(--ui-accent) !important; }
+body :is(.alert, .flash, .user-guidance, .friendly-note) :is(div, p, span, strong, b, small) {
+  color: #2d6449 !important;
+}
+.top-bar, header {
+  color: var(--ui-ink) !important;
+  background: var(--ui-card) !important;
+  border-color: var(--ui-border) !important;
+  box-shadow: var(--ui-shadow) !important;
+}
+header a:not(.btn):not(.header-action-button):not(.profile-avatar-link),
+.head a:not(.button) { color: var(--ui-accent) !important; }
+.container, .pc-grid, .grid, .columns, .cols, .analytics-grid, .nav-grid { gap: 16px !important; }
+.card, .panel, .pc, .item, .status, .status-item, .wallet-box, .user-guidance,
+.pairing-card, .pairing-alt-item, .method-option, .summary, .notice, .error-box,
+.booking-form, .history-row, .history-main, .admin-pc-panel, .admin-tab-panel,
+.section, .shell, .stat, .payment-card, .room-table, .login-shell, .login-box,
+.register-box, .register, .analytics-tile, .analytics-card, .section-card,
+.status-chart, .pypondo-analytics, table {
+  color: var(--ui-ink) !important;
+  background: var(--ui-card) !important;
+  border: 1px solid var(--ui-border) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--ui-shadow) !important;
+}
+.card, .panel, .pc, .item, .status, .status-item, .section, .stat, .analytics-tile { min-width: 0; }
+.card h1, .card h2, .card h3, .panel h1, .panel h2, .panel h3,
+.pc h1, .pc h2, .pc h3, .top-bar h1, .status-chart h2, .analytics-tile strong { color: #1f3048 !important; }
+.card p, .panel p, .pc p, .muted, small, .sub, .label, .tile-label,
+.very-simple-label, .helper, .fine-print, .fine-print, .subtle { color: var(--ui-muted) !important; }
+a { transition: color .15s ease, background-color .15s ease, border-color .15s ease; }
+a:not(.btn):not(.header-action-button):not(.profile-avatar-link) { color: var(--ui-accent); }
+button, .btn, input, select, textarea { font-family: inherit !important; letter-spacing: normal !important; text-shadow: none !important; }
+button, .btn, input[type=submit], input[type=button], .header-action-button {
+  border: 1px solid var(--ui-accent) !important;
+  border-radius: 9px !important;
+  background: var(--ui-accent) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+  font-weight: 650 !important;
+  text-decoration: none !important;
+}
+button:hover, .btn:hover, input[type=submit]:hover, input[type=button]:hover, .header-action-button:hover {
+  background: #274d7b !important; border-color: #274d7b !important; color: #fff !important;
+}
+.btn-red, .danger, .btn-danger, .delete-btn, .stop-btn { background: var(--ui-accent) !important; color: #fff !important; border-color: var(--ui-accent) !important; }
+.btn-red:hover, .danger:hover, .btn-danger:hover, .delete-btn:hover, .stop-btn:hover { background: #274d7b !important; color: #fff !important; border-color: #274d7b !important; }
+input:not([type=checkbox]):not([type=radio]), select, textarea {
+  color: #26364b !important; background: #fff !important; border: 1px solid #d6deea !important; border-radius: 8px !important;
+}
+input::placeholder, textarea::placeholder { color: #7b8798 !important; opacity: 1; }
+input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible { outline: 2px solid #b7cce7 !important; outline-offset: 2px; }
+input[type=date], input[type=time] { color-scheme: light !important; }
+table { border-collapse: collapse; overflow: hidden; }
+th { background: #fff !important; color: #52647d !important; font-family: inherit !important; text-transform: none !important; }
+th, td, .row { border-color: #e9edf3 !important; }
+tr:hover { background: #fff !important; }
+.free { border-color: #cfe4d8 !important; }
+.occupied { border-color: #ebd3d6 !important; }
+.free .status-badge { background: #e8f4ed !important; color: var(--ui-success) !important; }
+.occupied .status-badge { background: #fbecee !important; color: var(--ui-danger) !important; }
+.alert, .flash, .user-guidance, .friendly-note { background: #eef5f1 !important; color: #2d6449 !important; border: 1px solid #d4e7dc !important; border-radius: 10px !important; }
+.analytics-tile, .tile { padding: 18px; }
+.tile-icon, .icon { background: var(--ui-accent-soft) !important; color: var(--ui-accent) !important; }
+.pc-qr-link { background: var(--ui-accent-soft) !important; color: var(--ui-accent) !important; border-color: #d7e2f0 !important; }
+.dean-head-actions .profile-avatar-link, .community-head-actions .profile-avatar-link { color: var(--ui-accent) !important; background: var(--ui-accent-soft) !important; border-color: #cbd8e8 !important; box-shadow: none !important; }
+.status-chart, .pypondo-analytics { padding: 18px !important; }
+/* Load this stylesheet last so older page-level palettes cannot override dashboards. */
+body { background: var(--ui-bg) !important; color: var(--ui-ink) !important; }
+body :is(button, input[type=submit], input[type=button], .btn, [role=button], .workspace-link, .header-action-button),
+body :is(button, input[type=submit], input[type=button], .btn, [role=button], .workspace-link, .header-action-button).danger,
+body :is(button, input[type=submit], input[type=button], .btn, [role=button], .workspace-link, .header-action-button).btn-red,
+body :is(button, input[type=submit], input[type=button], .btn, [role=button], .workspace-link, .header-action-button).stop,
+body .card a.workspace-link,
+body .card a[role=button],
+body .cards .card-action a,
+body .tunnel-actions button,
+body .workspace-link,
+body nav a:not(.profile-avatar-link),
+body .nav a:not(.profile-avatar-link),
+body .navbar a:not(.profile-avatar-link),
+body .user-menu > a:not(.profile-avatar-link),
+body .dash-nav a,
+body .head nav a:not(.profile-avatar-link),
+body .top-bar > a,
+body .dash-nav a[aria-current=page] {
+  color: #fff !important;
+  background: var(--ui-accent) !important;
+  border-color: var(--ui-accent) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+body nav a:not(.profile-avatar-link) *,
+body .nav a:not(.profile-avatar-link) *,
+body .navbar a:not(.profile-avatar-link) *,
+body .user-menu > a:not(.profile-avatar-link) *,
+body .dash-nav a:not(.profile-avatar-link) *,
+body .head nav a:not(.profile-avatar-link) *,
+body .top-bar > a * {
+  color: #fff !important;
+}
+body :is(button, input[type=submit], input[type=button], .btn, [role=button], .workspace-link, .header-action-button):hover,
+body :is(button, input[type=submit], input[type=button], .btn, [role=button], .workspace-link, .header-action-button).danger:hover,
+body :is(button, input[type=submit], input[type=button], .btn, [role=button], .workspace-link, .header-action-button).btn-red:hover,
+body :is(button, input[type=submit], input[type=button], .btn, [role=button], .workspace-link, .header-action-button).stop:hover,
+body .card a.workspace-link:hover,
+body .card a[role=button]:hover,
+body .cards .card-action a:hover,
+body .tunnel-actions button:hover,
+body .workspace-link:hover,
+body nav a:hover,
+body .nav a:hover,
+body .navbar a:not(.profile-avatar-link):hover,
+body .user-menu > a:not(.profile-avatar-link):hover,
+body .dash-nav a:hover,
+body .head nav a:hover,
+body .top-bar > a:hover,
+body .dash-nav a[aria-current=page]:hover {
+  color: #fff !important;
+  background: #274d7b !important;
+  border-color: #274d7b !important;
+}
+body :is(div, p, span, strong, b, label, li, td, th, small, dt, dd, summary, caption, legend, output, h1, h2, h3, h4) {
+  color: var(--ui-ink) !important;
+  text-shadow: none !important;
+}
+body :is(.card, .panel, .pc, .stat, .section, .analytics-tile) :is(div, p, span, strong, b, label, li, td, th, small, dt, dd, summary, caption, legend, output, h1, h2, h3, h4) {
+  color: var(--ui-ink) !important;
+  text-shadow: none !important;
+}
+body :is(.muted, .sub, .label, .tile-label, .helper, .fine-print, .subtle, .metric-label, .metric-sub, .panel-intro, .eyebrow, .description, .subtitle),
+body :is(.card, .panel, .pc, .stat, .section, .analytics-tile) :is(.muted, .sub, .label, .tile-label, .helper, .fine-print, .subtle) {
+  color: var(--ui-muted) !important;
+}
+body a:not(.header-action-button):not(.profile-avatar-link):not(.button):not(.btn):not(.workspace-link) {
+  color: var(--ui-accent) !important;
+}
+body :is(.card, .panel, .pc, .item, .status, .status-item, .wallet-box, .pairing-card,
+  .pairing-alt-item, .method-option, .summary, .notice, .error-box, .booking-form,
+  .history-row, .history-main, .admin-pc-panel, .admin-tab-panel, .section, .shell,
+  .stat, .payment-card, .room-table, .login-shell, .login-box, .register-box,
+  .register, .analytics-tile, .analytics-card, .section-card, .status-chart,
+  .pypondo-analytics, .user-table-wrap, .user-table, .catalog-modal-card) {
+  background: var(--ui-card) !important;
+  color: var(--ui-ink) !important;
+  border-color: var(--ui-border) !important;
+}
+body :is(input:not([type=checkbox]):not([type=radio]), select, textarea) {
+  background: #fff !important;
+  color: var(--ui-ink) !important;
+  border-color: var(--ui-border) !important;
+}
+body :is(.alert, .flash, .user-guidance, .friendly-note) {
+  background: #eef5f1 !important;
+  color: #2d6449 !important;
+  border-color: #d4e7dc !important;
+}
+body :is(.alert, .flash, .user-guidance, .friendly-note) :is(div, p, span, strong, b, small) {
+  color: #2d6449 !important;
+}
+body :is(.brand, .user-menu, .user-menu span, .header-inner, .top-bar, .head, header) {
+  color: var(--ui-ink) !important;
+}
+body .user-menu {
+  background: var(--ui-card) !important;
+  border-color: var(--ui-border) !important;
+}
+body .brand,
+body a.brand {
+  color: #1f3048 !important;
+  text-shadow: none !important;
+}
+body :is(button, input[type=submit], input[type=button], input[type=reset], .btn,
+  [role=button], .workspace-link, .header-action-button, .card-action a,
+  .nav a:not(.profile-avatar-link), .navbar a:not(.profile-avatar-link),
+  .user-menu > a:not(.profile-avatar-link), .dash-nav a:not(.profile-avatar-link)),
+body :is(button, input[type=submit], input[type=button], input[type=reset], .btn,
+  [role=button], .workspace-link, .header-action-button, .card-action a,
+  .nav a:not(.profile-avatar-link), .navbar a:not(.profile-avatar-link),
+  .user-menu > a:not(.profile-avatar-link), .dash-nav a:not(.profile-avatar-link)) * {
+  color: #fff !important;
+  text-shadow: none !important;
+}
+body :is(button, .btn, [role=button], .workspace-link, .header-action-button, .card-action a) svg {
+  fill: currentColor !important;
+}
+body nav a:not(.profile-avatar-link),
+body .nav a:not(.profile-avatar-link),
+body .navbar a:not(.profile-avatar-link),
+body .user-menu > a:not(.profile-avatar-link),
+body .dash-nav a:not(.profile-avatar-link),
+body .head nav a:not(.profile-avatar-link),
+body .top-bar > a {
+  color: #fff !important;
+  background: var(--ui-accent) !important;
+  border: 1px solid var(--ui-accent) !important;
+}
+body nav a:not(.profile-avatar-link) *,
+body .nav a:not(.profile-avatar-link) *,
+body .navbar a:not(.profile-avatar-link) *,
+body .user-menu > a:not(.profile-avatar-link) *,
+body .dash-nav a:not(.profile-avatar-link) *,
+body .head nav a:not(.profile-avatar-link) *,
+body .top-bar > a * {
+  color: #fff !important;
+}
+body nav a:not(.profile-avatar-link):hover,
+body .nav a:not(.profile-avatar-link):hover,
+body .navbar a:not(.profile-avatar-link):hover,
+body .user-menu > a:not(.profile-avatar-link):hover,
+body .dash-nav a:not(.profile-avatar-link):hover,
+body .head nav a:not(.profile-avatar-link):hover,
+body .top-bar > a:hover {
+  color: #fff !important;
+  background: #274d7b !important;
+  border-color: #274d7b !important;
+}
+body nav a:not(.profile-avatar-link):hover *,
+body .nav a:not(.profile-avatar-link):hover *,
+body .navbar a:not(.profile-avatar-link):hover *,
+body .user-menu > a:not(.profile-avatar-link):hover *,
+body .dash-nav a:not(.profile-avatar-link):hover *,
+body .head nav a:not(.profile-avatar-link):hover *,
+body .top-bar > a:hover * {
+  color: #fff !important;
+}
+@media (max-width: 760px) {
+  body { padding-left: 14px !important; padding-right: 14px !important; }
+  .container { gap: 14px !important; }
+  .top-bar, header { align-items: flex-start !important; gap: 12px !important; flex-wrap: wrap !important; }
+  .section { min-width: min(100%, 280px) !important; }
+  .analytics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 520px) { .analytics-grid { grid-template-columns: 1fr !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+body header nav a:not(.profile-avatar-link),
+body header nav a:not(.profile-avatar-link) *,
+body header .user-menu > a:not(.profile-avatar-link),
+body header .user-menu > a:not(.profile-avatar-link) *,
+body header .dean-head-actions a:not(.profile-avatar-link),
+body header .dean-head-actions a:not(.profile-avatar-link) *,
+body header .community-head-actions a:not(.profile-avatar-link),
+body header .community-head-actions a:not(.profile-avatar-link) *,
+body header .top-bar > a,
+body header .top-bar > a * {
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+}
+body header {
+  color: #fff !important;
+  background: #1f3048 !important;
+  border-color: #314761 !important;
+}
+body header :is(h1, h2, h3, h4, p, span, small, strong, b, label, .muted, .brand, .user-menu) {
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+  text-shadow: none !important;
+}
+body :is(header, nav, [role="navigation"], .navbar, .nav-bar, .dash-nav, .user-menu,
+  .dean-head-actions, .community-head-actions, .top-bar, .header-inner, .head) {
+  color: #fff !important;
+}
+body :is(header, nav, [role="navigation"], .navbar, .nav-bar, .dash-nav, .user-menu,
+  .dean-head-actions, .community-head-actions, .top-bar, .header-inner, .head)
+  :is(a:not(.profile-avatar-link), button, span, strong, b, small, label, i, svg) {
+  color: #fff !important;
+  -webkit-text-fill-color: #fff !important;
+  text-shadow: none !important;
+}

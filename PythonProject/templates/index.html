@@ -84,6 +84,18 @@
         .pairing-grid { display: grid; gap: 14px; }
         .pairing-qr { width: min(100%, 240px); aspect-ratio: 1; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: #fff; padding: 10px; box-sizing: border-box; }
         .pairing-qr img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        .pc-qr-link { display:inline-flex; align-items:center; gap:7px; margin:2px 0 10px; padding:8px 11px; border:1px solid #d7e2f0; border-radius:9px; background:#eaf1fa; color:#315d91!important; text-decoration:none; font-size:.82rem; font-weight:750; }
+        .pc-qr-link:hover { background:#dfeafa; }
+        .status-chart { margin:8px 0 22px; padding:18px 20px; border:1px solid rgba(135,163,193,.28); border-radius:14px; background:rgba(13,22,34,.88); box-shadow:0 10px 30px rgba(0,0,0,.14); }
+        .status-chart-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+        .status-chart-heading h3 { margin:0; font:700 1rem 'Roboto',sans-serif; letter-spacing:.3px; text-transform:none; }
+        .status-chart-heading p { margin:4px 0 0; color:#91a4b9; font-size:.82rem; }
+        .status-chart-heading > strong { color:#cfe0f2; font-size:.85rem; }
+        .status-chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px 20px; }
+        .status-chart-label { display:flex; justify-content:space-between; gap:8px; margin-bottom:7px; color:#c3d0df; font-size:.85rem; }
+        .status-chart-label b { color:#fff; }
+        .status-chart-track { height:9px; overflow:hidden; border-radius:99px; background:#263446; }
+        .status-chart-track span { display:block; height:100%; min-width:0; border-radius:inherit; transition:width .35s ease; }
         .pairing-address { display: inline-block; padding: 8px 10px; border-radius: 10px; background: rgba(226,31,61, 0.12); border: 1px solid rgba(226,31,61, 0.18); color: #eafcff; font-family: Consolas, monospace; font-size: 0.9rem; word-break: break-all; }
         .pairing-links { display: grid; gap: 8px; margin-top: 12px; }
         .pairing-links a { margin-top: 0; text-align: center; }
@@ -162,6 +174,18 @@
             <p style="margin-top: -10px; margin-bottom: 20px; font-size: 0.8em; color: #8ea4bb;">{{ android_download_note }}</p>
             {% endif %}
 
+            {% if current_user.is_admin %}
+            <section class="status-chart" aria-label="PC status graph">
+                <div class="status-chart-heading"><div><h3>PC Status Overview</h3><p>Live status across registered computers</p></div><strong>{{ pcs|length }} PCs</strong></div>
+                {% set chart_total = pcs|length %}
+                <div class="status-chart-grid">
+                    {% for metric in pc_status_chart %}
+                    <div><div class="status-chart-label"><span>{{ metric.label }}</span><b>{{ metric.value }}</b></div><div class="status-chart-track"><span style="width:{{ (100 * metric.value / chart_total) if chart_total else 0 }}%;background:{{ metric.color }}"></span></div></div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
             <div class="pc-grid">
                 {% for pc in pcs %}
                 <div class="card {{ 'occupied' if pc.dashboard_in_use else 'free' }}">
@@ -173,6 +197,7 @@
                         <p style="color:#bbb; font-size:0.85em; margin: 4px 0 8px;">
                             LAN Target: <strong style="color:white;">{{ (pc.lan_ip ~ ':' ~ pc.lan_port) if pc.lan_ip and pc.lan_port else (pc.lan_ip if pc.lan_ip else 'Not assigned') }}</strong>
                         </p>
+                        <a class="pc-qr-link" href="{{ url_for('admin_pc_qr', pc_id=pc.id) }}">▦ View / Print PC QR</a>
                         <form action="/admin/set_pc_ip/{{ pc.id }}" method="POST">
                             <input type="text" name="lan_ip" placeholder="Set LAN IP (blank to clear)" value="{{ pc.lan_ip or '' }}">
                             <button type="submit" style="width:100%">Save LAN IP</button>

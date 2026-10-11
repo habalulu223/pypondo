@@ -3014,20 +3014,30 @@ def add_mobile_api_cors_headers(response):
 
 
 @app.after_request
-def apply_equipment_dashboard_theme(response):
-    """Keep all new role dashboards visually aligned with the original CyberCore UI."""
-    themed_paths = {"/equipment", "/management", "/borrower", "/dean/pcs"}
-    if request.path not in themed_paths or "text/html" not in response.content_type:
+def apply_professional_dashboard_theme(response):
+    """Apply the shared professional UI theme and cyber backdrop to HTML pages."""
+    if "text/html" not in response.content_type:
         return response
+
     markup = response.get_data(as_text=True)
-    if "equipment_dashboard_theme.css" not in markup:
-        markup = markup.replace(
-            "</head>",
-            '<link rel="stylesheet" href="/assets/equipment_dashboard_theme.css"></head>',
-            1
+    stylesheet = f'<link rel="stylesheet" href="{url_for("static", filename="professional.css")}">'
+    markup = re.sub(r"<link\b[^>]*professional\.css[^>]*>", "", markup, flags=re.IGNORECASE)
+
+    if 'class="cyber-bg"' not in markup and re.search(r"<body(?:\s[^>]*)?>", markup, re.IGNORECASE):
+        background = render_template("_animated_background.html")
+        markup = re.sub(
+            r"<body(?:\s[^>]*)?>",
+            lambda match: match.group(0) + background,
+            markup,
+            count=1,
+            flags=re.IGNORECASE,
         )
-    if 'class="cyber-dashboard-grid"' not in markup:
-        markup = markup.replace("<body>", '<body><div class="cyber-dashboard-grid"></div>', 1)
+
+    if re.search(r"</body\s*>", markup, re.IGNORECASE):
+        markup = re.sub(r"</body\s*>", lambda match: stylesheet + match.group(0), markup, count=1, flags=re.IGNORECASE)
+    else:
+        markup = re.sub(r"</head\s*>", lambda match: stylesheet + match.group(0), markup, count=1, flags=re.IGNORECASE)
+
     response.set_data(markup)
     return response
 
@@ -3628,9 +3638,16 @@ def index():
                 "queue_count": 0
             })
 
+    pc_status_chart = [
+        {"label": "Ready", "value": sum(not pc.dashboard_in_use for pc in pcs), "color": "#36c98f"},
+        {"label": "In use", "value": sum(pc.dashboard_in_use for pc in pcs), "color": "#ff7184"},
+        {"label": "Online", "value": sum(pc.dashboard_online for pc in pcs), "color": "#58a8ff"},
+    ]
+
     return render_template(
         'index.html',
         pcs=pcs,
+        pc_status_chart=pc_status_chart,
         users=users,
         sessions=active_sessions,
         recent_payments=recent_payments,
@@ -3813,6 +3830,7 @@ def role_dashboard():
         if current_user.is_dean or current_user.is_admin:
             cards.append({'title': 'User access', 'description': 'Review staff and student roles and account status.', 'url': url_for('equipment_dashboard', view='users'), 'action': 'Manage access'})
             cards.append({'title': 'Campus PC monitoring', 'description': 'View registered PCs and available remote actions.', 'url': url_for('dean_dashboard'), 'action': 'Open PC monitor'})
+            cards.append({'title': 'Dean Analytics', 'description': 'Review bookings, PC sessions, and recorded revenue.', 'url': url_for('dean_analytics'), 'action': 'View analytics'})
     elif current_user.can_manage_equipment:
         cards = [
             {'title': 'Equipment register', 'description': f'{equipment_count} items · {available_count} available.', 'url': url_for('equipment_dashboard', view='inventory'), 'action': 'Open inventory'},
@@ -3989,7 +4007,7 @@ def community_add_equipment():
         qr_value=f'PYPONDO-EQUIPMENT:{code}:{uuid.uuid4().hex[:12]}'))
     db.session.commit()
     flash('Equipment and initial status history saved.', 'success')
-    return redirect(url_for('equipment_dashboard'))
+    return redirect(url_for('community_equipment_qr', equipment_id=item.equipment_id))
 
 
 @app.route('/community/catalog/<catalog_type>', methods=['POST'])
@@ -4169,7 +4187,7 @@ def instructor_add_equipment():
     community_audit('Registered instructor lending item', 'equipment', item.equipment_id, new_value=code)
     db.session.commit()
     flash('Your item is listed in the borrowing catalog and assigned to your instructor account.', 'success')
-    return redirect(url_for('borrower_dashboard', view='instructor_items'))
+    return redirect(url_for('community_equipment_qr', equipment_id=item.equipment_id))
 
 
 @app.route('/community/borrow/<int:equipment_id>', methods=['POST'])
@@ -4682,7 +4700,63 @@ def decline_loan_request(request_id):
 @login_required
 def dean_dashboard():
     if not (current_user.is_dean or current_user.is_admin): return redirect(url_for('index'))
-    return render_template('dean.html', pcs=PC.query.order_by(PC.room, PC.name).all())
+    pcs = PC.query.order_by(PC.room, PC.name).all()
+    online_window_seconds = get_agent_online_window_seconds()
+    now_dt = datetime.now()
+    active_pc_ids = {session.pc_id for session in Session.query.filter_by(end_time=None).all()}
+    online_pc_ids = {pc.id for pc in pcs if is_pc_online(pc, now_dt, online_window_seconds)}
+    in_use_pc_ids = {pc.id for pc in pcs if pc.is_occupied} | active_pc_ids | online_pc_ids
+    pc_status_chart = [
+        {"label": "Ready", "value": sum(pc.id not in in_use_pc_ids for pc in pcs), "color": "#36c98f"},
+        {"label": "In use", "value": sum(pc.id in in_use_pc_ids for pc in pcs), "color": "#ff7184"},
+        {"label": "Online", "value": sum(pc.id in online_pc_ids for pc in pcs), "color": "#58a8ff"},
+    ]
+    return render_template('dean.html', pcs=pcs, pc_status_chart=pc_status_chart)
+
+
+@app.route('/dean/analytics')
+@login_required
+def dean_analytics():
+    if not (current_user.is_admin or current_user.is_dean):
+        flash('Dean Analytics is available only to authorized Dean accounts.', 'error')
+        return redirect(url_for('index'))
+
+    today = datetime.now().date()
+    today_start = datetime.combine(today, datetime.min.time())
+    users_total = User.query.count()
+    pcs_total = PC.query.count()
+    bookings_total = Booking.query.count()
+    sessions_total = Session.query.count()
+    active_sessions = Session.query.filter_by(end_time=None).count()
+    revenue_total = float(db.session.query(db.func.coalesce(db.func.sum(Session.cost), 0)).scalar() or 0)
+    credited_topups = float(db.session.query(db.func.coalesce(db.func.sum(PaymentTransaction.amount), 0))
+        .filter(PaymentTransaction.credited_at.isnot(None)).scalar() or 0)
+    today_sessions = Session.query.filter(Session.start_time >= today_start).count()
+    today_revenue = float(db.session.query(db.func.coalesce(db.func.sum(Session.cost), 0))
+        .filter(Session.start_time >= today_start).scalar() or 0)
+    recent_bookings = Booking.query.order_by(Booking.id.desc()).limit(8).all()
+
+    monthly_labels, monthly_values = [], []
+    current_month_index = today.year * 12 + today.month - 1
+    for offset in range(5, -1, -1):
+        year, month_index = divmod(current_month_index - offset, 12)
+        month_start = datetime(year, month_index + 1, 1)
+        if month_index == 11:
+            next_month = datetime(year + 1, 1, 1)
+        else:
+            next_month = datetime(year, month_index + 2, 1)
+        amount = float(db.session.query(db.func.coalesce(db.func.sum(Session.cost), 0))
+            .filter(Session.start_time >= month_start, Session.start_time < next_month).scalar() or 0)
+        monthly_labels.append(month_start.strftime('%b %Y'))
+        monthly_values.append(round(amount, 2))
+
+    return render_template('dean_analytics.html',
+        users_total=users_total, pcs_total=pcs_total, bookings_total=bookings_total,
+        sessions_total=sessions_total, active_sessions=active_sessions,
+        revenue_total=revenue_total, credited_topups=credited_topups,
+        today_sessions=today_sessions, today_revenue=today_revenue,
+        recent_bookings=recent_bookings,
+        monthly_labels=monthly_labels, monthly_values=monthly_values)
 
 
 @app.route('/dean/pc-command', methods=['POST'])
@@ -4954,7 +5028,36 @@ def add_pc():
 
     db.session.commit()
     flash(f'Added {new_name} to the station list.', 'success')
-    return redirect(url_for('index'))
+    return redirect(url_for('admin_pc_qr', pc_id=new_pc.id))
+
+
+@app.route('/admin/pc/<int:pc_id>/qr')
+@login_required
+def admin_pc_qr(pc_id):
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+    pc = PC.query.get_or_404(pc_id)
+    return render_template('pc_qr.html', pc=pc)
+
+
+@app.route('/admin/pc/<int:pc_id>/qr.png')
+@login_required
+def download_pc_qr(pc_id):
+    if not current_user.is_admin:
+        return redirect(url_for('index'))
+    pc = PC.query.get_or_404(pc_id)
+    try:
+        import qrcode
+    except ImportError:
+        return 'QR image support is not installed on this server.', 503
+    qr = qrcode.QRCode(box_size=10, border=4)
+    qr.add_data(f'PYPONDO-PC:{pc.id}:{pc.name}')
+    qr.make(fit=True)
+    image = qr.make_image(fill_color='black', back_color='white')
+    output = io.BytesIO()
+    image.save(output, format='PNG')
+    output.seek(0)
+    return send_file(output, mimetype='image/png', download_name=f'pc-{pc.id}-qr.png', max_age=300)
 
 
 @app.route('/bookings')
