@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{ code }} &middot; {{ title }} | PyPondo</title>
+  <link rel="icon" href="{{ url_for('app_icon') }}">
+  <style>
+    :root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#243247;background:#f3f5f9}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;padding:24px;display:grid;place-items:center;background:radial-gradient(circle at 15% 10%,#e4edf8 0,transparent 35%),#f3f5f9}
+    .error-card{width:min(100%,520px);padding:clamp(22px,5vw,34px);text-align:center;background:#fff;border:1px solid #dfe5ee;border-radius:20px;box-shadow:0 18px 50px rgba(23,32,51,.09)}
+    .eyebrow{color:#68778d;font-size:.78rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+    .code{margin:10px 0 0;font-size:clamp(2.6rem,12vw,3.6rem);font-weight:800;color:#b3261e;letter-spacing:.02em}
+    h1{margin:4px 0 10px;color:#1f3048;font-size:clamp(1.3rem,5vw,1.6rem)}
+    .message{margin:0 auto;max-width:400px;color:#53637a;line-height:1.55}
+    .actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px}
+    .actions a{display:inline-flex;align-items:center;justify-content:center;min-height:43px;padding:11px 15px;border:1px solid #315d91;border-radius:9px;background:#315d91;color:#fff;font:inherit;font-weight:700;text-decoration:none}
+    .actions a.secondary{background:#f5f8fc;color:#24466f;border-color:#cbd8e8}
+    .actions a:hover{filter:brightness(.94)}
+  </style>
+</head>
+<body>
+  {% include '_animated_background.html' %}
+  <main class="error-card">
+    <div class="eyebrow">PyPondo</div>
+    <p class="code">{{ code }}</p>
+    <h1>{{ title }}</h1>
+    <p class="message">{{ message }}</p>
+    <div class="actions">
+      <a href="{{ url_for('index') }}">Back to dashboard</a>
+      {% if current_user.is_authenticated and current_user.can_manage_equipment %}
+        <a class="secondary" href="{{ url_for('equipment_dashboard') }}">Equipment inventory</a>
+      {% endif %}
+    </div>
+  </main>
+</body>
+</html>

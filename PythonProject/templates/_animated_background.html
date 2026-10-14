@@ -234,6 +234,20 @@
         75% { transform: scale(0.9); opacity: 0.6; }
     }
 
+    /* Label pages (equipment/PC QR) print with this partial in the DOM. Without
+       hiding it, the !important background above prints as a grey wash and the
+       fixed-position neon artwork bleeds onto page 1, ruining QR scan contrast. */
+    @media print {
+        .cyber-bg {
+            display: none !important;
+        }
+
+        body {
+            background-color: #fff !important;
+            background-image: none !important;
+        }
+    }
+
     @media (max-width: 700px) {
         .cyber-core {
             width: min(46vw, 180px);
@@ -309,7 +323,7 @@
     <div class="cyber-core">
         <div class="cyber-core-ring"></div>
         <div class="cyber-core-shell"></div>
-        <img class="cyber-core-icon" src="/app-icon.png" alt="">
+        <img class="cyber-core-icon" src="{{ url_for('app_icon') }}" alt="">
         <div class="cyber-sparks">
             <span></span>
             <span></span>

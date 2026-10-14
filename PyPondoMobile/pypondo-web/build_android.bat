@@ -52,20 +52,6 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Adjusting generated Gradle Java compatibility for the local JDK...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$files = @(" ^
-  "  '%SCRIPT_DIR%android\app\capacitor.build.gradle'," ^
-  "  '%SCRIPT_DIR%android\capacitor-cordova-android-plugins\build.gradle'," ^
-  "  '%SCRIPT_DIR%node_modules\@capacitor\android\capacitor\build.gradle'" ^
-  ");" ^
-  "foreach ($file in $files) {" ^
-  "  if (-not (Test-Path $file)) { continue }" ^
-  "  $content = Get-Content $file -Raw;" ^
-  "  $content = $content.Replace('JavaVersion.VERSION_21', 'JavaVersion.VERSION_17');" ^
-  "  Set-Content -Path $file -Value $content;" ^
-  "}"
-
 if not exist "%SCRIPT_DIR%android\gradlew.bat" (
   echo ERROR: Android Gradle wrapper not found at "%SCRIPT_DIR%android\gradlew.bat".
   popd
@@ -131,7 +117,7 @@ if not defined JAVA_READY (
 )
 
 if not defined JAVA_READY (
-  echo ERROR: JDK 11 or newer was not found.
+  echo ERROR: JDK 17 or newer was not found.
   echo Install JDK 17+ or Android Studio, then set JAVA_HOME to that JDK.
   echo Current PATH java:
   java -version 2>&1

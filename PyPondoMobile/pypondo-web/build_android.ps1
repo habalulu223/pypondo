@@ -58,7 +58,7 @@ function Resolve-AndroidSdk {
 Write-Host "[1/6] Resolving Java toolchain..."
 $javaHome = Resolve-JavaHome
 if (-not $javaHome) {
-    Write-Error "JDK 11 or newer was not found. Install JDK 17+ or Android Studio, then set JAVA_HOME."
+    Write-Error "JDK 17 or newer was not found. Install JDK 17 or Android Studio, then set JAVA_HOME."
     if (Get-Command java -ErrorAction SilentlyContinue) {
         & java -version
     }
@@ -111,22 +111,6 @@ npx cap sync android
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Capacitor Android sync failed."
     exit $LASTEXITCODE
-}
-
-Write-Host "Adjusting generated Gradle Java compatibility for the local JDK..."
-$gradleFiles = @(
-    (Join-Path $scriptDir 'android\app\capacitor.build.gradle'),
-    (Join-Path $scriptDir 'android\capacitor-cordova-android-plugins\build.gradle'),
-    (Join-Path $scriptDir 'node_modules\@capacitor\android\capacitor\build.gradle')
-)
-foreach ($gradleFile in $gradleFiles) {
-    if (-not (Test-Path $gradleFile)) {
-        continue
-    }
-
-    $content = Get-Content -Path $gradleFile -Raw
-    $content = $content.Replace('JavaVersion.VERSION_21', 'JavaVersion.VERSION_17')
-    Set-Content -Path $gradleFile -Value $content
 }
 
 if (-not (Test-Path "android\gradlew.bat")) {

@@ -1,5 +1,7 @@
 ext {
-    minSdkVersion = 24
+    // 26, not the template's 24: the barcode scanner's ionbarcode-android AAR declares
+    // minSdk 26 and the manifest merger refuses a lower value.
+    minSdkVersion = 26
     compileSdkVersion = 36
     targetSdkVersion = 36
     androidxActivityVersion = '1.8.2'

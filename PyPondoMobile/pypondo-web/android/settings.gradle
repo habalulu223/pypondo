@@ -1,3 +1,9 @@
+// @capacitor/barcode-scanner requires a Java 21 toolchain. Without a resolver
+// configured, Gradle refuses to build on machines that only ship JDK 17.
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
 include ':app'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')

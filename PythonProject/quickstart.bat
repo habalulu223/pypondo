@@ -1,10 +1,10 @@
 @echo off
 REM Quick Start Batch File for PyPondo
-REM This script tests and runs PyPondo apps independently
+REM This script verifies the environment and runs the PyPondo apps independently
 
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-1
+
 set "PYTHON_CMD=python"
 set "PYTHON_ARGS="
 if exist ".\.venv\Scripts\python.exe" (
@@ -42,16 +42,19 @@ if errorlevel 1 (
 echo [OK] Python found
 "%PYTHON_CMD%" %PYTHON_ARGS% --version
 
-REM Check required packages
+REM Check required packages.
+REM Install from requirements.txt so the versions match what the app is tested
+REM against. Installing individual package names here would resolve to whatever
+REM is newest on PyPI and silently override the pins.
 echo.
 echo Checking required packages...
-"%PYTHON_CMD%" %PYTHON_ARGS% -c "import flask; import flask_sqlalchemy; import flask_login; import werkzeug" >nul 2>&1
+"%PYTHON_CMD%" %PYTHON_ARGS% -c "import flask; import flask_sqlalchemy; import flask_login; import flask_cors; import werkzeug; import qrcode; import PIL" >nul 2>&1
 if errorlevel 1 (
     echo.
-    echo [INFO] Installing missing packages...
-    "%PYTHON_CMD%" %PYTHON_ARGS% -m pip install flask flask-sqlalchemy flask-login werkzeug
+    echo [INFO] Installing dependencies from requirements.txt...
+    "%PYTHON_CMD%" %PYTHON_ARGS% -m pip install -r requirements.txt
     if errorlevel 1 (
-        echo ERROR: Failed to install packages
+        echo ERROR: Failed to install dependencies
         pause
         exit /b 1
     )
@@ -59,23 +62,51 @@ if errorlevel 1 (
 
 echo [OK] All required packages available
 
-REM Run tests
+REM Fail fast on a missing QR stack: the equipment and PC label endpoints
+REM cannot work without qrcode and Pillow, and neither can mobile pairing.
+"%PYTHON_CMD%" %PYTHON_ARGS% -c "import qrcode, PIL" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo WARNING: The QR code stack ^(qrcode + Pillow^) is not importable.
+    echo WARNING: Equipment labels, PC labels, and mobile pairing QR codes will not work.
+    echo Fix: "%PYTHON_CMD%" %PYTHON_ARGS% -m pip install -r requirements.txt
+)
+
+REM Smoke test: confirm the app module and its templates load before launching.
 echo.
 echo ============================================================
-echo Running verification tests...
+echo Running verification checks...
 echo ============================================================
-if exist "test_independence.py" (
-    "%PYTHON_CMD%" %PYTHON_ARGS% test_independence.py
-    if errorlevel 1 (
-        echo WARNING: Some tests failed
-        echo Continue anyway? [Y/N]
-        set /p choice=
-        if /i not "!choice!"=="Y" exit /b 1
-    )
-) else (
-    echo [SKIP] test_independence.py not found.
-    echo [INFO] Continuing without verification tests.
-)
+"%PYTHON_CMD%" %PYTHON_ARGS% -c "import app; from app import app as _a; _a.jinja_env.get_template('equipment_qr.html'); _a.jinja_env.get_template('error.html')" >nul 2>&1
+if errorlevel 1 goto verify_failed
+echo [OK] Application module imports and templates compile
+
+REM Regression suite for the equipment/PC QR labels. pytest is a dev-only
+REM dependency, so skip the suite (with a hint) instead of failing when absent.
+"%PYTHON_CMD%" %PYTHON_ARGS% -c "import pytest" >nul 2>&1
+if errorlevel 1 goto verify_skiptests
+if not exist "test_equipment_qr.py" goto verify_skiptests
+"%PYTHON_CMD%" %PYTHON_ARGS% test_equipment_qr.py
+if errorlevel 1 goto verify_failed
+echo [OK] Equipment and PC QR label regression checks passed
+goto verify_done
+
+:verify_skiptests
+echo [INFO] Skipping QR regression checks (pytest or test_equipment_qr.py missing).
+echo [INFO] To enable them: "%PYTHON_CMD%" %PYTHON_ARGS% -m pip install pytest
+goto verify_done
+
+:verify_failed
+echo.
+echo WARNING: PyPondo verification failed. Review the output above.
+echo Re-run this script from the PythonProject folder, or run app.py directly
+echo to see the full error.
+echo Continue anyway? [Y/N]
+set /p choice=
+if /i "!choice!"=="Y" goto verify_done
+exit /b 1
+
+:verify_done
 
 REM Menu
 :menu
@@ -88,19 +119,17 @@ echo  1. Run Admin App (python app.py)
 echo  2. Run Client App (python desktop_app.py)
 echo  3. Configure Admin IP (independence mode)
 echo  4. Run Both (in separate windows)
-echo  5. View Documentation
-echo  6. Test Gateway Discovery Only
-echo  7. Exit
+echo  5. Test Gateway Discovery Only
+echo  6. Exit
 echo.
-set /p choice=Enter choice [1-7]: 
+set /p choice=Enter choice [1-6]:
 
 if "!choice!"=="1" goto run_admin
 if "!choice!"=="2" goto run_client
 if "!choice!"=="3" goto configure_ip
 if "!choice!"=="4" goto run_both
-if "!choice!"=="5" goto docs
-if "!choice!"=="6" goto test_gateway
-if "!choice!"=="7" exit /b 0
+if "!choice!"=="5" goto test_gateway
+if "!choice!"=="6" exit /b 0
 echo Invalid choice, please try again.
 goto menu
 
@@ -137,22 +166,6 @@ echo.
 echo Starting Client App...
 set PYPONDO_VERBOSE=1
 "%PYTHON_CMD%" %PYTHON_ARGS% desktop_app.py
-goto menu
-
-:docs
-echo.
-echo Available Documentation:
-echo.
-echo  1. README_GATEWAY.md      - Complete reference guide
-echo  2. INDEPENDENT_SETUP.md   - Step-by-step setup
-echo  3. GATEWAY_DISCOVERY.md   - Technical details
-echo  4. IMPLEMENTATION_SUMMARY.md - What changed
-echo.
-set /p doc_choice=Enter number [1-4] or press Enter to skip: 
-if "!doc_choice!"=="1" type README_GATEWAY.md | more
-if "!doc_choice!"=="2" type INDEPENDENT_SETUP.md | more
-if "!doc_choice!"=="3" type GATEWAY_DISCOVERY.md | more
-if "!doc_choice!"=="4" type IMPLEMENTATION_SUMMARY.md | more
 goto menu
 
 :test_gateway

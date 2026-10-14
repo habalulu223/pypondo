@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_cors import CORS
@@ -6,6 +6,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 import io
+import base64
 import csv
 from itertools import groupby
 import json
@@ -55,7 +56,12 @@ app = Flask(
 )
 
 
-allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:5000,http://127.0.0.1:5000').split(',')
+# The Capacitor WebView loads the APK from `http://localhost` with no port, so the
+# port-qualified entries alone leave every mobile preflight refused.
+MOBILE_WEBVIEW_ORIGINS = ['http://localhost', 'https://localhost', 'capacitor://localhost']
+default_allowed_origins = ','.join(
+    ['http://localhost:3000', 'http://localhost:5000', 'http://127.0.0.1:5000'] + MOBILE_WEBVIEW_ORIGINS)
+allowed_origins = os.getenv('ALLOWED_ORIGINS', default_allowed_origins).split(',')
 
 CORS(app, resources={
     r"/api/*": {
@@ -1044,8 +1050,11 @@ def ensure_community_reference_data():
             db.session.add(CommunityEquipmentStatusHistory(equipment_id=record.equipment_id,
                 status_id=status_lookup[status_name.lower()].status_id, changed_by=actor.user_id,
                 remarks='Imported from the previous equipment register.'))
-        qr_value = 'PYPONDO-EQUIPMENT:' + record.equipment_code
-        db.session.add(CommunityEquipmentQRCode(equipment_id=record.equipment_id, qr_value=qr_value))
+        # Match the format used everywhere else, and never re-insert: equipment_id
+        # is unique on the QR table, so a re-run would abort the whole migration.
+        if CommunityEquipmentQRCode.query.filter_by(equipment_id=record.equipment_id).first() is None:
+            db.session.add(CommunityEquipmentQRCode(equipment_id=record.equipment_id,
+                qr_value=equipment_qr_value(record)))
 
     # Preserve previous loans, issue reports, and maintenance history when
     # moving an installation onto the normalized community equipment store.
@@ -1176,6 +1185,129 @@ def change_community_equipment_status(item, status_name, actor, remarks=None):
     if status and identity:
         db.session.add(CommunityEquipmentStatusHistory(equipment_id=item.equipment_id,
             status_id=status.status_id, changed_by=identity.user_id, remarks=remarks))
+
+
+def community_display_name(identity):
+    if identity is None:
+        return None
+    return ' '.join(filter(None, [identity.first_name, identity.last_name])) or None
+
+
+def register_instructor_equipment(account, values):
+    """List an instructor-owned item in the borrowing catalog and mint its QR label.
+
+    Shared by the web dashboard and the mobile API. Returns (item, None) on success or
+    (None, message) when the listing was rejected.
+    """
+    identity = ensure_community_user(account)
+    if identity is None:
+        return None, 'Your community profile is missing. Contact an administrator.'
+    local_code = re.sub(r'[^A-Z0-9-]+', '-', str(values.get('equipment_code') or '').strip().upper()).strip('-')
+    name = str(values.get('equipment_name') or '').strip()
+    if not local_code or not name:
+        return None, 'An item code and name are required.'
+    code = f'INS-{identity.user_id}-{local_code}'
+    if CommunityEquipment.query.filter_by(equipment_code=code).first():
+        return None, 'You already have an item with that code. Choose another item code.'
+    serial_number = str(values.get('serial_number') or '').strip() or None
+    if serial_number and CommunityEquipment.query.filter_by(serial_number=serial_number).first():
+        return None, 'That serial number is already registered.'
+    category_name = str(values.get('category') or '').strip() or 'Instructor Equipment'
+    laboratory_name = str(values.get('laboratory') or '').strip() or f'Instructor {identity.user_id} Equipment'
+    category = CommunityEquipmentCategory.query.filter_by(category_name=category_name).first()
+    if category is None:
+        category = CommunityEquipmentCategory(category_name=category_name)
+        db.session.add(category)
+        db.session.flush()
+    laboratory = CommunityLaboratory.query.filter_by(laboratory_name=laboratory_name).first()
+    if laboratory is None:
+        laboratory = CommunityLaboratory(laboratory_name=laboratory_name)
+        db.session.add(laboratory)
+        db.session.flush()
+    item = CommunityEquipment(
+        laboratory_id=laboratory.laboratory_id, category_id=category.category_id,
+        equipment_code=code, equipment_name=name,
+        brand=str(values.get('brand') or '').strip() or None,
+        model=str(values.get('model') or '').strip() or None,
+        serial_number=serial_number,
+        description=str(values.get('description') or '').strip() or None,
+        owner_user_id=identity.user_id)
+    db.session.add(item)
+    db.session.flush()
+    change_community_equipment_status(item, 'Available', account, 'Instructor registered lending item')
+    db.session.add(CommunityEquipmentQRCode(equipment_id=item.equipment_id, qr_value=equipment_qr_value(item)))
+    community_audit('Registered instructor lending item', 'equipment', item.equipment_id, new_value=code,
+        actor=account)
+    db.session.commit()
+    return item, None
+
+
+def review_borrowing_request(borrowing, decision, account):
+    """Approve or decline a pending borrowing request. Returns (outcome, message).
+
+    Outcomes are 'approved', 'declined', 'invalid', 'forbidden' and 'unavailable' so the
+    web route can pick a redirect while the mobile API returns JSON for the same rules.
+    """
+    if not borrowing or borrowing.borrowing_status != 'Pending' or decision not in {'approve', 'decline'}:
+        return 'invalid', 'This request is no longer pending.'
+    identity = ensure_community_user(account)
+    owned_equipment = [line.equipment for line in borrowing.items]
+    has_instructor_owned_item = any(item.owner_user_id is not None for item in owned_equipment)
+    is_owner_instructor = (account.role == 'instructor' and owned_equipment
+                           and all(item.owner_user_id == identity.user_id for item in owned_equipment))
+    can_review = account.is_admin or (is_owner_instructor if has_instructor_owned_item else account.is_management)
+    if not can_review:
+        return 'forbidden', 'Only the instructor who owns these items can approve or decline this request.'
+    if decision == 'decline':
+        borrowing.borrowing_status = 'Declined'
+        borrowing.approved_by = identity.user_id
+        community_notify(borrowing.borrower_id, 'Borrow request declined',
+            f'Borrowing #{borrowing.borrowing_id} was declined.', reference_type='borrowings',
+            reference_id=borrowing.borrowing_id)
+        community_audit('Declined equipment borrowing', 'borrowings', borrowing.borrowing_id, actor=account)
+        db.session.commit()
+        return 'declined', 'Borrowing request declined.'
+    if not all(community_item_available(line.equipment) for line in borrowing.items):
+        return 'unavailable', 'One or more items are no longer available.'
+    borrowing.borrowing_status = 'Borrowed'
+    borrowing.approved_by = identity.user_id
+    for line in borrowing.items:
+        change_community_equipment_status(line.equipment, 'Borrowed', account,
+            f'Borrowing #{borrowing.borrowing_id} approved')
+    community_notify(borrowing.borrower_id, 'Borrow request approved',
+        f'Borrowing #{borrowing.borrowing_id} is approved.', reference_type='borrowings',
+        reference_id=borrowing.borrowing_id)
+    community_audit('Approved equipment borrowing', 'borrowings', borrowing.borrowing_id, actor=account)
+    db.session.commit()
+    return 'approved', 'Borrowing request approved.'
+
+
+def create_borrow_request(account, equipment_id, values):
+    """Request an available catalog item. Returns (borrowing, None) or (None, message).
+
+    Shared by the web borrow route and the mobile API so a phone cannot bypass the
+    availability and purpose checks.
+    """
+    item = db.session.get(CommunityEquipment, equipment_id)
+    raw_date = str(values.get('expected_return_date') or values.get('needed_until') or '').strip()
+    try:
+        expected = datetime.strptime(raw_date, '%Y-%m-%d')
+    except ValueError:
+        expected = None
+    purpose = str(values.get('purpose') or '').strip()
+    if (not item or not community_item_available(item) or expected is None
+            or expected.date() < datetime.now().date() or not purpose):
+        return None, 'Select an available item, provide a purpose, and choose a valid return date.'
+    identity = ensure_community_user(account)
+    borrowing = CommunityBorrowing(borrower_id=identity.user_id, expected_return_date=expected,
+        borrowing_status='Pending', purpose=purpose)
+    db.session.add(borrowing)
+    db.session.flush()
+    db.session.add(CommunityBorrowingItem(borrowing_id=borrowing.borrowing_id, equipment_id=item.equipment_id))
+    community_audit('Requested equipment borrowing', 'borrowings', borrowing.borrowing_id,
+        new_value=item.equipment_code, actor=account)
+    db.session.commit()
+    return borrowing, None
 
 
 def initialize_database():
@@ -2301,6 +2433,25 @@ def get_primary_local_ipv4():
     return local_ipv4[0] if local_ipv4 else None
 
 
+def local_qr_data_url(value, *, box_size=8, border=4):
+    """Render a QR code locally as a data URI.
+
+    Never delegate this to an outside service: the payloads here embed the
+    server's LAN host, port, and public tunnel address.
+    """
+    try:
+        import qrcode
+        from qrcode.constants import ERROR_CORRECT_M
+    except ImportError:
+        return ''
+    qr = qrcode.QRCode(box_size=box_size, border=border, error_correction=ERROR_CORRECT_M)
+    qr.add_data(value)
+    qr.make(fit=True)
+    buffer = io.BytesIO()
+    qr.make_image(fill_color='black', back_color='white').save(buffer, format='PNG')
+    return 'data:image/png;base64,' + base64.b64encode(buffer.getvalue()).decode('ascii')
+
+
 def build_target_descriptor(base_url, *, host=None, port=None, display_address=None):
     normalized_base_url = str(base_url or "").strip().rstrip("/")
     if not normalized_base_url:
@@ -2328,10 +2479,7 @@ def build_target_descriptor(base_url, *, host=None, port=None, display_address=N
         "address": visible_address,
         "base_url": normalized_base_url,
         "pairing_url": pairing_url,
-        "qr_image_url": (
-            "https://api.qrserver.com/v1/create-qr-code/"
-            f"?size=240x240&margin=8&data={http_parse.quote(pairing_url, safe='')}"
-        ),
+        "qr_image_url": local_qr_data_url(pairing_url),
     }
 
 
@@ -2871,21 +3019,6 @@ def get_request_value(name, default=None):
     return default
 
 
-def get_mobile_user_from_request():
-    raw_user_id = get_request_value("user_id")
-    try:
-        user_id = int(raw_user_id)
-    except (TypeError, ValueError):
-        return None, (jsonify({"ok": False, "error": "user_id is required"}), 400)
-
-    user = db.session.get(User, user_id)
-    if not user:
-        return None, (jsonify({"ok": False, "error": "User not found"}), 404)
-    if user.is_admin:
-        return None, (jsonify({"ok": False, "error": "Admin accounts are not supported by the mobile client"}), 403)
-    return user, None
-
-
 MOBILE_API_TOKEN_MAX_AGE = 30 * 24 * 60 * 60
 
 
@@ -2895,10 +3028,15 @@ def create_mobile_api_token(user):
 
 
 def get_mobile_user_from_token():
+    """Resolve the signed-in mobile account from its Bearer token.
+
+    This is the only identity source for /api/mobile routes. Reading `user_id` off the
+    request instead let any device fetch or change somebody else's account.
+    """
     authorization = request.headers.get('Authorization', '')
     scheme, separator, token = authorization.partition(' ')
     if not separator or scheme.lower() != 'bearer' or not token.strip():
-        return None, (jsonify({"ok": False, "error": "Sign in to scan equipment."}), 401)
+        return None, (jsonify({"ok": False, "error": "Sign in to use the mobile app."}), 401)
 
     serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'], salt='pypondo-mobile-api')
     try:
@@ -2916,7 +3054,22 @@ def get_mobile_user_from_token():
     user = db.session.get(User, user_id)
     if not user or not user.is_active:
         return None, (jsonify({"ok": False, "error": "Your mobile session is no longer valid. Sign in again."}), 401)
-    if user.is_admin or not (user.can_manage_equipment or user.can_borrow_equipment):
+    if user.is_admin:
+        return None, (jsonify({"ok": False, "error": "Admin accounts are not supported by the mobile client"}), 403)
+
+    # A client that still sends user_id must not be able to drive a different account.
+    requested_user_id = str(get_request_value("user_id") or '').strip()
+    if requested_user_id and requested_user_id != str(user.id):
+        return None, (jsonify({"ok": False, "error": "The signed-in account does not match the requested user."}), 403)
+    return user, None
+
+
+def get_mobile_equipment_user_from_token():
+    """Equipment access additionally requires a staff or borrowing role."""
+    user, error = get_mobile_user_from_token()
+    if error:
+        return None, error
+    if not (user.can_manage_equipment or user.can_borrow_equipment):
         return None, (jsonify({"ok": False, "error": "Your account is not authorized to scan equipment."}), 403)
     return user, None
 
@@ -3062,28 +3215,30 @@ def handle_oversized_profile_picture_request(error):
     return redirect(url_for("profile.profile_page"))
 
 
-@app.before_request
-def allow_mobile_api_preflight():
-    normalized_path = (request.path or "").rstrip("/")
-    if request.method != "OPTIONS":
-        return None
-    if normalized_path == "/api/server-info" or normalized_path == "/api/mobile/pairing" or normalized_path.startswith("/api/mobile/"):
-        response = jsonify({"ok": True})
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Accept, X-Requested-With"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        return response
-    return None
+def _wants_json_error():
+    return request.path.startswith('/api/') or request.accept_mimetypes.best == 'application/json'
 
 
-@app.after_request
-def add_mobile_api_cors_headers(response):
-    normalized_path = (request.path or "").rstrip("/")
-    if normalized_path == "/api/server-info" or normalized_path == "/api/mobile/pairing" or normalized_path.startswith("/api/mobile/"):
-        response.headers.setdefault("Access-Control-Allow-Origin", "*")
-        response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type, Accept, X-Requested-With")
-        response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    return response
+@app.errorhandler(404)
+def handle_not_found(error):
+    if _wants_json_error():
+        return jsonify({'ok': False, 'error': 'The requested resource was not found.'}), 404
+    return render_template('error.html', code=404,
+        title='Page not found',
+        message='We could not find what you were looking for. It may have been removed, '
+                'or the QR code on this label may have been deactivated.'), 404
+
+
+@app.errorhandler(500)
+def handle_server_error(error):
+    app.logger.exception('Unhandled request failure: %s', getattr(error, 'code', error))
+    if _wants_json_error():
+        return jsonify({'ok': False, 'error': 'The server could not complete the request.'}), 500
+    # Do not echo exception text to the client; it is in the server log above.
+    return render_template('error.html', code=500,
+        title='Something went wrong',
+        message='The server hit an unexpected problem. The details were recorded in the '
+                'server log, so the equipment team can look into it.'), 500
 
 
 @app.after_request
@@ -3175,9 +3330,54 @@ def mobile_pairing_page():
         public_tunnel=get_public_tunnel_snapshot())
 
 
+def serialize_mobile_equipment(item, status_name=None):
+    """Everything a phone needs to show an equipment record, not just its name."""
+    latest = status_name if status_name is not None else community_latest_equipment_statuses(
+        [item.equipment_id]).get(item.equipment_id)
+    return {
+        "equipment_id": item.equipment_id,
+        "equipment_code": item.equipment_code,
+        "equipment_name": item.equipment_name,
+        "category": item.category.category_name if item.category else None,
+        "laboratory": item.laboratory.laboratory_name if item.laboratory else None,
+        "brand": item.brand,
+        "model": item.model,
+        "serial_number": item.serial_number,
+        "description": item.description,
+        "status": latest or "Unknown",
+        "is_available": latest == 'Available',
+        "owner": community_display_name(item.owner),
+    }
+
+
+def mobile_equipment_history(equipment_id, limit=5):
+    rows = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=equipment_id).order_by(
+        CommunityEquipmentStatusHistory.changed_at.desc(),
+        CommunityEquipmentStatusHistory.status_history_id.desc()
+    ).limit(limit).all()
+    return [{
+        "status": row.status.status_name if row.status else None,
+        "changed_at": row.changed_at.strftime('%Y-%m-%d %H:%M') if row.changed_at else None,
+        "remarks": row.remarks,
+        "changed_by": community_display_name(row.actor),
+    } for row in rows]
+
+
+def serialize_mobile_borrowing(borrowing):
+    return {
+        "borrowing_id": borrowing.borrowing_id,
+        "borrower": community_display_name(borrowing.borrower),
+        "status": borrowing.borrowing_status,
+        "purpose": borrowing.purpose,
+        "requested_on": borrowing.borrow_date.strftime('%Y-%m-%d %H:%M') if borrowing.borrow_date else None,
+        "expected_return": borrowing.expected_return_date.strftime('%Y-%m-%d') if borrowing.expected_return_date else None,
+        "items": [serialize_mobile_equipment(line.equipment) for line in borrowing.items if line.equipment],
+    }
+
+
 @app.route('/api/mobile/equipment/scan')
 def api_mobile_equipment_scan():
-    _, error = get_mobile_user_from_token()
+    user, error = get_mobile_equipment_user_from_token()
     if error:
         return error
 
@@ -3190,18 +3390,89 @@ def api_mobile_equipment_scan():
         return jsonify({"ok": False, "error": "This equipment QR code is unknown or has been deactivated."}), 404
 
     item = qr.equipment
-    latest_history = CommunityEquipmentStatusHistory.query.filter_by(equipment_id=item.equipment_id).order_by(
-        CommunityEquipmentStatusHistory.changed_at.desc(), CommunityEquipmentStatusHistory.status_history_id.desc()
-    ).first()
-    return jsonify({
-        "ok": True,
-        "equipment": {
-            "equipment_code": item.equipment_code,
-            "equipment_name": item.equipment_name,
-            "category": item.category.category_name if item.category else None,
-            "status": latest_history.status.status_name if latest_history and latest_history.status else "Unknown",
-        },
-    }), 200
+    equipment = serialize_mobile_equipment(item)
+    equipment["history"] = mobile_equipment_history(item.equipment_id)
+    equipment["can_request"] = bool(user.can_borrow_equipment and equipment["is_available"])
+    return jsonify({"ok": True, "equipment": equipment}), 200
+
+
+@app.route('/api/mobile/equipment/mine')
+def api_mobile_equipment_mine():
+    """The mobile view of the instructor's own lending items."""
+    user, error = get_mobile_equipment_user_from_token()
+    if error:
+        return error
+    if user.role != 'instructor':
+        return jsonify({"ok": True, "equipment": []}), 200
+    identity = ensure_community_user(user)
+    items = CommunityEquipment.query.filter_by(owner_user_id=identity.user_id).order_by(
+        CommunityEquipment.equipment_name).all()
+    statuses = community_latest_equipment_statuses([item.equipment_id for item in items])
+    return jsonify({"ok": True, "equipment": [
+        serialize_mobile_equipment(item, statuses.get(item.equipment_id)) for item in items]}), 200
+
+
+@app.route('/api/mobile/equipment', methods=['POST'])
+def api_mobile_equipment_register():
+    user, error = get_mobile_equipment_user_from_token()
+    if error:
+        return error
+    if user.role != 'instructor':
+        return jsonify({"ok": False, "error": "Only instructors can list lending items."}), 403
+    item, message = register_instructor_equipment(user, get_request_data())
+    if item is None:
+        return jsonify({"ok": False, "error": message}), 400
+    qr = CommunityEquipmentQRCode.query.filter_by(equipment_id=item.equipment_id).first()
+    equipment = serialize_mobile_equipment(item)
+    equipment["qr_value"] = qr.qr_value if qr else None
+    # Rendered locally: the label never leaves for an external QR service.
+    equipment["qr_image_url"] = local_qr_data_url(qr.qr_value) if qr else ''
+    return jsonify({"ok": True, "equipment": equipment,
+        "message": "Your item is listed in the borrowing catalog."}), 201
+
+
+@app.route('/api/mobile/equipment/requests')
+def api_mobile_equipment_requests():
+    user, error = get_mobile_equipment_user_from_token()
+    if error:
+        return error
+    identity = ensure_community_user(user)
+    open_statuses = ('Pending', 'Borrowed', 'Return Requested', 'Overdue')
+    rows = CommunityBorrowing.query.join(CommunityBorrowingItem).join(
+        CommunityEquipment, CommunityEquipment.equipment_id == CommunityBorrowingItem.equipment_id
+    ).filter(CommunityEquipment.owner_user_id == identity.user_id).filter(
+        CommunityBorrowing.borrowing_status.in_(list(open_statuses))
+    ).distinct().order_by(CommunityBorrowing.borrow_date.desc()).all()
+    return jsonify({"ok": True,
+        "requests": [serialize_mobile_borrowing(borrowing) for borrowing in rows],
+        "pending_count": sum(1 for borrowing in rows if borrowing.borrowing_status == 'Pending')}), 200
+
+
+@app.route('/api/mobile/equipment/requests/<int:borrowing_id>/review', methods=['POST'])
+def api_mobile_equipment_review(borrowing_id):
+    user, error = get_mobile_equipment_user_from_token()
+    if error:
+        return error
+    borrowing = db.session.get(CommunityBorrowing, borrowing_id)
+    decision = str(get_request_value('decision') or '').strip().lower()
+    outcome, message = review_borrowing_request(borrowing, decision, user)
+    succeeded = outcome in {'approved', 'declined'}
+    status_code = 200 if succeeded else {'invalid': 400, 'forbidden': 403}.get(outcome, 409)
+    return jsonify({"ok": succeeded, "outcome": outcome, "message": message}), status_code
+
+
+@app.route('/api/mobile/equipment/<int:equipment_id>/request', methods=['POST'])
+def api_mobile_equipment_borrow_request(equipment_id):
+    user, error = get_mobile_equipment_user_from_token()
+    if error:
+        return error
+    if not user.can_borrow_equipment:
+        return jsonify({"ok": False, "error": "Your account cannot request equipment."}), 403
+    borrowing, message = create_borrow_request(user, equipment_id, get_request_data())
+    if borrowing is None:
+        return jsonify({"ok": False, "error": message}), 400
+    return jsonify({"ok": True, "borrowing_id": borrowing.borrowing_id,
+        "message": "Borrow request sent for approval."}), 201
 
 
 @app.route('/api/mobile/login', methods=['POST'])
@@ -3223,6 +3494,10 @@ def api_mobile_login():
         "ok": True,
         "user_id": user.id,
         "username": user.username,
+        "full_name": user.full_name or user.username,
+        "role": user.role or "student",
+        "can_manage_equipment": bool(user.can_manage_equipment),
+        "can_borrow_equipment": bool(user.can_borrow_equipment),
         "balance": round(float(user.pondo or 0.0), 2),
         "access_token": create_mobile_api_token(user),
         "app_version": APP_VERSION
@@ -3231,7 +3506,7 @@ def api_mobile_login():
 
 @app.route('/api/mobile/bookings', methods=['GET'])
 def api_mobile_bookings():
-    user, error = get_mobile_user_from_request()
+    user, error = get_mobile_user_from_token()
     if error:
         return error
 
@@ -3267,7 +3542,7 @@ def api_mobile_updates():
 
 @app.route('/api/mobile/profile', methods=['GET', 'POST'])
 def api_mobile_profile():
-    user, error = get_mobile_user_from_request()
+    user, error = get_mobile_user_from_token()
     if error:
         return error
 
@@ -3359,7 +3634,7 @@ def api_mobile_profile():
 
 @app.route('/api/mobile/book', methods=['POST'])
 def api_mobile_book():
-    user, error = get_mobile_user_from_request()
+    user, error = get_mobile_user_from_token()
     if error:
         return error
 
@@ -3418,7 +3693,7 @@ def api_mobile_book():
 
 @app.route('/api/mobile/topup', methods=['POST'])
 def api_mobile_topup():
-    user, error = get_mobile_user_from_request()
+    user, error = get_mobile_user_from_token()
     if error:
         return error
 
@@ -3439,7 +3714,7 @@ def api_mobile_topup():
 
 @app.route('/api/mobile/ai-chat', methods=['POST'])
 def api_mobile_ai_chat():
-    user, error = get_mobile_user_from_request()
+    user, error = get_mobile_user_from_token()
     if error:
         return error
 
@@ -4099,7 +4374,7 @@ def community_add_equipment():
     community_audit('Registered equipment', 'equipment', item.equipment_id, new_value=code)
     change_community_equipment_status(item, 'Available', current_user._get_current_object(), 'Initial registration')
     db.session.add(CommunityEquipmentQRCode(equipment_id=item.equipment_id,
-        qr_value=f'PYPONDO-EQUIPMENT:{code}:{uuid.uuid4().hex[:12]}'))
+        qr_value=equipment_qr_value(item)))
     db.session.commit()
     flash('Equipment and initial status history saved.', 'success')
     return redirect(url_for('community_equipment_qr', equipment_id=item.equipment_id))
@@ -4240,47 +4515,10 @@ def community_edit_equipment(equipment_id):
 def instructor_add_equipment():
     if current_user.role != 'instructor':
         return redirect(url_for('index'))
-    identity = ensure_community_user(current_user._get_current_object())
-    local_code = re.sub(r'[^A-Z0-9-]+', '-', str(request.form.get('equipment_code', '')).strip().upper()).strip('-')
-    name = str(request.form.get('equipment_name', '')).strip()
-    if not local_code or not name:
-        flash('An item code and name are required.', 'error')
+    item, message = register_instructor_equipment(current_user._get_current_object(), request.form)
+    if item is None:
+        flash(message, 'error')
         return redirect(url_for('borrower_dashboard', view='instructor_items'))
-    code = f'INS-{identity.user_id}-{local_code}'
-    if CommunityEquipment.query.filter_by(equipment_code=code).first():
-        flash('You already have an item with that code. Choose another item code.', 'error')
-        return redirect(url_for('borrower_dashboard', view='instructor_items'))
-    category_name = str(request.form.get('category', '')).strip() or 'Instructor Equipment'
-    lab_name = str(request.form.get('laboratory', '')).strip() or f'Instructor {identity.user_id} Equipment'
-    category = CommunityEquipmentCategory.query.filter_by(category_name=category_name).first()
-    if category is None:
-        category = CommunityEquipmentCategory(category_name=category_name)
-        db.session.add(category)
-        db.session.flush()
-    laboratory = CommunityLaboratory.query.filter_by(laboratory_name=lab_name).first()
-    if laboratory is None:
-        laboratory = CommunityLaboratory(laboratory_name=lab_name)
-        db.session.add(laboratory)
-        db.session.flush()
-    serial_number = str(request.form.get('serial_number', '')).strip() or None
-    if serial_number and CommunityEquipment.query.filter_by(serial_number=serial_number).first():
-        flash('That serial number is already registered.', 'error')
-        return redirect(url_for('borrower_dashboard', view='instructor_items'))
-    item = CommunityEquipment(
-        laboratory_id=laboratory.laboratory_id, category_id=category.category_id,
-        equipment_code=code, equipment_name=name,
-        brand=str(request.form.get('brand', '')).strip() or None,
-        model=str(request.form.get('model', '')).strip() or None,
-        serial_number=serial_number,
-        description=str(request.form.get('description', '')).strip() or None,
-        owner_user_id=identity.user_id)
-    db.session.add(item)
-    db.session.flush()
-    change_community_equipment_status(item, 'Available', current_user._get_current_object(), 'Instructor registered lending item')
-    db.session.add(CommunityEquipmentQRCode(equipment_id=item.equipment_id,
-        qr_value=f'PYPONDO-EQUIPMENT:{code}:{uuid.uuid4().hex[:12]}'))
-    community_audit('Registered instructor lending item', 'equipment', item.equipment_id, new_value=code)
-    db.session.commit()
     flash('Your item is listed in the borrowing catalog and assigned to your instructor account.', 'success')
     return redirect(url_for('community_equipment_qr', equipment_id=item.equipment_id))
 
@@ -4290,23 +4528,10 @@ def instructor_add_equipment():
 def community_borrow_request(equipment_id):
     if not current_user.can_borrow_equipment:
         return redirect(url_for('index'))
-    item = db.session.get(CommunityEquipment, equipment_id)
-    try:
-        expected = datetime.strptime(request.form.get('expected_return_date') or request.form.get('needed_until', ''), '%Y-%m-%d')
-    except ValueError:
-        expected = None
-    purpose = str(request.form.get('purpose', '')).strip()
-    if not item or not community_item_available(item) or expected is None or expected.date() < datetime.now().date() or not purpose:
-        flash('Select an available item, provide a purpose, and choose a valid return date.', 'error')
+    borrowing, message = create_borrow_request(current_user._get_current_object(), equipment_id, request.form)
+    if borrowing is None:
+        flash(message, 'error')
         return redirect(url_for('borrower_dashboard'))
-    identity = ensure_community_user(current_user._get_current_object())
-    borrowing = CommunityBorrowing(borrower_id=identity.user_id, expected_return_date=expected,
-        borrowing_status='Pending', purpose=purpose)
-    db.session.add(borrowing)
-    db.session.flush()
-    db.session.add(CommunityBorrowingItem(borrowing_id=borrowing.borrowing_id, equipment_id=item.equipment_id))
-    community_audit('Requested equipment borrowing', 'borrowings', borrowing.borrowing_id, new_value=item.equipment_code)
-    db.session.commit()
     flash('Borrow request sent for approval.', 'success')
     return redirect(url_for('borrower_dashboard'))
 
@@ -4316,37 +4541,11 @@ def community_borrow_request(equipment_id):
 def community_review_borrowing(borrowing_id):
     borrowing = db.session.get(CommunityBorrowing, borrowing_id)
     decision = str(request.form.get('decision', '')).strip().lower()
-    if not borrowing or borrowing.borrowing_status != 'Pending' or decision not in {'approve', 'decline'}:
-        flash('This request is no longer pending.', 'error')
+    outcome, message = review_borrowing_request(borrowing, decision, current_user._get_current_object())
+    if outcome in {'invalid', 'forbidden'}:
+        flash(message, 'error')
         return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard'))
-    owned_equipment = [line.equipment for line in borrowing.items]
-    has_instructor_owned_item = any(item.owner_user_id is not None for item in owned_equipment)
-    identity = ensure_community_user(current_user._get_current_object())
-    is_owner_instructor = (current_user.role == 'instructor' and owned_equipment
-                           and all(item.owner_user_id == identity.user_id for item in owned_equipment))
-    can_review = current_user.is_admin or (is_owner_instructor if has_instructor_owned_item else current_user.is_management)
-    if not can_review:
-        flash('Only the instructor who owns these items can approve or decline this request.', 'error')
-        return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard'))
-    if decision == 'approve' and all(community_item_available(line.equipment) for line in borrowing.items):
-        borrowing.borrowing_status = 'Borrowed'
-        borrowing.approved_by = identity.user_id
-        for line in borrowing.items:
-            change_community_equipment_status(line.equipment, 'Borrowed', current_user._get_current_object(), f'Borrowing #{borrowing.borrowing_id} approved')
-        community_notify(borrowing.borrower_id, 'Borrow request approved', f'Borrowing #{borrowing.borrowing_id} is approved.', reference_type='borrowings', reference_id=borrowing.borrowing_id)
-        action = 'Approved equipment borrowing'
-    elif decision == 'decline':
-        borrowing.borrowing_status = 'Declined'
-        borrowing.approved_by = identity.user_id
-        community_notify(borrowing.borrower_id, 'Borrow request declined', f'Borrowing #{borrowing.borrowing_id} was declined.', reference_type='borrowings', reference_id=borrowing.borrowing_id)
-        action = 'Declined equipment borrowing'
-    else:
-        flash('One or more items are no longer available.', 'error')
-        return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard',
-                                **({'view': 'approvals'} if current_user.can_manage_equipment else {'view': 'instructor_requests'})))
-    community_audit(action, 'borrowings', borrowing.borrowing_id)
-    db.session.commit()
-    flash(f'Borrowing request {decision}d.', 'success')
+    flash(message, 'success' if outcome in {'approved', 'declined'} else 'error')
     return redirect(url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard',
                             **({'view': 'approvals'} if current_user.can_manage_equipment else {'view': 'instructor_requests'})))
 
@@ -4609,39 +4808,60 @@ def community_update_status(equipment_id):
     return redirect(url_for('equipment_dashboard'))
 
 
+def equipment_qr_value(item):
+    """Single source of truth for the label payload format.
+
+    Every place that mints or rotates a code must use this, otherwise codes of
+    different shapes end up in the same table and scanners stop matching them.
+    """
+    return f'PYPONDO-EQUIPMENT:{item.equipment_code}:{uuid.uuid4().hex[:12]}'
+
+
+def equipment_qr_visible_to(item):
+    """Equipment staff see any label; an instructor sees only items they own.
+
+    owner_user_id references the community identity (users.user_id), not the
+    login User primary key, so it must be resolved through ensure_community_user.
+    """
+    if getattr(current_user, 'can_manage_equipment', False):
+        return True
+    identity = ensure_community_user(current_user._get_current_object())
+    return identity is not None and item.owner_user_id == identity.user_id
+
+
 @app.route('/community/qr/<int:equipment_id>')
 @login_required
 def community_equipment_qr(equipment_id):
     item = db.session.get(CommunityEquipment, equipment_id)
-    if not item:
+    if not item or not equipment_qr_visible_to(item):
         abort(404)
-    qr = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id, is_active=True).first()
-    if qr is None:
-        existing = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id).first()
-        if existing is not None:
-            abort(404)
-        qr = CommunityEquipmentQRCode(equipment_id=equipment_id,
-            qr_value=f'PYPONDO-EQUIPMENT:{item.equipment_code}:{uuid.uuid4().hex[:12]}', is_active=True)
-        db.session.add(qr)
-        db.session.commit()
+    # Read-only: a GET must never mint a code. Codes are created when the item
+    # is registered, or explicitly via the 'create' action on the POST route.
+    qr = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id).first()
     return render_template('equipment_qr.html', qr=qr, item=item)
 
 
 @app.route('/community/qr/<int:equipment_id>/image')
 @login_required
 def community_equipment_qr_image(equipment_id):
-    qr = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id, is_active=True).first_or_404()
+    item = db.session.get(CommunityEquipment, equipment_id)
+    if not item or not equipment_qr_visible_to(item):
+        abort(404)
+    # Serve inactive codes too: a label already stuck on a machine must still
+    # resolve, and the scan API is what rejects the deactivated value.
+    qr = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id).first_or_404()
     try:
         import qrcode
+        from qrcode.constants import ERROR_CORRECT_H
         from qrcode.image.svg import SvgPathImage
+        qr_code = qrcode.QRCode(box_size=10, border=4, error_correction=ERROR_CORRECT_H)
+        qr_code.add_data(qr.qr_value)
+        qr_code.make(fit=True)
+        image = qr_code.make_image(image_factory=SvgPathImage)
     except ImportError:
         return jsonify({'ok': False, 'error': 'QR image support is not installed on this server.'}), 503
-    qr_code = qrcode.QRCode(box_size=10, border=4)
-    qr_code.add_data(qr.qr_value)
-    qr_code.make(fit=True)
-    image = qr_code.make_image(image_factory=SvgPathImage)
     output = io.BytesIO(image.to_string())
-    return send_file(output, mimetype='image/svg+xml', download_name=f"equipment-{equipment_id}-qr.svg", max_age=300)
+    return send_file(output, mimetype='image/svg+xml', download_name=f"equipment-{item.equipment_code}-qr.svg", max_age=300)
 
 
 @app.route('/community/qr/<int:equipment_id>', methods=['POST'])
@@ -4656,24 +4876,27 @@ def community_manage_equipment_qr(equipment_id):
     qr = CommunityEquipmentQRCode.query.filter_by(equipment_id=equipment_id).first()
     action = str(request.form.get('action', 'regenerate')).strip().lower()
     if qr is None:
+        if action not in {'create', 'regenerate', 'activate'}:
+            flash('This item has no QR code to change. Generate one first.', 'error')
+            return redirect(url_for('community_equipment_qr', equipment_id=equipment_id))
         qr = CommunityEquipmentQRCode(equipment_id=item.equipment_id,
-            qr_value=f'PYPONDO-EQUIPMENT:{item.equipment_code}:{uuid.uuid4().hex[:12]}', is_active=True)
+            qr_value=equipment_qr_value(item), is_active=True)
         db.session.add(qr)
         action = 'created'
     elif action == 'deactivate':
         qr.is_active = False
     elif action in {'activate', 'regenerate'}:
         qr.is_active = True
-        qr.qr_value = f'PYPONDO-EQUIPMENT:{item.equipment_code}:{uuid.uuid4().hex[:12]}'
+        qr.qr_value = equipment_qr_value(item)
         qr.generated_at = datetime.now()
     else:
-        flash('Choose activate, deactivate, or regenerate.', 'error')
+        flash('Choose generate, activate, deactivate, or regenerate.', 'error')
         return redirect(url_for('equipment_dashboard'))
     community_audit(f'{action.title()} equipment QR code', 'equipment_qr_codes', qr.qr_id,
         new_value=qr.qr_value)
     db.session.commit()
     flash(f'Equipment QR code {action}.', 'success')
-    return redirect(url_for('equipment_dashboard'))
+    return redirect(url_for('community_equipment_qr', equipment_id=equipment_id))
 
 
 @app.route('/community/notifications/<int:notification_id>/read', methods=['POST'])
@@ -5143,12 +5366,15 @@ def download_pc_qr(pc_id):
     pc = PC.query.get_or_404(pc_id)
     try:
         import qrcode
+        from qrcode.constants import ERROR_CORRECT_H
+        qr = qrcode.QRCode(box_size=10, border=4, error_correction=ERROR_CORRECT_H)
+        qr.add_data(f'PYPONDO-PC:{pc.id}:{pc.name}')
+        qr.make(fit=True)
+        # The default PNG factory pulls in PIL lazily, so a missing Pillow only
+        # surfaces here -- keep generation inside the guard to answer 503, not 500.
+        image = qr.make_image(fill_color='black', back_color='white')
     except ImportError:
         return 'QR image support is not installed on this server.', 503
-    qr = qrcode.QRCode(box_size=10, border=4)
-    qr.add_data(f'PYPONDO-PC:{pc.id}:{pc.name}')
-    qr.make(fit=True)
-    image = qr.make_image(fill_color='black', back_color='white')
     output = io.BytesIO()
     image.save(output, format='PNG')
     output.seek(0)

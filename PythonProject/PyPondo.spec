@@ -28,8 +28,16 @@ if not online_build:
     if os.path.isfile(community_database):
         datas.append((community_database, os.path.join('database-seed', 'community')))
 binaries = []
-hiddenimports = ['profile_routes']
+# qrcode is imported lazily inside the QR request handlers, and qrcode's own PNG
+# image factory imports PIL lazily too. PyInstaller does not follow either hop
+# reliably, so collect both packages up front or the packaged exe 500s on the
+# equipment/PC label endpoints.
+hiddenimports = ['profile_routes', 'PIL', 'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont']
 tmp_ret = collect_all('webview')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('qrcode')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('PIL')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 

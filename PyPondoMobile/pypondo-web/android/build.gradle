@@ -7,7 +7,9 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.2.1'
+        // androidx.camera 1.5.x (pulled in by @capacitor/barcode-scanner) rejects AGP < 8.6
+        // during checkDebugAarMetadata, so the Capacitor template's 8.2.1 cannot build here.
+        classpath 'com.android.tools.build:gradle:8.9.2'
         classpath 'com.google.gms:google-services:4.4.4'
 
         // NOTE: Do not place your application dependencies here; they belong
@@ -21,6 +23,19 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+    }
+}
+
+// Capacitor and @capacitor/barcode-scanner compile for Java 21, but Gradle itself may be running
+// on an older JDK (AGP 8.9 only needs 17). Pinning the Java toolchain of every module makes Gradle
+// provision JDK 21 through the foojay resolver in settings.gradle; without it javac fails with
+// "invalid source release: 21".
+subprojects { subproject ->
+    subproject.plugins.withType(JavaBasePlugin) {
+        def javaExtension = subproject.extensions.findByType(JavaPluginExtension)
+        if (javaExtension != null) {
+            javaExtension.toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+        }
     }
 }
 

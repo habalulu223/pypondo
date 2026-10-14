@@ -4,3 +4,24 @@ __pycache__/
 PythonProject/build/
 PythonProject/dist/
 PythonProject/bin/*.apk
+
+# Local runtime data -- never commit a live database or a backup of one
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+instance/
+
+# Real host/endpoint config. The tracked .example file is the template.
+server_host.txt
+.env
+*.env.local
+
+# Caches and editor state
+.pytest_cache/
+.cache/
+.idea/
+.vscode/
+
+# Local tooling artifacts
+node.msi

@@ -17,8 +17,14 @@ This project includes helper scripts to build the Android package from the Capac
 
 Requirements:
 - Node.js + npm
-- JDK 11 or newer (Java 8 will not work)
-- Android SDK (Gradle will download it if needed)
+- JDK 17 or newer to run Gradle. Compilation targets Java 21 (what Capacitor asks for), and
+  Gradle downloads that JDK itself the first time through the toolchain resolver in
+  `android/settings.gradle`, so no JDK 21 install is needed — but the first build needs internet.
+- Android SDK (Gradle will download components if needed)
+
+The Android project uses Android Gradle Plugin 8.9.2 and `minSdkVersion = 26`, because the QR
+scanner library (`@capacitor/barcode-scanner`, whose `ionbarcode-android` AAR requires API 26)
+will not merge into a lower-API manifest. Devices below Android 8.0 cannot install this APK.
 
 Run one of these from the `PyPondoMobile/pypondo-web` folder:
 
@@ -49,15 +55,32 @@ npm run android:build
 
 4. Launch the PyPondo app
 
-5. Enter your server URL (e.g., http://192.168.1.100:5000) and tap Connect
+5. Point the app at a server:
+   - Scan the pairing QR shown on the dashboard at `/mobile/pairing`, or
+   - Type the server address (e.g. `http://192.168.1.100:5000`) and tap Connect.
 
-The app is configured to connect to local network servers over HTTP for development.
+   The app is configured to talk to local network servers over plain HTTP.
+
+6. Sign in with your PyPondo account. Every `/api/mobile` call now authenticates with the signed-in
+   token, so bookings, profile top-ups and equipment scans need a session — and can only touch your
+   own account.
+
+## Scanning QR codes
+
+- On Android the scanner opens the native camera through `@capacitor/barcode-scanner`; the browser
+  build (`npm run dev`) falls back to the webcam with `BarcodeDetector`.
+- Scanning a PyPondo server QR pairs the app with that server.
+- Scanning an equipment label opens its record — name, category, laboratory, brand/model/serial,
+  availability and status history. Scanning requires an account that manages or borrows equipment.
+- If a label is damaged or the camera cannot focus, type the label's code into the manual field on
+  the Products tab; it goes to the same lookup.
 
 ## APK Features
 
 The built APK includes:
 - CyberCore-themed icon
 - Network security config allowing cleartext traffic on local networks (192.168.x.x, 10.x.x.x, 172.16.x.x)
+- CAMERA permission and the native Capacitor barcode scanner for QR pairing and equipment labels
 - INTERNET permission for server communication
 - Proper Android manifest for Capacitor web app wrapper
 

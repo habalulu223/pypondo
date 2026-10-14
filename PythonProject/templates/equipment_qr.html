@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ item.equipment_name }} QR | PyPondo</title>
+  <link rel="icon" href="{{ url_for('app_icon') }}">
   <style>
     :root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#243247;background:#f3f5f9}
     *{box-sizing:border-box}
@@ -15,36 +16,62 @@
     .status{display:inline-block;margin-top:10px;padding:4px 11px;border-radius:999px;font-size:.76rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
     .status.active{background:#e4f6ec;color:#1f7a46}
     .status.inactive{background:#fdeceb;color:#b3261e}
+    .status.none{background:#eef1f6;color:#5a6779}
+    .flash{margin:14px 0 0;padding:10px 12px;border-radius:9px;font-size:.9rem;font-weight:600;text-align:left}
+    .flash.success{background:#e4f6ec;color:#1f7a46}
+    .flash.error{background:#fdeceb;color:#b3261e}
     .qr-image{display:block;width:min(100%,300px);height:auto;margin:24px auto;border:9px solid #fff;border-radius:12px;box-shadow:0 0 0 1px #e1e7f0,0 8px 24px rgba(25,42,70,.08)}
+    .qr-missing{display:block;width:min(100%,300px);height:220px;margin:24px auto;border:2px dashed #cbd8e8;border-radius:12px;color:#68778d;font-size:.9rem;display:grid;place-items:center;padding:0 18px}
     .meta{display:flex;flex-direction:column;gap:4px;margin:0 auto 14px;max-width:360px;color:#53637a;font-size:.9rem}
     .payload{padding:12px;background:#f4f7fb;border:1px solid #e5ebf3;border-radius:10px;color:#53637a;font-size:.88rem;overflow-wrap:anywhere}
     .actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:20px}
     .actions a,.actions button{display:inline-flex;align-items:center;justify-content:center;min-height:43px;padding:11px 15px;border:1px solid #315d91;border-radius:9px;background:#315d91;color:white;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
     .actions .secondary{background:#f5f8fc;color:#24466f;border-color:#cbd8e8}
     .actions a:hover,.actions button:hover{filter:brightness(.94)}
-    @media print{body{min-height:auto;padding:0;background:#fff}.qr-card{border:0;box-shadow:none}.actions,.status{display:none}.payload{background:#fff}}
+    .hint{margin:16px 0 0;color:#68778d;font-size:.85rem}
+    @media print{body{min-height:auto;padding:0;background:#fff!important}.qr-card{border:0;box-shadow:none;width:100%}.actions,.status,.flash,.hint{display:none}.payload{background:#fff}}
   </style>
 </head>
 <body>
   {% include '_animated_background.html' %}
   <main class="qr-card">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+    {% endwith %}
     <div class="eyebrow">PyPondo equipment identification</div>
     <h1>{{ item.equipment_name }}</h1>
     <p class="description">Unique QR label for this registered equipment</p>
-    <span class="status {{ 'active' if qr.is_active else 'inactive' }}">{{ 'Active' if qr.is_active else 'Inactive' }}</span>
-    <img class="qr-image" src="{{ url_for('community_equipment_qr_image', equipment_id=item.equipment_id) }}" alt="QR code for {{ item.equipment_name }}">
+    {% if qr %}
+      <span class="status {{ 'active' if qr.is_active else 'inactive' }}">{{ 'Active' if qr.is_active else 'Inactive' }}</span>
+    {% else %}
+      <span class="status none">Not generated</span>
+    {% endif %}
+    {% if qr %}
+      <img class="qr-image" src="{{ url_for('community_equipment_qr_image', equipment_id=item.equipment_id) }}" alt="QR code for {{ item.equipment_name }}">
+    {% else %}
+      <p class="qr-missing">This item has no QR code yet. Generate one to print a label.</p>
+    {% endif %}
     <div class="meta">
       <span>Code: {{ item.equipment_code }}</span>
-      <span>Category: {{ item.category.category_name }} &middot; Laboratory: {{ item.laboratory.laboratory_name }}</span>
+      <span>Category: {{ item.category.category_name if item.category else 'Uncategorized' }} &middot; Laboratory: {{ item.laboratory.laboratory_name if item.laboratory else 'Unassigned' }}</span>
       {% if item.serial_number %}<span>Serial: {{ item.serial_number }}</span>{% endif %}
-      {% if qr.generated_at %}<span>Generated: {{ qr.generated_at.strftime('%Y-%m-%d %H:%M') }}</span>{% endif %}
+      {% if qr and qr.generated_at %}<span>Generated: {{ qr.generated_at.strftime('%Y-%m-%d %H:%M') }}</span>{% endif %}
     </div>
-    <div class="payload">{{ qr.qr_value }}</div>
+    {% if qr %}<div class="payload">{{ qr.qr_value }}</div>{% endif %}
     <div class="actions">
-      <button type="button" onclick="window.print()">Print label</button>
-      <a class="secondary" href="{{ url_for('community_equipment_qr_image', equipment_id=item.equipment_id) }}" download="{{ item.equipment_code }}-qr.svg">Download SVG</a>
-      <a class="secondary" href="{{ url_for('equipment_dashboard', view='inventory') }}">Back to inventory</a>
+      {% if qr %}
+        <button type="button" onclick="window.print()">Print label</button>
+        <a class="secondary" href="{{ url_for('community_equipment_qr_image', equipment_id=item.equipment_id) }}" download="equipment-{{ item.equipment_code }}-qr.svg">Download SVG</a>
+      {% endif %}
+      {% if current_user.can_manage_equipment %}
+        <form method="post" action="{{ url_for('community_manage_equipment_qr', equipment_id=item.equipment_id) }}">
+          <input type="hidden" name="action" value="{{ 'create' if not qr else ('activate' if not qr.is_active else 'regenerate') }}">
+          <button class="secondary" type="submit">{{ 'Generate QR code' if not qr else ('Reactivate QR code' if not qr.is_active else 'Regenerate QR code') }}</button>
+        </form>
+      {% endif %}
+      <a class="secondary" href="{{ url_for('equipment_dashboard' if current_user.can_manage_equipment else 'borrower_dashboard', view='inventory') }}">Back to inventory</a>
     </div>
+    {% if qr and not qr.is_active %}<p class="hint">This code is deactivated, so scanners will reject it. Reactivate it or print a replacement label.</p>{% endif %}
   </main>
 </body>
 </html>

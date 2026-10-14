@@ -2,6 +2,7 @@ import { startTransition, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import './App.css'
 import { discoverServers, formatServerAddress, getSourceDescription, type DiscoveredServer } from './discovery'
+import { isNativeScannerAvailable, scanQr } from './scanner'
 
 type ServerInfo = {
   ok: boolean
@@ -465,6 +466,7 @@ function App() {
   const [updates, setUpdates] = useState<MobileUpdate[]>([])
   const [scannedEquipment, setScannedEquipment] = useState<ScannedEquipment | null>(null)
   const [equipmentScanBusy, setEquipmentScanBusy] = useState(false)
+  const [manualCode, setManualCode] = useState('')
   const [profile, setProfile] = useState<MobileProfile | null>(null)
   const [currentProfilePassword, setCurrentProfilePassword] = useState('')
   const [picturePassword, setPicturePassword] = useState('')
@@ -532,6 +534,18 @@ function App() {
     }
   }, [])
 
+  /** Every /api/mobile route now resolves the account from the Bearer token. */
+  async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+    if (!baseUrl) {
+      throw new Error('Connect to a PyPondo server first.')
+    }
+    const headers = new Headers(init?.headers)
+    if (session?.accessToken) {
+      headers.set('Authorization', `Bearer ${session.accessToken}`)
+    }
+    return readJson<T>(`${baseUrl}${path}`, { ...init, headers })
+  }
+
   function stopScannerHardware() {
     scannerRunningRef.current = false
     scannerBusyRef.current = false
@@ -569,31 +583,49 @@ function App() {
     }, QR_SCAN_INTERVAL_MS)
   }
 
+  /** Looks up an equipment QR value. Returns an error message, or null on success. */
+  async function lookupEquipment(rawValue: string): Promise<string | null> {
+    if (!session?.accessToken) {
+      return 'Sign in before scanning equipment.'
+    }
+    setScannedEquipment(null)
+    setEquipmentScanBusy(true)
+    try {
+      const payload = await apiFetch<EquipmentPayload>(
+        `/api/mobile/equipment/scan?qr=${encodeURIComponent(rawValue)}`,
+      )
+      setScannedEquipment(payload.equipment)
+      setActiveTab('products')
+      setConnectionMessage(`Loaded ${payload.equipment.equipment_name}.`)
+      return null
+    } catch (error) {
+      return error instanceof Error ? error.message : 'Could not load this equipment QR.'
+    } finally {
+      setEquipmentScanBusy(false)
+    }
+  }
+
+  async function submitEquipmentCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const failure = await lookupEquipment(manualCode.trim())
+    if (failure) {
+      setConnectionMessage(failure)
+      return
+    }
+    setManualCode('')
+  }
+
   async function applyScannedQr(rawValue: string) {
     stopScannerHardware()
     setScannerStatus('starting')
     if (scannerModeRef.current === 'equipment') {
-      setScannedEquipment(null)
-      setScannerMessage('Equipment QR found. Loading basic item information...')
-      setEquipmentScanBusy(true)
-      try {
-        if (!baseUrl) throw new Error('Connect to a PyPondo server before scanning equipment.')
-        if (!session?.accessToken) throw new Error('Sign in before scanning equipment.')
-        const payload = await readJson<EquipmentPayload>(`${baseUrl}/api/mobile/equipment/scan?qr=${encodeURIComponent(rawValue)}`, {
-          headers: {
-            Authorization: `Bearer ${session.accessToken}`,
-          },
-        })
-        setScannedEquipment(payload.equipment)
-        setActiveTab('products')
-        setScannerOpen(false)
-        setScannerStatus('idle')
-        setConnectionMessage(`Loaded basic information for ${payload.equipment.equipment_name}.`)
-      } catch (error) {
-        setScannerOpen(true)
-        setScannerStatus('error')
-        setScannerMessage(error instanceof Error ? error.message : 'Could not load this equipment QR.')
-      } finally { setEquipmentScanBusy(false) }
+      setScannerMessage('Equipment QR found. Loading item information...')
+      const failure = await lookupEquipment(rawValue)
+      setScannerOpen(Boolean(failure))
+      setScannerStatus(failure ? 'error' : 'idle')
+      if (failure) {
+        setScannerMessage(failure)
+      }
       return
     }
     setScannerMessage('QR found. Loading the server details...')
@@ -654,12 +686,38 @@ function App() {
     scannerModeRef.current = mode
     setScannerMode(mode)
     setScannerMessage(mode === 'equipment' ? DEFAULT_PRODUCT_SCANNER_MESSAGE : DEFAULT_SCANNER_MESSAGE)
+
+    if (isNativeScannerAvailable()) {
+      setScannerOpen(false)
+      setScannerStatus('starting')
+      setScannerMessage(mode === 'equipment'
+        ? 'Point the camera at a PyPondo equipment QR code.'
+        : 'Point the camera at the desktop pairing QR.')
+      try {
+        const rawValue = await scanQr(mode === 'equipment'
+          ? 'Scan an equipment QR code'
+          : 'Scan the PyPondo pairing QR')
+        if (!rawValue) {
+          setScannerStatus('idle')
+          setScannerMessage(mode === 'equipment' ? DEFAULT_PRODUCT_SCANNER_MESSAGE : DEFAULT_SCANNER_MESSAGE)
+          return
+        }
+        await applyScannedQr(rawValue)
+      } catch (error) {
+        setScannerStatus('error')
+        setScannerMessage(
+          error instanceof Error ? error.message : 'The camera could not read a QR code.',
+        )
+      }
+      return
+    }
+
     const BarcodeDetectorImpl = window.BarcodeDetector
     if (!navigator.mediaDevices?.getUserMedia || !BarcodeDetectorImpl) {
       setScannerOpen(true)
       setScannerStatus('unsupported')
       setScannerMessage(
-        'This device WebView cannot live-scan QR codes. Use manual address entry or the discover button.',
+        'This browser cannot live-scan QR codes. Use the pairing address controls, or type an equipment QR value on the Scan item tab.',
       )
       return
     }
@@ -858,15 +916,13 @@ function App() {
 
     try {
       const [pcsPayload, updatesPayload, bookingsPayload, profilePayload] = await Promise.all([
-        readJson<PcsPayload>(`${baseUrl}/api/mobile/pcs`),
-        readJson<UpdatesPayload>(`${baseUrl}/api/mobile/updates`),
+        apiFetch<PcsPayload>('/api/mobile/pcs'),
+        apiFetch<UpdatesPayload>('/api/mobile/updates'),
         session
-          ? readJson<BookingPayload>(
-              `${baseUrl}/api/mobile/bookings?user_id=${encodeURIComponent(String(session.userId))}`,
-            )
+          ? apiFetch<BookingPayload>('/api/mobile/bookings')
           : Promise.resolve<BookingPayload>({ ok: true, bookings: [] }),
         session
-          ? readJson<ProfilePayload>(`${baseUrl}/api/mobile/profile?user_id=${encodeURIComponent(String(session.userId))}`)
+          ? apiFetch<ProfilePayload>('/api/mobile/profile')
           : Promise.resolve<ProfilePayload>({ ok: true, profile: null }),
       ])
 
@@ -899,8 +955,8 @@ function App() {
     if (!session || !currentProfilePassword || newProfilePassword.length < 8) return
     setProfileBusy(true)
     try {
-      const payload = await readJson<{ ok: boolean; message: string }>(`${baseUrl}/api/mobile/profile`, {
-        body: createFormBody({ action: 'change_password', current_password: currentProfilePassword, new_password: newProfilePassword, user_id: session.userId }),
+      const payload = await apiFetch<{ ok: boolean; message: string }>('/api/mobile/profile', {
+        body: createFormBody({ action: 'change_password', current_password: currentProfilePassword, new_password: newProfilePassword }),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, method: 'POST',
       })
       setConnectionMessage(payload.message)
@@ -921,12 +977,11 @@ function App() {
     }
     const body = new FormData()
     body.set('action', 'upload_picture')
-    body.set('user_id', String(session.userId))
     body.set('current_password', picturePassword)
     body.set('profile_picture', file)
     setProfileBusy(true)
     try {
-      await readJson(`${baseUrl}/api/mobile/profile`, { body, method: 'POST' })
+      await apiFetch('/api/mobile/profile', { body, method: 'POST' })
       await refreshData()
       setPicturePassword('')
       setConnectionMessage('Profile picture updated.')
@@ -943,8 +998,8 @@ function App() {
     }
     setProfileBusy(true)
     try {
-      await readJson(`${baseUrl}/api/mobile/profile`, {
-        body: createFormBody({ action: 'remove_picture', current_password: picturePassword, user_id: session.userId }),
+      await apiFetch('/api/mobile/profile', {
+        body: createFormBody({ action: 'remove_picture', current_password: picturePassword }),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, method: 'POST',
       })
       await refreshData()
@@ -1028,12 +1083,11 @@ function App() {
     setBookingBusy(true)
 
     try {
-      await readJson(`${baseUrl}/api/mobile/book`, {
+      await apiFetch('/api/mobile/book', {
         body: createFormBody({
           date: bookingDate,
           pc_id: selectedPcId,
           time: bookingTime,
-          user_id: session.userId,
         }),
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -1067,10 +1121,9 @@ function App() {
     setTopupBusy(true)
 
     try {
-      const payload = await readJson<TopupPayload>(`${baseUrl}/api/mobile/topup`, {
+      const payload = await apiFetch<TopupPayload>('/api/mobile/topup', {
         body: createFormBody({
           amount: parsedAmount,
-          user_id: session.userId,
         }),
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -1119,10 +1172,9 @@ function App() {
     setAssistantBusy(true)
 
     try {
-      const payload = await readJson<AssistantPayload>(`${baseUrl}/api/mobile/ai-chat`, {
+      const payload = await apiFetch<AssistantPayload>('/api/mobile/ai-chat', {
         body: createFormBody({
           message,
-          user_id: session.userId,
         }),
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -1653,6 +1705,22 @@ function App() {
                     </div>
                     <p className="section-copy">Sign in and scan a PyPondo equipment label to view its name, category, and current status.</p>
                   </div>
+                  <form className="content-card" onSubmit={submitEquipmentCode}>
+                    <label className="field-label" htmlFor="manualEquipmentCode">Equipment QR value</label>
+                    <input
+                      id="manualEquipmentCode"
+                      className="text-field"
+                      disabled={!session || equipmentScanBusy}
+                      onChange={(event) => setManualCode(event.target.value)}
+                      placeholder="PYPONDO-EQUIPMENT:…"
+                      type="text"
+                      value={manualCode}
+                    />
+                    <p className="helper-copy">Use this when the label is damaged or the camera is unavailable.</p>
+                    <button className="secondary-button" disabled={!session || equipmentScanBusy || !manualCode.trim()} type="submit">
+                      {equipmentScanBusy ? 'Loading…' : 'Look up item'}
+                    </button>
+                  </form>
                   {scannedEquipment ? (
                     <>
                       <div className="content-card">

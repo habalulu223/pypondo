@@ -21,7 +21,11 @@
     <p class="muted">Open the app, choose <strong>Scan Pairing QR</strong>, and point your camera at this code.</p>
     {% if pairing_primary %}
       <div class="pairing">
-        <img class="qr" src="{{ pairing_primary.qr_image_url }}" alt="PyPondo mobile pairing QR code">
+        {% if pairing_primary.qr_image_url %}
+          <img class="qr" src="{{ pairing_primary.qr_image_url }}" alt="PyPondo mobile pairing QR code">
+        {% else %}
+          <div class="empty">QR rendering is unavailable on this server. Open the mobile app, choose <strong>Enter server address</strong>, and type the address shown beside this box.</div>
+        {% endif %}
         <div>
           <p>Server route: <strong>{{ public_tunnel.status|title if public_tunnel else 'Ready' }}</strong></p>
           <div class="address">{{ pairing_primary.address }}</div>
