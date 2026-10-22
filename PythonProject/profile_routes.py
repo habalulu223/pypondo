@@ -1,4 +1,4 @@
-"""Profile page routes for all signed-in PyPondo roles."""
+"""Profile page routes for all signed-in Techpuls roles."""
 
 import hashlib
 import logging

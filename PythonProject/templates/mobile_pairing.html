@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Connect PyPondo Mobile</title>
+  <title>Connect Techpuls Mobile</title>
   <style>
     *{box-sizing:border-box}body{margin:0;min-height:100vh;background:#16090d;color:#fff7f8;font:15px/1.5 system-ui,sans-serif;padding:24px}
     main{width:min(760px,100%);margin:4vh auto}.card{padding:24px;border:1px solid rgba(255,100,126,.55);border-radius:18px;background:linear-gradient(145deg,rgba(57,13,24,.96),rgba(25,8,14,.96));box-shadow:0 12px 36px rgba(190,20,48,.18)}
@@ -17,12 +17,12 @@
 <body>
   {% include '_animated_background.html' %}
   <main><section class="card">
-    <h1>Connect the PyPondo mobile app</h1>
+    <h1>Connect the Techpuls mobile app</h1>
     <p class="muted">Open the app, choose <strong>Scan Pairing QR</strong>, and point your camera at this code.</p>
     {% if pairing_primary %}
       <div class="pairing">
         {% if pairing_primary.qr_image_url %}
-          <img class="qr" src="{{ pairing_primary.qr_image_url }}" alt="PyPondo mobile pairing QR code">
+          <img class="qr" src="{{ pairing_primary.qr_image_url }}" alt="Techpuls mobile pairing QR code">
         {% else %}
           <div class="empty">QR rendering is unavailable on this server. Open the mobile app, choose <strong>Enter server address</strong>, and type the address shown beside this box.</div>
         {% endif %}

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ item.equipment_name }} QR | PyPondo</title>
+  <title>{{ item.equipment_name }} QR | Techpuls</title>
   <link rel="icon" href="{{ url_for('app_icon') }}">
   <style>
     :root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#243247;background:#f3f5f9}
@@ -38,7 +38,7 @@
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
     {% endwith %}
-    <div class="eyebrow">PyPondo equipment identification</div>
+    <div class="eyebrow">Techpuls equipment identification</div>
     <h1>{{ item.equipment_name }}</h1>
     <p class="description">Unique QR label for this registered equipment</p>
     {% if qr %}

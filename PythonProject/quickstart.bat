@@ -1,6 +1,6 @@
 @echo off
-REM Quick Start Batch File for PyPondo
-REM This script verifies the environment and runs the PyPondo apps independently
+REM Quick Start Batch File for Techpuls
+REM This script verifies the environment and runs the Techpuls apps independently
 
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
@@ -26,7 +26,7 @@ if "%PYTHON_CMD%"=="python" (
 
 echo.
 echo ============================================================
-echo PyPondo - Independent App Quick Start
+echo Techpuls - Independent App Quick Start
 echo ============================================================
 echo.
 
@@ -98,7 +98,7 @@ goto verify_done
 
 :verify_failed
 echo.
-echo WARNING: PyPondo verification failed. Review the output above.
+echo WARNING: Techpuls verification failed. Review the output above.
 echo Re-run this script from the PythonProject folder, or run app.py directly
 echo to see the full error.
 echo Continue anyway? [Y/N]

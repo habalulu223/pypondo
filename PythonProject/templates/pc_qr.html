@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ pc.name }} QR | PyPondo</title>
+  <title>{{ pc.name }} QR | Techpuls</title>
   <style>
     :root{font-family:Inter,"Segoe UI",Arial,sans-serif;color:#243247;background:#f3f5f9}
     *{box-sizing:border-box}
@@ -26,7 +26,7 @@
 <body>
   {% include '_animated_background.html' %}
   <main class="qr-card">
-    <div class="eyebrow">PyPondo PC identification</div>
+    <div class="eyebrow">Techpuls PC identification</div>
     <h1>{{ pc.name }}</h1>
     <p class="description">Unique QR label for this registered PC</p>
     <img class="qr-image" src="{{ url_for('download_pc_qr', pc_id=pc.id) }}" alt="QR code for {{ pc.name }}">

@@ -2832,17 +2832,17 @@ def get_latest_bundle_path(prefix):
 
 
 def get_desktop_download_artifact():
-    dist_exe = os.path.join(basedir, "dist", "PyPondo.exe")
+    dist_exe = os.path.join(basedir, "dist", "Techpuls.exe")
     if os.path.exists(dist_exe):
-        return dist_exe, "PyPondo.exe"
+        return dist_exe, "Techpuls.exe"
 
-    dist_zip = os.path.join(basedir, "dist", "PyPondo-windows.zip")
+    dist_zip = os.path.join(basedir, "dist", "Techpuls-windows.zip")
     if os.path.exists(dist_zip):
-        return dist_zip, "PyPondo-windows.zip"
+        return dist_zip, "Techpuls-windows.zip"
 
     all_in_one_zip = get_latest_bundle_path("all_in_one_bundle-")
     if all_in_one_zip:
-        return all_in_one_zip, "pypondo-app-bundle.zip"
+        return all_in_one_zip, "techpuls-app-bundle.zip"
 
     return None
 
@@ -2871,7 +2871,7 @@ def get_android_build_kit_files():
 
 def build_android_build_kit_notes():
     return "\n".join([
-        "PyPondo Android Build Kit",
+        "Techpuls Android Build Kit",
         "=========================",
         "",
         "This bundle contains the mobile Kivy app source and Android build scripts.",
@@ -2887,14 +2887,14 @@ def build_android_build_kit_notes():
         "2. Run: chmod +x build_android_wsl.sh && ./build_android_wsl.sh",
         "",
         "The generated APK will be placed in bin/ and can then be copied back",
-        "into the main PyPondo project under PythonProject/bin/ so the admin",
+        "into the main Techpuls project under PythonProject/bin/ so the admin",
         "dashboard can serve it directly as DOWNLOAD APK.",
         "",
         f"Expected APK filename pattern: pypondo_mobile-{APP_VERSION}-debug.apk",
     ])
 
 
-def add_android_build_kit_to_archive(archive, root_prefix="PyPondo-Android-build-kit"):
+def add_android_build_kit_to_archive(archive, root_prefix="Techpuls-Android-build-kit"):
     normalized_root = str(root_prefix or "").strip("/\\")
     for full_path, archive_name in get_android_build_kit_files():
         target_name = archive_name if not normalized_root else f"{normalized_root}/{archive_name}"
@@ -2919,7 +2919,7 @@ def build_combined_download_bundle(desktop_artifact, apk_path=None):
     with zipfile.ZipFile(bundle_stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.write(desktop_path, arcname=desktop_name)
         if apk_path:
-            archive.write(apk_path, arcname="PyPondo-Android.apk")
+            archive.write(apk_path, arcname="Techpuls-Android.apk")
         else:
             add_android_build_kit_to_archive(archive)
 
@@ -3114,7 +3114,7 @@ def get_mobile_updates_feed():
         {
             "version": APP_VERSION,
             "update_type": "major",
-            "title": "PyPondo core system ready",
+            "title": "Techpuls core system ready",
             "description": "Admin, desktop, and mobile booking flows are available from the same server.",
             "timestamp": timestamp
         },
@@ -3383,7 +3383,7 @@ def api_mobile_equipment_scan():
 
     qr_value = str(request.args.get('qr', '')).strip()
     if not qr_value or len(qr_value) > 255:
-        return jsonify({"ok": False, "error": "Scan a PyPondo equipment QR code."}), 400
+        return jsonify({"ok": False, "error": "Scan a Techpuls equipment QR code."}), 400
 
     qr = CommunityEquipmentQRCode.query.filter_by(qr_value=qr_value, is_active=True).first()
     if not qr or not qr.equipment:
@@ -4200,7 +4200,7 @@ def role_dashboard():
         if current_user.is_dean or current_user.is_admin:
             cards.append({'title': 'User access', 'description': 'Review staff and student roles and account status.', 'url': url_for('equipment_dashboard', view='users'), 'action': 'Manage access'})
             cards.append({'title': 'Campus PC monitoring', 'description': 'View registered PCs and available remote actions.', 'url': url_for('dean_dashboard'), 'action': 'Open PC monitor'})
-            cards.append({'title': 'Dean Analytics', 'description': 'Review bookings, PC sessions, and recorded revenue.', 'url': url_for('dean_analytics'), 'action': 'View analytics'})
+            cards.append({'title': 'Dean Analytics', 'description': 'Review equipment borrowing records and laboratory activity.', 'url': url_for('dean_analytics'), 'action': 'View analytics'})
     elif current_user.can_manage_equipment:
         cards = [
             {'title': 'Equipment register', 'description': f'{equipment_count} items · {available_count} available.', 'url': url_for('equipment_dashboard', view='inventory'), 'action': 'Open inventory'},
@@ -5042,17 +5042,19 @@ def dean_analytics():
     today = datetime.now().date()
     today_start = datetime.combine(today, datetime.min.time())
     users_total = User.query.count()
-    pcs_total = PC.query.count()
-    bookings_total = Booking.query.count()
-    sessions_total = Session.query.count()
-    active_sessions = Session.query.filter_by(end_time=None).count()
-    revenue_total = float(db.session.query(db.func.coalesce(db.func.sum(Session.cost), 0)).scalar() or 0)
-    credited_topups = float(db.session.query(db.func.coalesce(db.func.sum(PaymentTransaction.amount), 0))
-        .filter(PaymentTransaction.credited_at.isnot(None)).scalar() or 0)
-    today_sessions = Session.query.filter(Session.start_time >= today_start).count()
-    today_revenue = float(db.session.query(db.func.coalesce(db.func.sum(Session.cost), 0))
-        .filter(Session.start_time >= today_start).scalar() or 0)
-    recent_bookings = Booking.query.order_by(Booking.id.desc()).limit(8).all()
+    equipment_total = CommunityEquipment.query.count()
+    equipment_status = community_latest_equipment_statuses()
+    available_equipment = sum(status == 'Available' for status in equipment_status.values())
+    borrowed_equipment = sum(status == 'Borrowed' for status in equipment_status.values())
+    borrowings_total = CommunityBorrowing.query.count()
+    pending_borrowings = CommunityBorrowing.query.filter_by(borrowing_status='Pending').count()
+    active_borrowings = CommunityBorrowing.query.filter(
+        CommunityBorrowing.borrowing_status.in_(['Borrowed', 'Return Requested'])).count()
+    overdue_borrowings = CommunityBorrowing.query.filter_by(borrowing_status='Overdue').count()
+    returned_borrowings = CommunityBorrowing.query.filter_by(borrowing_status='Returned').count()
+    today_borrowings = CommunityBorrowing.query.filter(CommunityBorrowing.borrow_date >= today_start).count()
+    recent_borrowings = CommunityBorrowing.query.order_by(
+        CommunityBorrowing.borrow_date.desc()).limit(8).all()
 
     monthly_labels, monthly_values = [], []
     current_month_index = today.year * 12 + today.month - 1
@@ -5063,17 +5065,18 @@ def dean_analytics():
             next_month = datetime(year + 1, 1, 1)
         else:
             next_month = datetime(year, month_index + 2, 1)
-        amount = float(db.session.query(db.func.coalesce(db.func.sum(Session.cost), 0))
-            .filter(Session.start_time >= month_start, Session.start_time < next_month).scalar() or 0)
+        amount = CommunityBorrowing.query.filter(CommunityBorrowing.borrow_date >= month_start,
+            CommunityBorrowing.borrow_date < next_month).count()
         monthly_labels.append(month_start.strftime('%b %Y'))
-        monthly_values.append(round(amount, 2))
+        monthly_values.append(amount)
 
     return render_template('dean_analytics.html',
-        users_total=users_total, pcs_total=pcs_total, bookings_total=bookings_total,
-        sessions_total=sessions_total, active_sessions=active_sessions,
-        revenue_total=revenue_total, credited_topups=credited_topups,
-        today_sessions=today_sessions, today_revenue=today_revenue,
-        recent_bookings=recent_bookings,
+        users_total=users_total, equipment_total=equipment_total,
+        available_equipment=available_equipment, borrowed_equipment=borrowed_equipment,
+        borrowings_total=borrowings_total, pending_borrowings=pending_borrowings,
+        active_borrowings=active_borrowings, overdue_borrowings=overdue_borrowings,
+        returned_borrowings=returned_borrowings, today_borrowings=today_borrowings,
+        recent_borrowings=recent_borrowings,
         monthly_labels=monthly_labels, monthly_values=monthly_values)
 
 
@@ -5277,7 +5280,7 @@ def admin_download_app():
     desktop_artifact = get_desktop_download_artifact()
     if desktop_artifact:
         apk_path = get_latest_apk_path()
-        bundle_name = "PyPondo-desktop-and-phone.zip" if apk_path else "PyPondo-desktop-and-android-build-kit.zip"
+        bundle_name = "Techpuls-desktop-and-phone.zip" if apk_path else "Techpuls-desktop-and-android-build-kit.zip"
         return send_file(
             build_combined_download_bundle(desktop_artifact, apk_path),
             as_attachment=True,
@@ -5300,13 +5303,13 @@ def admin_download_android_app():
         return send_file(
             apk_path,
             as_attachment=True,
-            download_name="PyPondo-Android.apk"
+            download_name="Techpuls-Android.apk"
         )
 
     return send_file(
         build_android_build_kit_bundle(),
         as_attachment=True,
-        download_name="PyPondo-Android-build-kit.zip",
+        download_name="Techpuls-Android-build-kit.zip",
         mimetype="application/zip"
     )
 
@@ -5318,7 +5321,7 @@ def download_apk():
         return send_file(
             apk_path,
             as_attachment=True,
-            download_name="PyPondo.apk"
+            download_name="Techpuls.apk"
         )
 
     return (

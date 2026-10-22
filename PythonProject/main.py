@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PyPondo Mobile Client - Android App
-A mobile client for the PyPondo PC Cafe management system.
+Techpuls Mobile Client - Android App
+A mobile client for the Techpuls PC Cafe management system.
 """
 
 import os
@@ -135,14 +135,14 @@ except ImportError:
 # Constants
 DEFAULT_SERVER_HOST = "192.168.1.100"
 DEFAULT_SERVER_PORT = 5000
-APP_TITLE = "PyPondo Mobile"
+APP_TITLE = "Techpuls Mobile"
 
 class LoginScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(10))
 
-        self.layout.add_widget(Label(text='PyPondo Mobile Client', font_size=dp(24), size_hint_y=None, height=dp(50)))
+        self.layout.add_widget(Label(text='Techpuls Mobile Client', font_size=dp(24), size_hint_y=None, height=dp(50)))
 
         # Server connection
         server_layout = GridLayout(cols=2, size_hint_y=None, height=dp(60), spacing=dp(10))
@@ -265,7 +265,7 @@ class MainScreen(Screen):
         self.layout = BoxLayout(orientation='vertical')
 
         # Header
-        self.header = Label(text='PyPondo Mobile - Welcome!', size_hint_y=None, height=dp(50), font_size=dp(18))
+        self.header = Label(text='Techpuls Mobile - Welcome!', size_hint_y=None, height=dp(50), font_size=dp(18))
         self.layout.add_widget(self.header)
 
         # Balance display
@@ -364,7 +364,7 @@ class MainScreen(Screen):
         
         # Message input area
         input_layout = BoxLayout(size_hint_y=None, height=dp(60), spacing=dp(10), padding=dp(10))
-        self.message_input = TextInput(hint_text='Ask me anything about PyPondo...', multiline=False)
+        self.message_input = TextInput(hint_text='Ask me anything about Techpuls...', multiline=False)
         input_layout.add_widget(self.message_input)
         self.send_button = Button(text='Send', size_hint_x=None, width=dp(80), on_press=self.send_message)
         input_layout.add_widget(self.send_button)
@@ -395,7 +395,7 @@ class MainScreen(Screen):
     def refresh_data(self, instance):
         app = App.get_running_app()
         if hasattr(app, 'username') and app.username:
-            self.header.text = f'PyPondo Mobile - {app.username}'
+            self.header.text = f'Techpuls Mobile - {app.username}'
             threading.Thread(target=self._fetch_balance, daemon=True).start()
             threading.Thread(target=self._fetch_bookings, daemon=True).start()
             threading.Thread(target=self._fetch_pcs, daemon=True).start()
@@ -750,7 +750,7 @@ class MainScreen(Screen):
         self.status_label.text = ""
 
 
-class PyPondoMobileApp(App):
+class TechpulsMobileApp(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.server_host = DEFAULT_SERVER_HOST
@@ -797,8 +797,8 @@ def main():
         print("Install with: pip install kivy")
         return
 
-    print("Starting PyPondo Mobile Client...")
-    PyPondoMobileApp().run()
+    print("Starting Techpuls Mobile Client...")
+    TechpulsMobileApp().run()
 
 
 if __name__ == '__main__':

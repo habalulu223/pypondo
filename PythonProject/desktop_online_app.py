@@ -1,4 +1,4 @@
-"""Entry point for the server-connected PyPondo desktop client."""
+"""Entry point for the server-connected Techpuls desktop client."""
 
 import os
 

@@ -32,7 +32,7 @@ if not defined PYPONDO_COMMUNITY_DB_SEED (
     set "PYPONDO_COMMUNITY_DB_SEED=instance\community_equipment.db"
   )
 )
-"%PYTHON%" -m PyInstaller --noconfirm --clean PyPondo.spec
+"%PYTHON%" -m PyInstaller --noconfirm --clean Techpuls.spec
 if errorlevel 1 (
   echo Desktop app build failed.
   exit /b 1
@@ -40,7 +40,7 @@ if errorlevel 1 (
 
 echo Building the server-connected desktop application...
 set "PYPONDO_BUILD_ONLINE=1"
-"%PYTHON%" -m PyInstaller --noconfirm --clean PyPondo.spec
+"%PYTHON%" -m PyInstaller --noconfirm --clean Techpuls.spec
 if errorlevel 1 (
   set "PYPONDO_BUILD_ONLINE="
   echo Online desktop app build failed.
@@ -61,26 +61,26 @@ if exist "server_host.txt" copy /y "server_host.txt" "dist\server_host.txt" >nul
 
 echo Creating a portable distribution archive with the database files...
 if exist "dist\community_equipment.db" (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -LiteralPath @('%~dp0dist\PyPondo.exe', '%~dp0dist\pccafe.db', '%~dp0dist\community_equipment.db') -DestinationPath '%~dp0dist\PyPondo-windows.zip' -Force"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -LiteralPath @('%~dp0dist\Techpuls.exe', '%~dp0dist\pccafe.db', '%~dp0dist\community_equipment.db') -DestinationPath '%~dp0dist\Techpuls-windows.zip' -Force"
 ) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -LiteralPath @('%~dp0dist\PyPondo.exe', '%~dp0dist\pccafe.db') -DestinationPath '%~dp0dist\PyPondo-windows.zip' -Force"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -LiteralPath @('%~dp0dist\Techpuls.exe', '%~dp0dist\pccafe.db') -DestinationPath '%~dp0dist\Techpuls-windows.zip' -Force"
 )
 if errorlevel 1 exit /b 1
 if exist "dist\server_host.txt" (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -LiteralPath @('%~dp0dist\PyPondoOnline.exe', '%~dp0dist\server_host.txt') -DestinationPath '%~dp0dist\PyPondoOnline-windows.zip' -Force"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -LiteralPath @('%~dp0dist\TechpulsOnline.exe', '%~dp0dist\server_host.txt') -DestinationPath '%~dp0dist\TechpulsOnline-windows.zip' -Force"
 ) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -LiteralPath '%~dp0dist\PyPondoOnline.exe' -DestinationPath '%~dp0dist\PyPondoOnline-windows.zip' -Force"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -LiteralPath '%~dp0dist\TechpulsOnline.exe' -DestinationPath '%~dp0dist\TechpulsOnline-windows.zip' -Force"
 )
 if errorlevel 1 exit /b 1
 
 echo.
 echo The standalone app is ready:
-echo   %~dp0dist\PyPondo.exe
-echo   %~dp0dist\PyPondo-windows.zip
+echo   %~dp0dist\Techpuls.exe
+echo   %~dp0dist\Techpuls-windows.zip
 echo The portable archive includes the current system database files.
-echo The app runs a local PyPondo server when no shared server is reachable.
-echo   %~dp0dist\PyPondoOnline.exe
-echo   %~dp0dist\PyPondoOnline-windows.zip
-echo The online app requires a reachable PyPondo server and never starts a local one.
+echo The app runs a local Techpuls server when no shared server is reachable.
+echo   %~dp0dist\TechpulsOnline.exe
+echo   %~dp0dist\TechpulsOnline-windows.zip
+echo The online app requires a reachable Techpuls server and never starts a local one.
 endlocal
 exit /b 0

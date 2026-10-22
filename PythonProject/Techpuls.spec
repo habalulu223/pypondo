@@ -5,7 +5,7 @@ from PyInstaller.utils.hooks import collect_all
 project_dir = os.path.abspath(SPECPATH)
 online_build = os.getenv('PYPONDO_BUILD_ONLINE', '').strip().lower() in ('1', 'true', 'yes')
 entry_script = 'desktop_online_app.py' if online_build else 'desktop_app.py'
-executable_name = 'PyPondoOnline' if online_build else 'PyPondo'
+executable_name = 'TechpulsOnline' if online_build else 'Techpuls'
 datas = [('templates', 'templates'), ('assets', 'assets')]
 server_host_file = os.path.join(project_dir, 'server_host.txt')
 if os.path.isfile(server_host_file):

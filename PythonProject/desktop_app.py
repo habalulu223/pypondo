@@ -10,7 +10,7 @@ from urllib import request as http_request
 from urllib import error as http_error
 from urllib import parse as http_parse
 
-APP_TITLE = "PyPondo"
+APP_TITLE = "Techpuls"
 APP_HOST = os.getenv("APP_HOST", "0.0.0.0").strip() or "0.0.0.0"
 APP_PORT = int(os.getenv("APP_PORT", "5000"))
 APP_DATA_DIR_NAME = "CyberCore"
@@ -291,7 +291,7 @@ def probe_server_base_url(base_url):
     if not root:
         return False
     # Prefer the explicit health endpoint so the desktop client can verify
-    # that the updated PyPondo server is ready before opening its UI. Keep the
+    # that the updated Techpuls server is ready before opening its UI. Keep the
     # legacy routes as fallbacks for older installations.
     for path in ("/api/health", "/login", "/api/agent/register-lan"):
         target = root + path
@@ -747,7 +747,7 @@ def run_timer_window(started_at_ms=None):
     timer_rate = float(getattr(server, "HOURLY_RATE", 15.0))
 
     timer_window = tk.Tk()
-    timer_window.title("PyPondo Timer")
+    timer_window.title("Techpuls Timer")
     timer_window.geometry("320x160")
     timer_window.resizable(False, False)
     timer_window.configure(bg="black")
@@ -952,7 +952,7 @@ def launch_ui(url):
             print(f"pywebview is not available: {exc}")
 
     message = (
-        "PyPondo could not open its built-in desktop window. "
+        "Techpuls could not open its built-in desktop window. "
         "Install the WebView2 Runtime and rebuild/reinstall the desktop app.\n\n"
         f"Details: {ui_error}"
     )
@@ -964,7 +964,7 @@ def launch_ui(url):
 
         dialog = tk.Tk()
         dialog.withdraw()
-        messagebox.showerror("PyPondo desktop window unavailable", message, parent=dialog)
+        messagebox.showerror("Techpuls desktop window unavailable", message, parent=dialog)
         dialog.destroy()
     except Exception:
         pass
@@ -973,8 +973,8 @@ def launch_ui(url):
 
 def show_remote_server_required_message(headless=False):
     message = (
-        "The PyPondo server is not running or cannot be reached. "
-        "Start the server on the same network, then open PyPondo Online again."
+        "The Techpuls server is not running or cannot be reached. "
+        "Start the server on the same network, then open Techpuls Online again."
     )
     print(message)
     if headless:
@@ -985,7 +985,7 @@ def show_remote_server_required_message(headless=False):
 
         dialog = tk.Tk()
         dialog.withdraw()
-        messagebox.showwarning("PyPondo server required", message, parent=dialog)
+        messagebox.showwarning("Techpuls server required", message, parent=dialog)
         dialog.destroy()
     except Exception:
         pass
@@ -999,7 +999,7 @@ def main():
 
     # Check for independence mode (configure IP without server validation)
     if argv and argv[0] in ("--independence", "--configure-ip", "--setup"):
-        print("PyPondo Auto Setup - Detect Admin Server")
+        print("Techpuls Auto Setup - Detect Admin Server")
         print("=" * 55)
         detected_base_url = discover_remote_server_base_url()
         detected_host = None
