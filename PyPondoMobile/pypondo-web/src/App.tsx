@@ -154,6 +154,16 @@ const DEFAULT_SERVER_ADDRESS = 'https://cybercore'
 const DEFAULT_SERVER_PORT = 5000
 const QUICK_TOPUP_AMOUNTS = [100, 200, 500, 1000]
 const QR_PAIRING_PATH_PATTERN = /\/api\/mobile\/pairing\/?$/i
+
+// Map an equipment/PC status string to a pill color class: green for
+// available, amber for borrowed/occupied, red for maintenance or broken.
+function statusPillClass(status: string): string {
+  const value = String(status || '').toLowerCase()
+  if (/maintenance|repair|broken|faulty/i.test(value)) return 'pill danger'
+  if (/borrow|loan|occupied|in use|reserved|busy/i.test(value)) return 'pill warn'
+  if (/availab|free|online|ready|active/i.test(value)) return 'pill success'
+  return 'pill'
+}
 const QR_SCAN_INTERVAL_MS = 300
 const DEFAULT_SCANNER_MESSAGE =
   'Point the camera at the pairing QR from your desktop to connect over LAN or a public route.'
@@ -1683,7 +1693,7 @@ function App() {
                       <div className="list-item" key={pc.id}>
                         <strong>{pc.name}</strong>
                         <span>{pc.lan_ip || 'No LAN IP registered yet'}</span>
-                        <span className={pc.online ? 'pill success' : pc.is_occupied ? 'pill warn' : 'pill'}>
+                        <span className={statusPillClass(pc.online ? 'online' : pc.is_occupied ? 'busy' : 'free')}>
                           {pc.online ? 'online' : pc.is_occupied ? 'busy' : 'free'}
                         </span>
                       </div>
@@ -1726,7 +1736,7 @@ function App() {
                       <div className="content-card">
                         <div className="equipment-title-row">
                           <div><p className="section-label">{scannedEquipment.equipment_code} · {scannedEquipment.category || 'Equipment'}</p><h3>{scannedEquipment.equipment_name}</h3></div>
-                          <span className={`pill ${/maintenance|repair|broken/i.test(scannedEquipment.status) ? 'warn' : 'success'}`}>{scannedEquipment.status}</span>
+                          <span className={statusPillClass(scannedEquipment.status)}>{scannedEquipment.status}</span>
                         </div>
                       </div>
                     </>

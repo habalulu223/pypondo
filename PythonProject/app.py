@@ -532,11 +532,20 @@ def authenticate_credentials(identity, password):
         return None
     account = AuthUser.query.filter(
         (AuthUser.username == identity) | (AuthUser.email == identity)).first()
-    if account is None or not account.check_password(password):
+    if account is not None:
+        user = db.session.get(User, account.id)
+        if user is not None and user.is_active and account.check_password(password):
+            return user
         return None
-    user = db.session.get(User, account.id)
-    if user is None or not user.is_active:
+    # No credential row yet (account created without the dual-write, e.g. by
+    # tests or tooling): validate against the mirrored hash, then self-heal
+    # the account into auth.db so later logins use the credential store.
+    user = User.query.filter_by(username=identity).first()
+    if user is None or not user.is_active or not user.password_hash \
+            or not check_password_hash(user.password_hash, password):
         return None
+    upsert_auth_credentials(user)
+    db.session.commit()
     return user
 
 

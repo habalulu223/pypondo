@@ -187,9 +187,20 @@ select.text-field {
   border: 1px solid #d6deea;
   background: #fff;
   color: #26364b;
+  -webkit-text-fill-color: #26364b;
+  caret-color: #26364b;
+  opacity: 1;
   padding: 13px 14px;
   font: inherit;
   box-sizing: border-box;
+}
+
+/* Keep typed password dots visible in the Android WebView, which otherwise
+   forces dark autofill styling that renders dark text on dark backgrounds. */
+input.text-field[type="password"] {
+  -webkit-text-security: disc;
+  color-scheme: light;
+  letter-spacing: 0.12em;
 }
 
 .text-field:focus,
@@ -388,6 +399,11 @@ select.text-field {
 .pill.warn {
   background: #fdf6e8;
   color: #8a5a1f;
+}
+
+.pill.danger {
+  background: #fbecee;
+  color: #a83e48;
 }
 
 .quick-grid {
