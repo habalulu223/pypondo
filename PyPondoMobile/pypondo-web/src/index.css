@@ -1,19 +1,19 @@
 :root {
-  --background: #060b13;
-  --background-alt: #0f1723;
-  --heading: #f3f7fd;
-  --muted: #91a7c1;
-  --soft-text: #c3d3e7;
-  --line: rgba(133, 203, 255, 0.18);
-  --shadow: 0 24px 48px rgba(2, 6, 15, 0.45);
-  font-family: Bahnschrift, "Trebuchet MS", Verdana, sans-serif;
+  --background: #f3f5f9;
+  --background-alt: #e9edf4;
+  --heading: #1f3048;
+  --muted: #68778d;
+  --soft-text: #43536b;
+  --line: #dfe5ee;
+  --shadow: 0 3px 12px rgba(25, 42, 70, 0.06);
+  --accent: #315d91;
+  --accent-strong: #274d7b;
+  --accent-soft: #eaf1fa;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
   color: var(--soft-text);
-  background:
-    radial-gradient(circle at top, rgba(92, 225, 255, 0.14), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(255, 179, 71, 0.16), transparent 28%),
-    linear-gradient(180deg, var(--background), var(--background-alt));
+  background: linear-gradient(180deg, var(--background), var(--background-alt));
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -35,18 +35,6 @@ body {
   min-height: 100vh;
 }
 
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-  background-size: 24px 24px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.4), transparent 85%);
-  pointer-events: none;
-}
-
 #root {
   width: min(1100px, calc(100vw - 24px));
   margin: 0 auto;
@@ -64,13 +52,13 @@ h1,
 h2,
 h3 {
   color: var(--heading);
-  font-family: Bahnschrift, "Franklin Gothic Medium", "Trebuchet MS", sans-serif;
-  line-height: 1.1;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  line-height: 1.15;
 }
 
 h1 {
-  font-size: clamp(2rem, 4vw, 3.8rem);
-  max-width: 11ch;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  max-width: 22ch;
 }
 
 h2 {

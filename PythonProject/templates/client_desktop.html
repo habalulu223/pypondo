@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Desktop Ready</title>
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root { --bg: #0b0c15; --card: #151922; --line: #e21f3d; --ok: #d91c39; --warn: #ff0055; --text: #e0e6ed; }
         body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; font-size: 17px; line-height: 1.45; padding: 18px; }
         .top { display: flex; justify-content: space-between; align-items: center; gap: 14px; border-bottom: 2px solid var(--line); padding-bottom: 12px; margin-bottom: 18px; }
-        .top h1 { margin: 0; font-family: 'Orbitron', sans-serif; font-size: 1.35rem; color: var(--line); letter-spacing: 1px; }
+        .top h1 { margin: 0; font-family: Inter, 'Segoe UI', Arial, sans-serif; font-size: 1.35rem; color: var(--line); letter-spacing: 1px; }
         .top-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
         .btn, .quick-amounts button, .btn.history-cancel {
             display: inline-block;
@@ -62,7 +62,7 @@
             box-shadow: 0 0 20px rgba(226,31,61, 0.15);
             padding: 16px;
         }
-        .desktop-tab h2 { margin-top: 0; font-family: 'Orbitron', sans-serif; color: var(--line); }
+        .desktop-tab h2 { margin-top: 0; font-family: Inter, 'Segoe UI', Arial, sans-serif; color: var(--line); }
         .desktop-tab p { margin: 0 0 10px; color: #c2d0de; }
         .actions { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
         .quick-amounts { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
@@ -154,7 +154,7 @@
         </div>
 
         <div class="card">
-            <h2 style="margin-top:0; font-family: 'Orbitron', sans-serif; color: var(--line);">Add Balance</h2>
+            <h2 style="margin-top:0; font-family: Inter, 'Segoe UI', Arial, sans-serif; color: var(--line);">Add Balance</h2>
             <p>
                 Available balance:
                 <strong id="user-balance-bottom" data-balance-display>PHP {{ "%.2f"|format(current_user.pondo) }}</strong>

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_file, abort, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_cors import CORS
@@ -14,6 +14,7 @@ import os
 import re
 import ipaddress
 import secrets
+import requests
 import shutil
 import subprocess
 import uuid
@@ -89,10 +90,26 @@ elif configured_main_db:
 else:
     default_community_db = os.path.join(basedir, 'instance', 'community_equipment.db')
 community_db_path = os.path.abspath(default_community_db)
+# Credential store: usernames, password hashes, emails, and Google identities live
+# in their own database file so sign-in does not depend on the cafe database.
+configured_auth_db = os.getenv('PYPONDO_AUTH_DB_PATH', '').strip()
+if configured_auth_db:
+    auth_db_path = os.path.abspath(configured_auth_db)
+elif configured_data_dir:
+    auth_db_path = os.path.join(os.path.abspath(configured_data_dir), 'auth.db')
+elif configured_main_db:
+    auth_db_path = os.path.join(os.path.dirname(database_path), 'auth.db')
+else:
+    auth_db_path = os.path.join(basedir, 'auth.db')
+auth_db_path = os.path.abspath(auth_db_path)
 os.makedirs(os.path.dirname(database_path), exist_ok=True)
 os.makedirs(os.path.dirname(community_db_path), exist_ok=True)
+os.makedirs(os.path.dirname(auth_db_path), exist_ok=True)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + database_path
-app.config['SQLALCHEMY_BINDS'] = {'community': 'sqlite:///' + community_db_path}
+app.config['SQLALCHEMY_BINDS'] = {
+    'community': 'sqlite:///' + community_db_path,
+    'auth': 'sqlite:///' + auth_db_path,
+}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 secret_key = os.getenv('PYPONDO_SECRET_KEY', '').strip()
 if not secret_key:
@@ -146,6 +163,16 @@ BOOKING_LEAD_MINUTES = 30
 ALLOWED_LAN_COMMANDS = {"lock", "restart", "shutdown", "wake"}
 MAX_TOPUP_AMOUNT = 10000.0
 APP_VERSION = os.getenv("PYPONDO_APP_VERSION", "1.0.0").strip() or "1.0.0"
+# Google sign-in (OAuth 2.0 authorization code flow). Both values come from the
+# Google Cloud Console credentials page; when they are missing the login page
+# simply hides the "Sign in with Google" button.
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '').strip()
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '').strip()
+GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', '').strip()
+GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth'
+GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
+GOOGLE_USERINFO_ENDPOINT = 'https://openidconnect.googleapis.com/v1/userinfo'
+google_oauth_enabled = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 TOPUP_CURRENCY = os.getenv("TOPUP_CURRENCY", "php").strip().lower() or "php"
 PAYMONGO_PUBLIC_KEY = os.getenv("PAYMONGO_PUBLIC_KEY", "pk_test_hRN7jf1RAviu9fXsis5mLU8y").strip()
 ALLOWED_TOPUP_METHODS = {
@@ -393,6 +420,28 @@ def start_public_tunnel(local_port):
 
 # --- Database Models ---
 
+class AuthUser(db.Model):
+    """Credential record living in the dedicated auth database.
+
+    ``id`` mirrors the id of the corresponding :class:`User` row in the cafe
+    database. Password hashes, emails, and Google identities are only ever
+    read/written here; the cafe database keeps business data (role, balance,
+    sessions, bookings).
+    """
+    __bind_key__ = 'auth'
+    __tablename__ = 'auth_users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=True)
+    password_hash = db.Column(db.String(255), nullable=True)  # null for Google-only accounts
+    google_sub = db.Column(db.String(64), unique=True, nullable=True)
+    provider = db.Column(db.String(32), nullable=False, default='local')
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    def check_password(self, password):
+        return bool(self.password_hash) and check_password_hash(self.password_hash, password)
+
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -408,9 +457,17 @@ class User(UserMixin, db.Model):
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
+        if self.id is not None:
+            account = upsert_auth_credentials(self)
+            account.password_hash = self.password_hash
 
     def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+        # auth.db is the credential source of truth; fall back to the mirrored
+        # hash only when the auth record has not been migrated yet.
+        account = db.session.get(AuthUser, self.id) if self.id else None
+        if account is not None:
+            return account.check_password(password)
+        return bool(self.password_hash) and check_password_hash(self.password_hash, password)
 
     @property
     def is_active(self):
@@ -431,6 +488,56 @@ class User(UserMixin, db.Model):
     @property
     def is_management(self):
         return bool(self.is_admin or self.role in {"dean", "it_manager", "laboratory_custodian"})
+
+
+def upsert_auth_credentials(user):
+    """Return the auth-database credential row for a cafe-database user, creating it when missing."""
+    account = db.session.get(AuthUser, user.id)
+    if account is None:
+        account = AuthUser(
+            id=user.id,
+            username=user.username,
+            password_hash=user.password_hash,
+        )
+        db.session.add(account)
+    elif account.username != user.username:
+        account.username = user.username
+    return account
+
+
+def ensure_auth_database():
+    """Mirror every cafe-database user into auth.db (one-time migration + seed coverage)."""
+    migrated = False
+    for user in User.query.all():
+        account = db.session.get(AuthUser, user.id)
+        if account is None:
+            db.session.add(AuthUser(
+                id=user.id,
+                username=user.username,
+                password_hash=user.password_hash,
+            ))
+            migrated = True
+        elif account.username != user.username:
+            account.username = user.username
+            migrated = True
+    if migrated:
+        db.session.commit()
+    return migrated
+
+
+def authenticate_credentials(identity, password):
+    """Verify a username-or-email + password pair against auth.db; return the matching User."""
+    identity = str(identity or '').strip()
+    if not identity or not password:
+        return None
+    account = AuthUser.query.filter(
+        (AuthUser.username == identity) | (AuthUser.email == identity)).first()
+    if account is None or not account.check_password(password):
+        return None
+    user = db.session.get(User, account.id)
+    if user is None or not user.is_active:
+        return None
+    return user
 
 
 app.register_blueprint(create_profile_blueprint(db, User))
@@ -1313,6 +1420,7 @@ def create_borrow_request(account, equipment_id, values):
 def initialize_database():
     """Initialize both the cafe database and the community ERD database."""
     db.create_all()
+    ensure_auth_database()
     community_engine = db.engines['community']
     with community_engine.begin() as connection:
         equipment_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(equipment)').fetchall()}
@@ -1325,6 +1433,7 @@ def initialize_database():
     ensure_equipment_transaction_columns()
     ensure_user_role_columns()
     ensure_core_seed_data()
+    ensure_auth_database()
     ensure_community_reference_data()
     app._schema_ready = True
 
@@ -3285,12 +3394,14 @@ def register():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        if User.query.filter_by(username=username).first():
+        if User.query.filter_by(username=username).first() or AuthUser.query.filter_by(username=username).first():
             flash('Username taken.', 'error')
             return redirect(url_for('register'))
         new_user = User(username=username)
         new_user.set_password(password)
         db.session.add(new_user)
+        db.session.flush()
+        upsert_auth_credentials(new_user)
         db.session.commit()
         flash('Account created!', 'success')
         return redirect(url_for('login'))
@@ -3482,11 +3593,9 @@ def api_mobile_login():
     if not username or not password:
         return jsonify({"ok": False, "error": "Username and password are required"}), 400
 
-    user = User.query.filter_by(username=username).first()
-    if not user or not user.check_password(password):
+    user = authenticate_credentials(username, password)
+    if not user:
         return jsonify({"ok": False, "error": "Invalid credentials"}), 401
-    if not user.is_active:
-        return jsonify({"ok": False, "error": "This account is inactive."}), 403
     if user.is_admin:
         return jsonify({"ok": False, "error": "Admin accounts are not supported by the mobile client"}), 403
 
@@ -3794,6 +3903,25 @@ def app_icon():
     return '', 404
 
 
+def complete_login(user):
+    """Sign a verified user in and route them to their dashboard."""
+    login_user(user)
+    if not user.is_admin:
+        active_session = Session.query.filter_by(user_id=user.id, end_time=None).order_by(Session.start_time.desc()).first()
+        if active_session:
+            cost = finalize_session(active_session)
+            db.session.commit()
+            flash(f'Previous session ended. Cost: ₱{cost:.2f}.', 'info')
+        if user_has_positive_balance(user):
+            new_session = Session(user_id=user.id, last_charged_at=datetime.now())
+            db.session.add(new_session)
+            db.session.commit()
+    safe_next = resolve_safe_next_url()
+    if safe_next:
+        return redirect(safe_next)
+    return redirect(url_for(post_login_endpoint_for_user(user)))
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
@@ -3801,26 +3929,12 @@ def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        user = User.query.filter_by(username=username).first()
-        if user and user.check_password(password):
-            login_user(user)
-            if not user.is_admin:
-                active_session = Session.query.filter_by(user_id=user.id, end_time=None).order_by(Session.start_time.desc()).first()
-                if active_session:
-                    cost = finalize_session(active_session)
-                    db.session.commit()
-                    flash(f'Previous session ended. Cost: ₱{cost:.2f}.', 'info')
-                if user_has_positive_balance(user):
-                    new_session = Session(user_id=user.id, last_charged_at=datetime.now())
-                    db.session.add(new_session)
-                    db.session.commit()
-            safe_next = resolve_safe_next_url()
-            if safe_next:
-                return redirect(safe_next)
-            return redirect(url_for(post_login_endpoint_for_user(user)))
+        user = authenticate_credentials(username, password)
+        if user:
+            return complete_login(user)
         else:
             flash('Invalid credentials', 'error')
-    return render_template('login.html', kiosk_mode=is_kiosk_mode_enabled())
+    return render_template('login.html', kiosk_mode=is_kiosk_mode_enabled(), google_oauth_enabled=google_oauth_enabled)
 
 
 @app.route('/logout')
@@ -3834,6 +3948,122 @@ def logout():
     logout_user()
     flash('Logged out.', 'info')
     return redirect(url_for('login'))
+
+
+def google_oauth_redirect_uri():
+    """Callback URL registered in Google Cloud Console (overridable for tunnels)."""
+    return GOOGLE_REDIRECT_URI or (request.url_root.rstrip('/') + url_for('auth_google_callback'))
+
+
+def derive_unique_username(email):
+    """Build a free username from the email local part (user, user2, user3, ...)."""
+    base = re.sub(r'[^a-z0-9._-]', '', email.split('@', 1)[0].lower())[:64] or 'user'
+    candidate = base
+    suffix = 1
+    while User.query.filter_by(username=candidate).first() or AuthUser.query.filter_by(username=candidate).first():
+        suffix += 1
+        candidate = f'{base}{suffix}'
+    return candidate
+
+
+def create_google_user(email, display_name, google_sub):
+    """Create a student account (cafe db) plus its credential row (auth db) for a Google sign-in."""
+    username = derive_unique_username(email)
+    user = User(
+        username=username,
+        full_name=(display_name or username).strip()[:160] or username,
+        role='student',
+    )
+    # Google-only accounts never sign in with a password; the mirror still needs
+    # a non-null hash, so store an unusable random value.
+    user.password_hash = generate_password_hash(secrets.token_urlsafe(24))
+    db.session.add(user)
+    db.session.flush()
+    db.session.add(AuthUser(
+        id=user.id,
+        username=username,
+        email=email,
+        google_sub=google_sub,
+        provider='google',
+    ))
+    return user
+
+
+@app.route('/auth/google')
+def auth_google_start():
+    if not google_oauth_enabled:
+        flash('Google sign-in is not configured on this server.', 'error')
+        return redirect(url_for('login'))
+    state = secrets.token_urlsafe(32)
+    session['google_oauth_state'] = state
+    params = http_parse.urlencode({
+        'client_id': GOOGLE_CLIENT_ID,
+        'redirect_uri': google_oauth_redirect_uri(),
+        'response_type': 'code',
+        'scope': 'openid email profile',
+        'state': state,
+        'prompt': 'select_account',
+    })
+    return redirect(f'{GOOGLE_AUTH_ENDPOINT}?{params}')
+
+
+@app.route('/auth/google/callback')
+def auth_google_callback():
+    expected_state = session.pop('google_oauth_state', None)
+    if not expected_state or request.args.get('state') != expected_state:
+        flash('Google sign-in could not be verified. Please try again.', 'error')
+        return redirect(url_for('login'))
+    if current_user.is_authenticated:
+        return redirect(url_for(post_login_endpoint_for_user(current_user)))
+    code = request.args.get('code')
+    if not code:
+        flash('Google sign-in was cancelled.', 'error')
+        return redirect(url_for('login'))
+    try:
+        token_response = requests.post(GOOGLE_TOKEN_ENDPOINT, data={
+            'code': code,
+            'client_id': GOOGLE_CLIENT_ID,
+            'client_secret': GOOGLE_CLIENT_SECRET,
+            'redirect_uri': google_oauth_redirect_uri(),
+            'grant_type': 'authorization_code',
+        }, timeout=10)
+        access_token = token_response.json().get('access_token')
+    except (requests.RequestException, ValueError):
+        access_token = None
+    if not access_token:
+        flash('Google sign-in failed. Please try again.', 'error')
+        return redirect(url_for('login'))
+    try:
+        profile_response = requests.get(
+            GOOGLE_USERINFO_ENDPOINT,
+            headers={'Authorization': f'Bearer {access_token}'},
+            timeout=10,
+        )
+        google_profile = profile_response.json()
+    except (requests.RequestException, ValueError):
+        flash('Google sign-in failed: could not read your Google profile.', 'error')
+        return redirect(url_for('login'))
+    email = str(google_profile.get('email') or '').strip().lower()
+    google_sub = str(google_profile.get('sub') or '').strip()
+    if not google_sub or not email or not google_profile.get('email_verified'):
+        flash('Your Google account does not share a verified email address.', 'error')
+        return redirect(url_for('login'))
+
+    account = AuthUser.query.filter_by(google_sub=google_sub).first()
+    if account is None:
+        account = AuthUser.query.filter_by(email=email).first()
+    if account is None:
+        user = create_google_user(email, str(google_profile.get('name') or ''), google_sub)
+    else:
+        if not account.google_sub:
+            account.google_sub = google_sub
+        user = db.session.get(User, account.id)
+    if user is None or not user.is_active:
+        db.session.rollback()
+        flash('This account is inactive.', 'error')
+        return redirect(url_for('login'))
+    db.session.commit()
+    return complete_login(user)
 
 
 # --- Main Routes ---
@@ -5219,6 +5449,7 @@ def create_staff_account():
     staff = User(username=username, full_name=str(request.form.get('full_name', '')).strip() or username, role=role)
     staff.set_password(password); db.session.add(staff)
     db.session.flush()
+    upsert_auth_credentials(staff)
     identity = ensure_community_user(staff)
     db.session.add(AdminLog(admin_name=current_user.username, action=f'Dean created {role} account {username}'))
     community_audit('Created staff account', 'users', identity.user_id, new_value=f'{username} ({role})')

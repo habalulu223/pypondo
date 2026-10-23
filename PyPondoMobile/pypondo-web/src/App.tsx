@@ -157,7 +157,7 @@ const QR_PAIRING_PATH_PATTERN = /\/api\/mobile\/pairing\/?$/i
 const QR_SCAN_INTERVAL_MS = 300
 const DEFAULT_SCANNER_MESSAGE =
   'Point the camera at the pairing QR from your desktop to connect over LAN or a public route.'
-const DEFAULT_PRODUCT_SCANNER_MESSAGE = 'Sign in, then point the camera at a PyPondo equipment QR code to view basic item information.'
+const DEFAULT_PRODUCT_SCANNER_MESSAGE = 'Sign in, then point the camera at an equipment QR code to view basic item information.'
 const TAB_META: Record<TabKey, { label: string; hint: string }> = {
   overview: {
     label: 'Overview',
@@ -195,7 +195,7 @@ const currencyFormatter = new Intl.NumberFormat('en-PH', {
 function buildBaseUrl(serverAddress: string) {
   const trimmed = serverAddress.trim()
   if (!trimmed) {
-    throw new Error('Enter the PyPondo server address first.')
+    throw new Error('Enter the Techpuls server address first.')
   }
 
   const hasScheme = /^https?:\/\//i.test(trimmed)
@@ -431,7 +431,7 @@ function App() {
   const [baseUrl, setBaseUrl] = useState('')
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle')
   const [connectionMessage, setConnectionMessage] = useState(
-    'Auto-detecting the PyPondo server on this network...',
+    'Auto-detecting the Techpuls server on this network...',
   )
   const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null)
   const [scannerOpen, setScannerOpen] = useState(false)
@@ -476,7 +476,7 @@ function App() {
     {
       id: 1,
       role: 'system',
-      text: 'Connected apps use the existing PyPondo mobile API. No localhost dev server is required inside the APK.',
+      text: 'Connected apps use the existing Techpuls mobile API. No localhost dev server is required inside the APK.',
     },
   ])
 
@@ -537,7 +537,7 @@ function App() {
   /** Every /api/mobile route now resolves the account from the Bearer token. */
   async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     if (!baseUrl) {
-      throw new Error('Connect to a PyPondo server first.')
+      throw new Error('Connect to a Techpuls server first.')
     }
     const headers = new Headers(init?.headers)
     if (session?.accessToken) {
@@ -691,12 +691,12 @@ function App() {
       setScannerOpen(false)
       setScannerStatus('starting')
       setScannerMessage(mode === 'equipment'
-        ? 'Point the camera at a PyPondo equipment QR code.'
+        ? 'Point the camera at an equipment QR code.'
         : 'Point the camera at the desktop pairing QR.')
       try {
         const rawValue = await scanQr(mode === 'equipment'
           ? 'Scan an equipment QR code'
-          : 'Scan the PyPondo pairing QR')
+          : 'Scan the Techpuls pairing QR')
         if (!rawValue) {
           setScannerStatus('idle')
           setScannerMessage(mode === 'equipment' ? DEFAULT_PRODUCT_SCANNER_MESSAGE : DEFAULT_SCANNER_MESSAGE)
@@ -751,7 +751,7 @@ function App() {
       await videoRef.current.play()
 
       setScannerStatus('active')
-      setScannerMessage(mode === 'equipment' ? 'Scanning for equipment QR codes...' : 'Scanning for the PyPondo pairing QR...')
+      setScannerMessage(mode === 'equipment' ? 'Scanning for equipment QR codes...' : 'Scanning for the Techpuls pairing QR...')
       scheduleScannerPass()
     } catch (error) {
       stopScannerHardware()
@@ -827,7 +827,7 @@ function App() {
       const nextBaseUrl = buildBaseUrl(candidateAddress)
       setConnectionStatus('testing')
       if (!silent) {
-        setConnectionMessage('Checking the PyPondo server...')
+        setConnectionMessage('Checking the Techpuls server...')
       }
 
       const info = await readJson<ServerInfo>(`${nextBaseUrl}/api/server-info`)
@@ -853,7 +853,7 @@ function App() {
       setConnectionMessage(
         error instanceof Error
           ? error.message
-          : 'Could not reach the PyPondo server from this device.',
+          : 'Could not reach the Techpuls server from this device.',
       )
       return false
     }
@@ -862,7 +862,7 @@ function App() {
   async function startServerDiscovery(autoLaunch = false) {
     setDiscoveringServers(true)
     setDiscoveryProgress({ found: 0, tested: 0 })
-    setConnectionMessage('Searching for PyPondo servers across your network...')
+    setConnectionMessage('Searching for Techpuls servers across your network...')
 
     try {
       const servers = await discoverServers({
@@ -879,8 +879,8 @@ function App() {
       if (servers.length === 0) {
         setConnectionMessage(
           autoLaunch
-            ? 'No PyPondo server was found automatically. Check that the desktop/server app is open, then scan again.'
-            : 'No PyPondo server was found. Check the network connection or use the optional address fallback.',
+            ? 'No Techpuls server was found automatically. Check that the desktop/server app is open, then scan again.'
+            : 'No Techpuls server was found. Check the network connection or use the optional address fallback.',
         )
         setShowDiscoveryList(false)
       } else {
@@ -1212,11 +1212,11 @@ function App() {
     <main className="app-shell">
       <section className="hero-card">
         <div className="hero-copy">
-          <p className="eyebrow">PyPondo Mobile</p>
+          <p className="eyebrow">Techpuls Mobile</p>
           <h1>Customer operations rebuilt for a real cafe floor.</h1>
           <p className="hero-text">
             The APK carries the customer experience locally, then links it to the live
-            PyPondo stack over LAN by QR pairing, direct address, or network discovery.
+            Techpuls stack over LAN by QR pairing, direct address, or network discovery.
           </p>
           <div className="hero-highlights">
             <span className="hero-pill">Bundled UI</span>
@@ -1275,7 +1275,7 @@ function App() {
           <div className="panel-head">
             <div>
               <p className="section-label">Connection</p>
-              <h2>PyPondo server auto-detect</h2>
+              <h2>Techpuls server auto-detect</h2>
             </div>
             <button
               className="ghost-button"
@@ -1508,7 +1508,7 @@ function App() {
               {activeTab === 'overview' ? (
                 <section className="content-stack">
                   <div className="info-banner">
-                    This APK hosts the customer UI locally. Only the PyPondo server needs
+                    This APK hosts the customer UI locally. Only the Techpuls server needs
                     to be reachable on the network.
                   </div>
 
@@ -1703,7 +1703,7 @@ function App() {
                         {equipmentScanBusy ? 'Loading…' : 'Scan QR'}
                       </button>
                     </div>
-                    <p className="section-copy">Sign in and scan a PyPondo equipment label to view its name, category, and current status.</p>
+                    <p className="section-copy">Sign in and scan an equipment label to view its name, category, and current status.</p>
                   </div>
                   <form className="content-card" onSubmit={submitEquipmentCode}>
                     <label className="field-label" htmlFor="manualEquipmentCode">Equipment QR value</label>
@@ -1776,7 +1776,7 @@ function App() {
                   <div className="content-card chat-log">
                     <h3>Assistant</h3>
                     <p className="section-copy">
-                      This assistant stays inside the existing PyPondo mobile API surface and can answer account and booking questions.
+                      This assistant stays inside the existing Techpuls mobile API surface and can answer account and booking questions.
                     </p>
                     {assistantMessages.map((message) => (
                       <div className={`chat-bubble ${message.role}`} key={message.id}>
@@ -1826,7 +1826,7 @@ function App() {
           ) : (
             <form className="login-form" onSubmit={handleLogin}>
               <p className="login-copy">
-                Use a customer account from the existing PyPondo server. The phone app
+                Use a customer account from the existing Techpuls server. The phone app
                 connects over LAN, keeps the UI local inside the APK, and can pair from
                 the desktop QR scanner flow.
               </p>
@@ -1858,7 +1858,7 @@ function App() {
                 disabled={loginBusy || connectionStatus === 'testing'}
                 type="submit"
               >
-                {loginBusy ? 'Signing in...' : 'Login to mobile app'}
+                {loginBusy ? 'Signing in...' : 'Sign in'}
               </button>
             </form>
           )}
