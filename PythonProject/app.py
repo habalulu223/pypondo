@@ -1411,9 +1411,12 @@ def create_borrow_request(account, equipment_id, values):
     except ValueError:
         expected = None
     purpose = str(values.get('purpose') or '').strip()
-    if (not item or not community_item_available(item) or expected is None
-            or expected.date() < datetime.now().date() or not purpose):
-        return None, 'Select an available item, provide a purpose, and choose a valid return date.'
+    if (not item or not community_item_available(item) or not purpose):
+        return None, 'Select an available item and provide a purpose.'
+    if expected is None:
+        return None, 'Choose a valid return date.'
+    if expected.date() < datetime.now().date():
+        return None, 'The return date cannot be a day before today.'
     identity = ensure_community_user(account)
     borrowing = CommunityBorrowing(borrower_id=identity.user_id, expected_return_date=expected,
         borrowing_status='Pending', purpose=purpose)
@@ -4311,6 +4314,24 @@ def community_latest_equipment_statuses(equipment_ids=None):
     return {equipment_id: status_name for equipment_id, status_name in rows}
 
 
+@app.template_filter('status_badge_class')
+def status_badge_class(status_name):
+    """Map a status/condition label to a badge color class.
+
+    Mirrors the mobile app's statusPillClass so both surfaces agree:
+    green for available/healthy, amber for borrowed or pending, red for
+    maintenance or damaged, neutral gray otherwise.
+    """
+    value = str(status_name or '').lower()
+    if re.search(r'maintenance|repair|broken|faulty|damaged|missing|poor|inactive|cancelled|rejected', value):
+        return 'status-danger'
+    if re.search(r'borrow|loan|occupied|in use|reserved|busy|fair|pending|overdue|awaiting|requested', value):
+        return 'status-warn'
+    if re.search(r'availab|free|online|ready|active|good|paid|returned', value):
+        return 'status-ok'
+    return 'status-neutral'
+
+
 @app.route('/equipment')
 @login_required
 def equipment_dashboard():
@@ -5205,8 +5226,11 @@ def submit_loan_request(equipment_id):
     if not item or item.status != 'available' or not purpose:
         flash('Choose an available item and provide the purpose.', 'error'); return redirect(url_for('borrower_dashboard'))
     due_at = None
-    try: due_at = datetime.strptime(str(request.form.get('needed_until', '')).strip(), '%Y-%m-%d')
+    raw_date = str(request.form.get('needed_until', '')).strip()
+    try: due_at = datetime.strptime(raw_date, '%Y-%m-%d')
     except ValueError: pass
+    if raw_date and (due_at is None or due_at.date() < datetime.now().date()):
+        flash('The return date cannot be a day before today.', 'error'); return redirect(url_for('borrower_dashboard'))
     db.session.add(EquipmentLoanRequest(equipment=item, borrower=current_user, purpose=purpose, needed_until=due_at))
     db.session.commit(); flash('Borrow request sent to management for confirmation.', 'success')
     return redirect(url_for('borrower_dashboard'))

@@ -319,3 +319,47 @@ body .card a:not(.profile-avatar-link):not(.header-action-button):hover {
   background: #274d7b !important;
   border-color: #274d7b !important;
 }
+
+/* Status color coding for equipment badges and tags. The status-X classes are
+   emitted by the status_badge_class Jinja filter, which maps any status or
+   condition label to one of these. Specificity (+!important) intentionally
+   beats the stacked legacy palette rules inside page templates. */
+.tag.status-ok,
+.badge.status-ok {
+  background: #e8f4ed !important;
+  color: #287653 !important;
+  -webkit-text-fill-color: #287653 !important;
+  border: 1px solid #cfe4d8 !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+.tag.status-warn,
+.badge.status-warn {
+  background: #fdf6e8 !important;
+  color: #8a5a1f !important;
+  -webkit-text-fill-color: #8a5a1f !important;
+  border: 1px solid #f0dfba !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+.tag.status-danger,
+.badge.status-danger {
+  background: #fbecee !important;
+  color: #a83e48 !important;
+  -webkit-text-fill-color: #a83e48 !important;
+  border: 1px solid #ebd3d6 !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+.tag.status-neutral,
+.badge.status-neutral {
+  background: #eef1f6 !important;
+  color: #43536b !important;
+  -webkit-text-fill-color: #43536b !important;
+  border: 1px solid #dfe5ee !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}

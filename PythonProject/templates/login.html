@@ -103,6 +103,67 @@
             outline: 2px solid #b7cce7;
             outline-offset: 2px;
         }
+        .password-wrap {
+            position: relative;
+        }
+        .password-wrap input {
+            padding-right: 48px;
+        }
+        body .login-box button.password-toggle {
+            position: absolute;
+            top: 50%;
+            right: 7px;
+            transform: translateY(-50%);
+            width: 34px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            margin: 0;
+            background: transparent !important;
+            border: none !important;
+            border-radius: 7px;
+            color: #8a95a5 !important;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        body .login-box button.password-toggle:hover {
+            background: #f0f3f8 !important;
+            color: #68778d !important;
+        }
+        body .login-box button.password-toggle svg {
+            display: block;
+            /* professional.css paints every button child white; force the eye
+               icon back to near-black so it stays visible on the white field. */
+            color: #111 !important;
+            stroke: #111 !important;
+            fill: none !important;
+        }
+        body .login-box button.password-toggle:active svg {
+            transform: scale(0.85);
+        }
+        .eye-icon {
+            transition: transform 0.15s ease;
+        }
+        .eye-icon .eye-open-group {
+            transform-origin: 12px 12px;
+            transition: transform 0.3s ease, opacity 0.22s ease;
+        }
+        .eye-icon .eye-lid {
+            stroke-dasharray: 22;
+            stroke-dashoffset: 22;
+            opacity: 0;
+            transition: stroke-dashoffset 0.3s ease, opacity 0.22s ease;
+        }
+        .eye-icon.is-closed .eye-open-group {
+            transform: scaleY(0.06);
+            opacity: 0;
+        }
+        .eye-icon.is-closed .eye-lid {
+            stroke-dashoffset: 0;
+            opacity: 1;
+        }
         button[type=submit] {
             width: 100%;
             padding: 12px;
@@ -227,7 +288,18 @@
                 <label for="username">Username or email</label>
                 <input id="username" type="text" name="username" placeholder="Username or email" required autocomplete="username">
                 <label for="password">Password</label>
-                <input id="password" type="password" name="password" placeholder="Password" required autocomplete="current-password">
+                <div class="password-wrap">
+                    <input id="password" type="password" name="password" placeholder="Password" required autocomplete="current-password">
+                    <button type="button" class="password-toggle" id="toggle-password" aria-label="Show password" aria-pressed="false" title="Show password">
+                        <svg class="eye-icon" id="eye-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <g class="eye-open-group">
+                                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </g>
+                            <path class="eye-lid" d="M3.5 12.5c2.4 2.2 5.3 3.4 8.5 3.4s6.1-1.2 8.5-3.4"/>
+                        </svg>
+                    </button>
+                </div>
                 <button type="submit">Sign In</button>
             </form>
 
@@ -254,6 +326,19 @@
     </div>
 
     <script>
+        var passwordInput = document.getElementById('password');
+        var togglePasswordButton = document.getElementById('toggle-password');
+        if (passwordInput && togglePasswordButton) {
+            togglePasswordButton.addEventListener('click', function() {
+                var show = passwordInput.type === 'password';
+                passwordInput.type = show ? 'text' : 'password';
+                document.getElementById('eye-icon').classList.toggle('is-closed', show);
+                togglePasswordButton.setAttribute('aria-pressed', String(show));
+                togglePasswordButton.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+                togglePasswordButton.setAttribute('title', show ? 'Hide password' : 'Show password');
+            });
+        }
+
         document.addEventListener('startupSequenceComplete', function() {
             document.body.classList.remove('startup-active');
             document.body.classList.add('startup-complete');
