@@ -56,11 +56,6 @@
         th, td { padding: 15px; text-align: left; border-bottom: 1px solid #333; }
         th { background: #1f2430; color: var(--neon-green); font-family: Inter, 'Segoe UI', Arial, sans-serif; }
         tr:hover { background: #1f2430; }
-        .pondo-btn { display: block; text-align: center; margin-bottom: 15px; background: linear-gradient(45deg, #e21f3d, #a50f28); color: white !important; border: none; font-weight: bold; }
-        .wallet-box { border: 1px solid #2b3a4d; border-radius: 10px; padding: 14px; margin-bottom: 15px; background: linear-gradient(180deg, #121927, #0c111a); }
-        .wallet-balance { font-size: 2.2rem; color: var(--neon-green); margin: 6px 0 10px; font-family: Inter, 'Segoe UI', Arial, sans-serif; }
-        .quick-amounts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; }
-        .quick-amounts button { margin-top: 0; padding: 14px; font-size: 1rem; border-radius: 10px; background: rgba(226,31,61, 0.12); border: 1px solid rgba(217,28,57, 0.2); color: var(--text-main); }
         .btn-big { width: 100%; padding: 16px 22px; font-size: 1rem; border-radius: 12px; }
         .nav-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 18px; }
         .big-action-card { border: 1px solid #253047; border-radius: 16px; padding: 18px; background: rgba(255,255,255,0.04); margin-bottom: 18px; }
@@ -120,7 +115,7 @@
     </style>
 {% include '_dashboard_container_theme.html' %}</head>
 <body>
-    {% include '_animated_background.html' %}
+    {% include '_dashboard_nav.html' %}
     {% include '_startup_splash.html' %}
     {% include '_loading_overlay.html' %}
 
@@ -149,13 +144,6 @@
         <div class="section" style="flex: 2;">
             <div style="display:flex; align-items:center;">
                 <h2>Station Status</h2>
-                {% if current_user.is_admin %}
-                    {% if auto_charge_enabled %}
-                        <span style="color: var(--neon-green); font-size: 0.8em; margin-left: 15px;">● AUTO CHARGE: ENABLED</span>
-                    {% else %}
-                        <span style="color: var(--neon-red); font-size: 0.8em; margin-left: 15px;">● AUTO CHARGE: DISABLED</span>
-                    {% endif %}
-                {% endif %}
             </div>
             {% if current_user.is_admin %}
             <div style="display:flex; align-items:center; margin-top: 10px; margin-bottom: 20px;">
@@ -164,11 +152,6 @@
                 <a href="/add_pc" class="btn add-pc-btn" style="margin-right: 10px;">+ ADD NEW PC</a>
                 <a href="/admin/refresh_ips" class="btn add-pc-btn" style="border-color: #ffd166; color: #ffd166; margin-right: 10px;">REFRESH IPs</a>
                 <a href="/admin/auto_assign_ips" class="btn add-pc-btn" style="margin-right: 10px;">AUTO ASSIGN IPs</a>
-                {% if auto_charge_enabled %}
-                    <a href="/admin/auto_charge/disable" class="btn add-pc-btn" style="border-color: #ff6b6b; color: #ff6b6b; margin-right: 10px;">DISABLE AUTO CHARGE</a>
-                {% else %}
-                    <a href="/admin/auto_charge/enable" class="btn add-pc-btn" style="border-color: #d91c39; color: #d91c39; margin-right: 10px;">ENABLE AUTO CHARGE</a>
-                {% endif %}
                 <button id="terminate-sys-btn" class="btn add-pc-btn" style="border-color: #ff6b6b; color: #ff6b6b; margin-right: 10px;">TERMINATE SYSTEM</button>
             </div>
             <p style="margin-top: -10px; margin-bottom: 20px; font-size: 0.8em; color: #8ea4bb;">{{ android_download_note }}</p>
@@ -210,10 +193,8 @@
                             <p style="color: #777; font-size: 0.82em;">User ID: #{{ pc.dashboard_session.user_id }}</p>
                             <p style="color: #aaa; font-size: 0.9em;">Started: {{ pc.dashboard_session.start_time.strftime('%H:%M') }}</p>
                             <p style="color: #aaa; font-size: 0.9em;">Used For: <strong style="color:white;">{{ pc.dashboard_usage_duration_text }}</strong></p>
-                            <p style="color: #aaa; font-size: 0.9em;">Current Charge: <strong style="color: var(--neon-green);" class="admin-session-charge">PHP {{ "%.2f"|format(pc.dashboard_session_current_cost or 0.0) }}</strong></p>
-                            <p style="color: #777; font-size: 0.82em;">Rate: PHP {{ "%.2f"|format(hourly_rate) }}/hour</p>
                             {% if current_user.is_admin %}
-                                <a href="/end_session/{{ pc.dashboard_session.id }}" class="btn btn-red">STOP & BILL</a>
+                                <a href="/end_session/{{ pc.dashboard_session.id }}" class="btn btn-red">END SESSION</a>
                             {% else %}
                                 <p style="color: var(--neon-red); font-size: 0.8em; margin-top: 10px;">SESSION ACTIVE</p>
                             {% endif %}
@@ -354,10 +335,8 @@
                 </div>
                 {% endif %}
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-                    <a href="/pondo" class="btn pondo-btn" style="grid-column: span 2;">+ LOAD CREDITS</a>
                     <a href="/bookings" class="btn" style="border-color: #d91c39; color: #d91c39; text-align:center;">BOOKINGS</a>
                     <a href="/logs" class="btn" style="border-color: #aaa; color: #aaa; text-align:center;">LOGS</a>
-                    <a href="/admin/payments" class="btn" style="grid-column: span 2; border-color: #ffd166; color: #ffd166; text-align:center;">PAYMENTS</a>
                 </div>
                 <div style="margin-bottom:15px; border:1px solid #333; border-radius:8px; padding:12px;">
                     <small style="color:#666; text-transform:uppercase;">LAN Discovery</small>
@@ -425,7 +404,7 @@
                             {% if pc.dashboard_session %}
                                 <p style="color:#aaa; font-size:0.85em; margin:4px 0;">User: <strong style="color:white;">{{ pc.dashboard_session_username or ('User #' ~ pc.dashboard_session.user_id) }}</strong></p>
                                 <p style="color:#aaa; font-size:0.85em; margin:4px 0 8px;">Used For: {{ pc.dashboard_usage_duration_text }}</p>
-                                <a href="/end_session/{{ pc.dashboard_session.id }}" class="btn btn-red admin-fixed-btn full-row">STOP & BILL</a>
+                                <a href="/end_session/{{ pc.dashboard_session.id }}" class="btn btn-red admin-fixed-btn full-row">END SESSION</a>
                             {% elif pc.dashboard_online %}
                                 <p style="color:var(--neon-green); font-size:0.85em; margin:4px 0 8px;">Online since {{ pc.dashboard_usage_started_text }}</p>
                             {% endif %}
@@ -492,28 +471,9 @@
                     <p class="friendly-note">Pick a ready computer below and tap the big button to reserve time. If the card is red, the computer is busy. If it is green, it is ready.</p>
                 </div>
                 <div class="nav-grid">
-                    <a href="/pondo" class="btn btn-big" style="background: linear-gradient(135deg, #e21f3d, #a50f28); color: #000; border: none;">Load Credits</a>
                     <a href="/bookings" class="btn btn-big" style="border-color: #d91c39; color: #d91c39;">My Bookings</a>
                     <a href="/logs" class="btn btn-big" style="border-color: #fff; color: #fff;">History</a>
                     <a href="/logout" class="btn btn-big" style="border-color: #ff6b6b; color: #ff6b6b;">Logout</a>
-                </div>
-
-                <div class="wallet-box">
-                    <small style="color:#7992ac; text-transform:uppercase;">My Wallet</small>
-                    <div class="wallet-balance">₱ {{ "%.2f"|format(current_user.pondo) }}</div>
-                    <form id="onlineTopupForm" action="/topup/online" method="POST">
-                        <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Top-up amount" required>
-                        <div class="quick-amounts">
-                            <button type="button" onclick="setTopup(100)">₱100</button>
-                            <button type="button" onclick="setTopup(200)">₱200</button>
-                            <button type="button" onclick="setTopup(500)">₱500</button>
-                            <button type="button" onclick="setTopup(1000)">₱1000</button>
-                        </div>
-                        <button type="submit" class="btn btn-big" style="background: #d91c39; color: #000; border: none;">Save Payment Request</button>
-                    </form>
-                    <div class="pay-note">
-                        Tap any amount to fill the box, then save your request.
-                    </div>
                 </div>
             {% endif %}
 
@@ -522,7 +482,6 @@
                 <thead>
                     <tr>
                         <th>Username</th>
-                        <th>Credits (₱)</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -530,9 +489,6 @@
                     {% for user in users %}
                     <tr>
                         <td style="font-weight:bold; color:white;">{{ user.username }}</td>
-                        <td style="color: {{ 'var(--neon-green)' if user.pondo > 0 else 'var(--neon-red)' }}">
-                            ₱ {{ "%.2f"|format(user.pondo) }}
-                        </td>
                         <td>
                             <a href="/force_stop_user/{{ user.id }}" class="btn btn-red" style="margin-top:0; padding:6px 10px;">Force Stop</a>
                         </td>
@@ -540,33 +496,12 @@
                     {% endfor %}
                 </tbody>
             </table>
-            {% else %}
-                <div style="margin-top:15px; border:1px solid #333; border-radius:8px; padding:18px; background: rgba(255,255,255,0.02);">
-                    <small style="color:#666; text-transform:uppercase;">Recent Top-Ups</small>
-                    <div style="max-height:140px; overflow-y:auto; margin-top:12px;">
-                        {% if recent_payments %}
-                            {% for tx in recent_payments %}
-                                <div style="display:flex; justify-content:space-between; font-size:0.95rem; padding:8px 0; border-bottom:1px solid #222;">
-                                    <span style="color:#9db0c6;">{{ tx.created_at.strftime('%b %d %H:%M') }}</span>
-                                    <span style="color: {{ 'var(--neon-green)' if tx.status == 'paid' else '#d3a961' }};">{{ tx.status|upper }} ₱{{ "%.2f"|format(tx.amount) }}</span>
-                                </div>
-                            {% endfor %}
-                        {% else %}
-                            <div style="font-size:0.95rem; color:#ccc;">No top-up history yet. Add credits to start using computers.</div>
-                        {% endif %}
-                    </div>
-                </div>
             {% endif %}
         </div>
 
     </div>
 
     <script>
-        function setTopup(amount) {
-            var field = document.getElementById('topupAmount');
-            if (field) field.value = amount;
-        }
-
         function wireAdminProfileTabs() {
             var tabs = document.querySelectorAll('[data-admin-tab-target]');
             if (!tabs.length) {

@@ -64,11 +64,11 @@ for path, label in THEMED_PAGES.items():
         check(f'{label} loads theme', b'professional.css' in page.data)
         check(f'{label} loads Inter', b'family=Inter' in page.data)
 
-# /management is role-gated; an admin may be redirected instead of served.
-page = client.get('/management')
-check('management responds', page.status_code in (200, 302), f'status {page.status_code}')
+# /dashboard is role-gated; an account without a staff or borrowing role is redirected.
+page = client.get('/dashboard')
+check('role dashboard responds', page.status_code in (200, 302), f'status {page.status_code}')
 if page.status_code == 200:
-    check('management loads theme', b'professional.css' in page.data)
+    check('role dashboard loads theme', b'professional.css' in page.data)
 
 print()
 if failures:

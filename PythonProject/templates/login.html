@@ -126,7 +126,15 @@
             border-radius: 7px;
             color: #8a95a5 !important;
             cursor: pointer;
-            transition: background 0.15s ease, color 0.15s ease;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease, visibility 0.15s ease;
+        }
+        body .login-box button.password-toggle.is-visible {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
         }
         body .login-box button.password-toggle:hover {
             background: #f0f3f8 !important;
@@ -135,9 +143,9 @@
         body .login-box button.password-toggle svg {
             display: block;
             /* professional.css paints every button child white; force the eye
-               icon back to near-black so it stays visible on the white field. */
-            color: #111 !important;
-            stroke: #111 !important;
+               icon to a visible gray so it reads on the white field. */
+            color: #68778d !important;
+            stroke: #68778d !important;
             fill: none !important;
         }
         body .login-box button.password-toggle:active svg {
@@ -329,6 +337,10 @@
         var passwordInput = document.getElementById('password');
         var togglePasswordButton = document.getElementById('toggle-password');
         if (passwordInput && togglePasswordButton) {
+            function syncEyeVisibility() {
+                togglePasswordButton.classList.toggle('is-visible', passwordInput.value.length > 0);
+            }
+            passwordInput.addEventListener('input', syncEyeVisibility);
             togglePasswordButton.addEventListener('click', function() {
                 var show = passwordInput.type === 'password';
                 passwordInput.type = show ? 'text' : 'password';
@@ -337,6 +349,7 @@
                 togglePasswordButton.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
                 togglePasswordButton.setAttribute('title', show ? 'Hide password' : 'Show password');
             });
+            syncEyeVisibility();
         }
 
         document.addEventListener('startupSequenceComplete', function() {

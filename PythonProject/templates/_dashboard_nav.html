@@ -1,0 +1,27 @@
+{# Fixed dashboard sidebar (.dash-nav). Active item is inferred from request.path
+   so every page picks it up without extra context variables. Links are gated by
+   the same role flags the rest of the app already relies on. #}
+<aside class="dash-nav" aria-label="Dashboard navigation">
+  <a class="dash-brand" href="{{ url_for('role_dashboard') }}">Techpuls<small>Equipment workspace</small></a>
+  {% set p = request.path %}
+  <a href="{{ url_for('role_dashboard') }}" {% if p in ('/dashboard', '/') %}aria-current="page"{% endif %}><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> Dashboard</a>
+  {% if current_user.can_manage_equipment or current_user.is_management %}
+  <a href="{{ url_for('equipment_dashboard') }}" {% if p.startswith('/equipment') %}aria-current="page"{% endif %}><i class="fa-solid fa-boxes-stacked" aria-hidden="true"></i> Equipment</a>
+  {% endif %}
+  {% if current_user.can_borrow_equipment or current_user.is_management %}
+  <a href="{{ url_for('borrower_dashboard') }}" {% if p.startswith('/borrower') %}aria-current="page"{% endif %}><i class="fa-solid fa-right-left" aria-hidden="true"></i> Borrowing &amp; Return</a>
+  {% endif %}
+  {% if current_user.is_management %}
+  <a href="{{ url_for('equipment_dashboard', view='maintenance') }}" {% if p.startswith('/equipment') and request.args.get('view') == 'maintenance' %}aria-current="page"{% endif %}><i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i> Maintenance</a>
+  {% endif %}
+  {% if current_user.is_dean or current_user.is_admin %}
+  <a href="{{ url_for('dean_dashboard') }}" {% if p.startswith('/dean/pcs') %}aria-current="page"{% endif %}><i class="fa-solid fa-desktop" aria-hidden="true"></i> PC Lab</a>
+  <a href="{{ url_for('dean_analytics') }}" {% if p.startswith('/dean/analytics') %}aria-current="page"{% endif %}><i class="fa-solid fa-chart-column" aria-hidden="true"></i> Analytics</a>
+  {% endif %}
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('index') }}" {% if p == '/' %}aria-current="page"{% endif %}><i class="fa-solid fa-network-wired" aria-hidden="true"></i> System</a>
+  <a href="{{ url_for('view_logs') }}" {% if p.startswith('/logs') %}aria-current="page"{% endif %}><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i> Logs</a>
+  {% endif %}
+  <a href="{{ url_for('profile.profile_page') }}" {% if p.startswith('/profile') %}aria-current="page"{% endif %}><i class="fa-solid fa-user" aria-hidden="true"></i> Profile</a>
+  <a class="dash-logout" href="{{ url_for('logout') }}"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i> Log out</a>
+</aside>

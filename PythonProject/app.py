@@ -475,7 +475,7 @@ class User(UserMixin, db.Model):
 
     @property
     def can_manage_equipment(self):
-        return bool(self.is_admin or self.role in {"dean", "it_manager", "it_staff", "laboratory_custodian"})
+        return bool(self.is_admin or self.role in {"dean", "it_technician", "laboratory_custodian"})
 
     @property
     def can_borrow_equipment(self):
@@ -487,7 +487,8 @@ class User(UserMixin, db.Model):
 
     @property
     def is_management(self):
-        return bool(self.is_admin or self.role in {"dean", "it_manager", "laboratory_custodian"})
+        """Approval and return-verification capability, now held by the IT technician role."""
+        return bool(self.is_admin or self.role in {"dean", "it_technician", "laboratory_custodian"})
 
 
 def upsert_auth_credentials(user):
@@ -1037,9 +1038,39 @@ def ensure_user_role_columns():
     db.session.commit()
 
 
+def merge_staff_roles_into_technician():
+    """Collapse the legacy IT staff and IT manager roles into one IT technician role.
+
+    Management used to be a separate staff role with its own control centre. Its
+    approval, return-verification, and inventory duties now belong to the IT
+    technician, so both legacy role keys are migrated and the extra rows dropped.
+    """
+    db.session.execute(text("UPDATE user SET role = 'it_technician' WHERE role IN ('it_staff', 'it_manager')"))
+    db.session.commit()
+
+    technician = CommunityRole.query.filter_by(role_name='it_technician').first()
+    if technician is None:
+        technician = CommunityRole.query.filter(
+            CommunityRole.role_name.in_(['it_staff', 'it_manager'])).order_by(CommunityRole.role_id).first()
+        if technician is None:
+            return
+        technician.role_name = 'it_technician'
+        technician.description = 'IT technician'
+        db.session.flush()
+
+    for legacy_name in ('it_staff', 'it_manager'):
+        stale = CommunityRole.query.filter_by(role_name=legacy_name).first()
+        if stale is None or stale.role_id == technician.role_id:
+            continue
+        CommunityUser.query.filter_by(role_id=stale.role_id).update(
+            {'role_id': technician.role_id}, synchronize_session=False)
+        db.session.delete(stale)
+    db.session.commit()
+
+
 def current_staff_or_redirect():
     if not getattr(current_user, "can_manage_equipment", False):
-        flash("Your account does not have equipment-management access.", "error")
+        flash("Your account does not have equipment technician access.", "error")
         return False
     return True
 
@@ -1097,8 +1128,9 @@ def ensure_core_seed_data():
 
 def ensure_community_reference_data():
     roles = {
-        'administrator': 'System administrator', 'dean': 'Dean', 'it_manager': 'IT manager',
-        'it_staff': 'IT staff', 'laboratory_custodian': 'Laboratory custodian',
+        'administrator': 'System administrator', 'dean': 'Dean',
+        'it_technician': 'IT technician',
+        'laboratory_custodian': 'Laboratory custodian',
         'instructor': 'Instructor', 'student': 'Student'
     }
     for account_role in db.session.query(User.role).distinct().all():
@@ -1444,6 +1476,7 @@ def initialize_database():
     ensure_session_last_charged_at_column()
     ensure_equipment_transaction_columns()
     ensure_user_role_columns()
+    merge_staff_roles_into_technician()
     ensure_core_seed_data()
     ensure_auth_database()
     ensure_community_reference_data()
@@ -3365,7 +3398,7 @@ def handle_server_error(error):
 @app.after_request
 def apply_professional_dashboard_theme(response):
     """Apply the shared theme only to the dashboard pages that use injection."""
-    themed_paths = {"/equipment", "/management", "/borrower", "/dean/pcs"}
+    themed_paths = {"/equipment", "/borrower", "/dean/pcs"}
     if (
         request.path not in themed_paths
         or request.method != "GET"
@@ -4444,7 +4477,7 @@ def role_dashboard():
 
     role_titles = {
         'administrator': 'Administrator dashboard', 'dean': 'Dean dashboard',
-        'it_manager': 'IT manager dashboard', 'it_staff': 'IT staff dashboard',
+        'it_technician': 'IT technician dashboard',
         'laboratory_custodian': 'Laboratory custodian dashboard',
         'instructor': 'Instructor dashboard', 'student': 'Student dashboard'
     }
@@ -4461,13 +4494,6 @@ def role_dashboard():
             cards.append({'title': 'User access', 'description': 'Review staff and student roles and account status.', 'url': url_for('equipment_dashboard', view='users'), 'action': 'Manage access'})
             cards.append({'title': 'Campus PC monitoring', 'description': 'View registered PCs and available remote actions.', 'url': url_for('dean_dashboard'), 'action': 'Open PC monitor'})
             cards.append({'title': 'Dean Analytics', 'description': 'Review equipment borrowing records and laboratory activity.', 'url': url_for('dean_analytics'), 'action': 'View analytics'})
-    elif current_user.can_manage_equipment:
-        cards = [
-            {'title': 'Equipment register', 'description': f'{equipment_count} items · {available_count} available.', 'url': url_for('equipment_dashboard', view='inventory'), 'action': 'Open inventory'},
-            {'title': 'Issue reports', 'description': f'{issue_count} reports to review.', 'url': url_for('equipment_dashboard', view='reports'), 'action': 'Review reports'},
-            {'title': 'Maintenance', 'description': f'{attention_count} items need attention.', 'url': url_for('equipment_dashboard', view='maintenance'), 'action': 'Open maintenance'},
-            {'title': 'Equipment report', 'description': 'Download the current inventory summary.', 'url': url_for('download_equipment_report'), 'action': 'Download CSV'}
-        ]
     elif role == 'instructor':
         instructor_identity = identity
         owned_item_count = CommunityEquipment.query.filter_by(owner_user_id=instructor_identity.user_id).count()
@@ -4500,14 +4526,6 @@ def role_dashboard():
         is_admin=current_user.is_admin,
         public_tunnel=get_public_tunnel_snapshot() if current_user.is_admin else None,
         can_manage_equipment=current_user.can_manage_equipment)
-
-
-@app.route('/management')
-@login_required
-def management_dashboard():
-    if not current_user.is_management:
-        return redirect(url_for('index'))
-    return redirect(url_for('role_dashboard'))
 
 
 @app.route('/borrower')
@@ -4846,14 +4864,14 @@ def community_borrower_return_request(borrowing_item_id):
         flash('An active borrowing record could not be found.', 'error')
         return redirect(url_for('borrower_dashboard'))
     line.borrowing.borrowing_status = 'Return Requested'
-    for manager_role in CommunityRole.query.filter(CommunityRole.role_name.in_(['administrator','dean','it_manager','laboratory_custodian'])).all():
+    for manager_role in CommunityRole.query.filter(CommunityRole.role_name.in_(['administrator','dean','it_technician','laboratory_custodian'])).all():
         for manager in CommunityUser.query.filter_by(role_id=manager_role.role_id, account_status='Active').all():
             community_notify(manager.user_id, 'Equipment return needs inspection',
                 f'{line.equipment.equipment_code} has been returned by {identity.first_name} {identity.last_name} and needs a condition inspection.',
                 reference_type='borrowings', reference_id=line.borrowing.borrowing_id)
     community_audit('Requested return inspection', 'borrowings', line.borrowing.borrowing_id)
     db.session.commit()
-    flash('Return request sent. A manager must inspect and check in the equipment.', 'success')
+    flash('Return request sent. An IT technician must inspect and check in the equipment.', 'success')
     return redirect(url_for('borrower_dashboard'))
 
 
@@ -4887,7 +4905,7 @@ def community_report_issue(equipment_id):
             image_path=f'equipment_issues/{saved_name}'))
     change_community_equipment_status(item, 'Under Maintenance', current_user._get_current_object(), f'Issue reported: {title}')
     community_audit('Reported equipment issue', 'issues', issue.issue_id, new_value=title)
-    manager_roles = CommunityRole.query.filter(CommunityRole.role_name.in_(['administrator','dean','it_manager','laboratory_custodian'])).all()
+    manager_roles = CommunityRole.query.filter(CommunityRole.role_name.in_(['administrator','dean','it_technician','laboratory_custodian'])).all()
     for manager_role in manager_roles:
         for manager in CommunityUser.query.filter_by(role_id=manager_role.role_id, account_status='Active').all():
             if manager.user_id != identity.user_id:
@@ -5180,7 +5198,7 @@ def community_update_user(user_id):
     if not identity:
         flash('User record was not found.', 'error')
         return redirect(url_for('equipment_dashboard'))
-    assignable_roles = {'dean', 'it_manager', 'it_staff', 'laboratory_custodian', 'instructor', 'student'}
+    assignable_roles = {'dean', 'it_technician', 'laboratory_custodian', 'instructor', 'student'}
     new_role = str(request.form.get('role_name', '')).strip()
     new_status = str(request.form.get('account_status', '')).strip()
     login_name = identity.email[:-len('@pypondo.local')] if identity.email.endswith('@pypondo.local') else identity.email
@@ -5232,7 +5250,7 @@ def submit_loan_request(equipment_id):
     if raw_date and (due_at is None or due_at.date() < datetime.now().date()):
         flash('The return date cannot be a day before today.', 'error'); return redirect(url_for('borrower_dashboard'))
     db.session.add(EquipmentLoanRequest(equipment=item, borrower=current_user, purpose=purpose, needed_until=due_at))
-    db.session.commit(); flash('Borrow request sent to management for confirmation.', 'success')
+    db.session.commit(); flash('Borrow request sent to the IT technician for confirmation.', 'success')
     return redirect(url_for('borrower_dashboard'))
 
 
@@ -5243,18 +5261,18 @@ def request_equipment_return(transaction_id):
     if not current_user.can_borrow_equipment or not transaction:
         flash('Active borrowing record not found.', 'error'); return redirect(url_for('borrower_dashboard'))
     transaction.return_requested_at = datetime.now(); db.session.commit()
-    flash('Return submitted. Please bring the item to management for condition verification.', 'success')
+    flash('Return submitted. Please bring the item to the IT technician for condition verification.', 'success')
     return redirect(url_for('borrower_dashboard'))
 
 
-@app.route('/management/request/<int:request_id>/confirm', methods=['POST'])
+@app.route('/technician/request/<int:request_id>/confirm', methods=['POST'])
 @login_required
 def confirm_loan_request(request_id):
     if not current_user.is_management:
-        flash('Management confirmation is required for borrow tickets.', 'error'); return redirect(url_for('index'))
+        flash('IT technician confirmation is required for borrow tickets.', 'error'); return redirect(url_for('index'))
     loan_request = db.session.get(EquipmentLoanRequest, request_id)
     if not loan_request or loan_request.status != 'pending' or loan_request.equipment.status != 'available':
-        flash('This request can no longer be confirmed.', 'error'); return redirect(url_for('management_dashboard'))
+        flash('This request can no longer be confirmed.', 'error'); return redirect(url_for('equipment_dashboard', view='approvals'))
     now_dt = datetime.now()
     loan_request.status, loan_request.reviewed_by, loan_request.reviewed_at = 'approved', current_user, now_dt
     item = loan_request.equipment; item.status, item.accountable_to_id = 'borrowed', loan_request.borrower_id
@@ -5262,19 +5280,19 @@ def confirm_loan_request(request_id):
         borrowed_at=now_dt, due_at=loan_request.needed_until, condition_out=item.condition,
         notes=f'Confirmed request #{loan_request.id}: {loan_request.purpose}'))
     db.session.commit(); flash(f'Borrow ticket confirmed at {now_dt.strftime("%d %b %Y %H:%M:%S")}.', 'success')
-    return redirect(url_for('management_dashboard'))
+    return redirect(url_for('equipment_dashboard', view='approvals'))
 
 
-@app.route('/management/request/<int:request_id>/decline', methods=['POST'])
+@app.route('/technician/request/<int:request_id>/decline', methods=['POST'])
 @login_required
 def decline_loan_request(request_id):
     if not current_user.is_management:
-        flash('Management confirmation is required for borrow tickets.', 'error'); return redirect(url_for('index'))
+        flash('IT technician confirmation is required for borrow tickets.', 'error'); return redirect(url_for('index'))
     loan_request = db.session.get(EquipmentLoanRequest, request_id)
     if loan_request and loan_request.status == 'pending':
         loan_request.status, loan_request.reviewed_by, loan_request.reviewed_at = 'declined', current_user, datetime.now(); db.session.commit()
         flash('Borrow request declined.', 'info')
-    return redirect(url_for('management_dashboard'))
+    return redirect(url_for('equipment_dashboard', view='approvals'))
 
 
 @app.route('/dean/pcs')
@@ -5421,10 +5439,10 @@ def borrow_equipment(equipment_id):
 @login_required
 def return_equipment(transaction_id):
     if not current_user.is_management:
-        flash('Management confirmation is required for equipment returns.', 'error'); return redirect(url_for('index'))
+        flash('IT technician confirmation is required for equipment returns.', 'error'); return redirect(url_for('index'))
     transaction = db.session.get(EquipmentTransaction, transaction_id)
     if not transaction or transaction.returned_at:
-        flash('Transaction was not found or has already been returned.', 'error'); return redirect(url_for('management_dashboard'))
+        flash('Transaction was not found or has already been returned.', 'error'); return redirect(url_for('equipment_dashboard', view='approvals'))
     condition = str(request.form.get('condition_in', 'good')).strip()
     transaction.returned_at, transaction.condition_in = datetime.now(), condition
     transaction.return_confirmed_by = current_user
@@ -5434,7 +5452,7 @@ def return_equipment(transaction_id):
     transaction.equipment.status = 'available' if condition in {'new', 'good', 'fair'} else 'maintenance'
     db.session.add(AdminLog(admin_name=current_user.username, action=f'Returned {transaction.equipment.asset_tag} ({condition})'))
     db.session.commit(); flash('Return and post-use condition recorded.', 'success')
-    return redirect(url_for('management_dashboard'))
+    return redirect(url_for('equipment_dashboard', view='approvals'))
 
 
 @app.route('/equipment/<int:equipment_id>/issue', methods=['POST'])
@@ -5475,8 +5493,8 @@ def create_staff_account():
     if not (current_user.is_admin or current_user.is_dean):
         flash('Only the dean or an administrator can create staff accounts.', 'error'); return redirect(url_for('equipment_dashboard'))
     username, password = str(request.form.get('username', '')).strip(), str(request.form.get('password', ''))
-    role = str(request.form.get('role', 'it_staff')).strip()
-    allowed_roles = {'it_manager', 'it_staff', 'laboratory_custodian', 'instructor', 'dean'}
+    role = str(request.form.get('role', 'it_technician')).strip()
+    allowed_roles = {'it_technician', 'laboratory_custodian', 'instructor', 'dean'}
     if not username or len(password) < 8 or role not in allowed_roles or User.query.filter_by(username=username).first():
         flash('Use a unique username, an 8+ character password, and a valid staff role.', 'error'); return redirect(url_for('equipment_dashboard'))
     staff = User(username=username, full_name=str(request.form.get('full_name', '')).strip() or username, role=role)
@@ -5493,8 +5511,8 @@ def create_staff_account():
 @app.route('/rooms/network', methods=['POST'])
 @login_required
 def add_room_network():
-    if not (current_user.is_admin or current_user.role == 'it_manager'):
-        flash('Only IT managers or administrators can manage room networks.', 'error'); return redirect(url_for('equipment_dashboard'))
+    if not current_user.is_management:
+        flash('Only IT technicians or administrators can manage room networks.', 'error'); return redirect(url_for('equipment_dashboard'))
     room, cidr = str(request.form.get('room', '')).strip(), str(request.form.get('cidr', '')).strip()
     try: ipaddress.ip_network(cidr, strict=False)
     except ValueError: cidr = ''
@@ -5519,7 +5537,7 @@ def admin_start_public_route():
         flash(f"Public mobile route ready: {snapshot['url']}", "success")
     else:
         flash(snapshot.get("error") or "Unable to create a public mobile route.", "error")
-    return redirect(url_for('management_dashboard'))
+    return redirect(url_for('role_dashboard'))
 
 
 @app.route('/admin/public_route/stop', methods=['POST'])
@@ -5530,7 +5548,7 @@ def admin_stop_public_route():
 
     terminate_public_tunnel()
     flash("Public mobile route stopped.", "info")
-    return redirect(url_for('management_dashboard'))
+    return redirect(url_for('role_dashboard'))
 
 
 # --- ADMIN FEATURES ---
