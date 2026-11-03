@@ -4174,9 +4174,17 @@ def client_delete_booking(id):
     return redirect(url_for('client_bookings'))
 
 
+@app.route('/landing')
+def landing():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    return render_template('landing.html')
+
+
 @app.route('/')
-@login_required
 def index():
+    if not current_user.is_authenticated:
+        return render_template('landing.html')
     if (getattr(current_user, 'is_management', False)
             or getattr(current_user, 'can_manage_equipment', False)
             or getattr(current_user, 'can_borrow_equipment', False)):

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#071426">
+<title>TechPulse | IT Equipment Management</title>
+<style>
+:root{--bg:#071426;--panel:#0d2038;--text:#f4f8ff;--muted:#a8bad0;--blue:#328cff;--cyan:#43e0e8;--line:rgba(159,190,225,.16)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--text);background:radial-gradient(ellipse at 82% 12%,rgba(35,131,255,.16),transparent 34rem),radial-gradient(ellipse at 8% 42%,rgba(30,208,220,.08),transparent 30rem),var(--bg);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.6}a{color:inherit;text-decoration:none}.container{width:min(1120px,calc(100% - 40px));margin:auto}
+.topbar{position:sticky;top:0;z-index:10;background:rgba(7,20,38,.88);border-bottom:1px solid var(--line);backdrop-filter:blur(14px)}.nav{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:24px}.brand{display:flex;align-items:center;gap:11px;font-size:1.25rem;font-weight:800;letter-spacing:-.04em}.brand-mark{width:38px;height:38px;display:grid;place-items:center;border-radius:12px;color:#061629;font-weight:900;background:linear-gradient(135deg,var(--cyan),var(--blue))}.brand-logo {
+    width: 42px;
+    height: 42px;
+    object-fit: contain;
+    border-radius: 50%;
+}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;padding:12px 19px;border-radius:11px;border:1px solid transparent;font-weight:750;transition:transform .2s,filter .2s}.btn:hover{transform:translateY(-2px);filter:brightness(1.08)}.btn-primary{color:#041426;background:linear-gradient(110deg,var(--cyan),#55a4ff)}.btn-outline{border-color:rgba(116,174,235,.38);background:rgba(255,255,255,.025)}
+.hero{padding:88px 0 78px}.hero-grid{display:grid;grid-template-columns:1.08fr .92fr;align-items:center;gap:55px}.eyebrow{display:inline-flex;align-items:center;gap:9px;padding:7px 12px;border:1px solid rgba(67,224,232,.25);border-radius:999px;color:#8cecf0;background:rgba(67,224,232,.07);font-size:.8rem;font-weight:750;letter-spacing:.08em;text-transform:uppercase}.pulse{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 14px var(--cyan)}h1{max-width:690px;margin:22px 0 18px;font-size:clamp(2.65rem,5.7vw,4.7rem);line-height:1.04;letter-spacing:-.065em}.gradient-text{color:transparent;background:linear-gradient(95deg,var(--cyan),#68aaff 70%);background-clip:text;-webkit-background-clip:text}.hero-copy{max-width:570px;color:var(--muted);font-size:1.08rem}.hero-actions{display:flex;flex-wrap:wrap;gap:13px;margin-top:30px}.hero-note{margin-top:20px;color:#8197b2;font-size:.83rem}
+.visual-wrap{position:relative;min-width:0}.glow{position:absolute;inset:12% 4%;border-radius:50%;background:rgba(35,137,255,.2);filter:blur(55px)}.preview{position:relative;padding:22px;border:1px solid rgba(135,184,235,.25);border-radius:22px;background:linear-gradient(145deg,rgba(18,47,77,.96),rgba(9,26,47,.96));box-shadow:0 28px 90px rgba(0,0,0,.32);transform:perspective(1000px) rotateY(-5deg) rotateX(2deg)}.preview-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:22px}.preview-title{font-weight:800}.live-tag{color:#82e8d4;font-size:.75rem;padding:5px 9px;border-radius:99px;background:rgba(62,211,174,.1)}.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.stat{padding:16px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.035)}.stat small{color:var(--muted);display:block}.stat strong{display:block;margin-top:5px;font-size:1.75rem}.stat em{color:var(--cyan);font-style:normal;font-size:.75rem}.activity{margin-top:14px;padding:16px;border:1px solid var(--line);border-radius:14px}.activity-row{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--line);font-size:.83rem}.activity-row:last-child{border:0;padding-bottom:0}.activity-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:rgba(67,224,232,.1);color:var(--cyan)}.activity-row span:nth-child(2){flex:1}.activity-row small{color:var(--muted)}
+section{padding:74px 0}.section-head{max-width:660px;margin:0 auto 38px;text-align:center}.section-kicker{color:var(--cyan);font-size:.78rem;font-weight:800;letter-spacing:.13em;text-transform:uppercase}h2{margin:10px 0 12px;font-size:clamp(2rem,4vw,3rem);line-height:1.12;letter-spacing:-.05em}.section-head p,.muted{color:var(--muted)}.features{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.feature{min-height:205px;padding:24px;border:1px solid var(--line);border-radius:17px;background:linear-gradient(145deg,rgba(16,41,68,.8),rgba(10,28,49,.72))}.feature-icon{width:43px;height:43px;display:grid;place-items:center;border-radius:13px;color:var(--cyan);background:rgba(67,224,232,.09);font-size:1.25rem}.feature h3{margin:18px 0 7px;font-size:1.08rem}.feature p{margin:0;color:var(--muted);font-size:.91rem}
+.how{background:rgba(13,32,56,.55);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.step{padding:22px 18px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.025)}.step-number{color:var(--cyan);font-size:.8rem;font-weight:850;letter-spacing:.12em}.step h3{margin:9px 0 6px}.step p{margin:0;color:var(--muted);font-size:.88rem}.about-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:50px;align-items:center}.about-panel{padding:28px;border:1px solid var(--line);border-radius:18px;background:var(--panel)}.about-panel strong{color:var(--cyan)}.cta{padding:42px;border:1px solid rgba(67,224,232,.22);border-radius:22px;text-align:center;background:linear-gradient(120deg,rgba(22,83,135,.38),rgba(14,42,69,.8))}.cta p{color:var(--muted);margin:0 auto 23px;max-width:590px}footer{padding:27px 0;border-top:1px solid var(--line);color:#8398b1;font-size:.85rem}.footer-inner{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+@media(max-width:850px){.hero-grid,.about-grid{grid-template-columns:1fr}.hero{padding-top:62px}.visual-wrap{max-width:600px;margin:auto;width:100%}.features{grid-template-columns:repeat(2,1fr)}.steps{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.container{width:min(100% - 28px,1120px)}.nav{min-height:66px}.nav-links{gap:12px}.nav-links a:not(.btn){display:none}.hero{padding:50px 0 58px}.hero-grid{gap:36px}.features,.steps{grid-template-columns:1fr}.preview{padding:15px;transform:none}.stat{padding:12px}.cta{padding:30px 18px}section{padding:58px 0}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<header class="topbar">
+<div class="container nav">
+
+<a class="brand" href="{{ url_for('landing') }}">
+    <img src="{{ url_for('static', filename='inovision-logo.png') }}"
+         alt="InoVision Inc. Logo"
+         class="brand-logo"
+         onerror="this.style.display='none'">
+    <span>Tech<span class="brand-accent">Pulse</span></span>
+</a>
+
+<nav class="nav-links" aria-label="Main navigation"><a href="{{ url_for('landing') }}#home">Home</a><a href="{{ url_for('landing') }}#features">Features</a><a href="{{ url_for('landing') }}#how-it-works">How It Works</a><a href="{{ url_for('landing') }}#about">About</a><a class="btn btn-primary" href="{{ url_for('login') }}">Sign In →</a></nav>
+</div></header>
+<main>
+<section class="hero" id="home"><div class="container hero-grid"><div>
+<div class="eyebrow"><span class="pulse"></span> IT Department Equipment Management</div>
+<h1>Smarter equipment care starts with <span class="gradient-text">TechPulse.</span></h1>
+<p class="hero-copy">Monitor equipment, report issues, manage borrowing, and keep maintenance organized—all in one centralized system for the IT Department.</p>
+<div class="hero-actions"><a class="btn btn-primary" href="{{ url_for('login') }}">Get Started →</a><a class="btn btn-outline" href="#features">Explore Features</a></div>
+<p class="hero-note">One system. Clear records. Better equipment management.</p>
+</div>
+<div class="visual-wrap"><div class="glow"></div><div class="preview">
+<div class="preview-head"><div class="preview-title">Equipment Overview</div><span class="live-tag">● System concept</span></div>
+<div class="stats"><div class="stat"><small>Total Equipment</small><strong>—</strong><em>Asset records</em></div><div class="stat"><small>Available</small><strong>—</strong><em>Ready to use</em></div><div class="stat"><small>For Maintenance</small><strong>—</strong><em>Needs attention</em></div><div class="stat"><small>Active Reports</small><strong>—</strong><em>For monitoring</em></div></div>
+<div class="activity"><strong style="font-size:.9rem">System workflow</strong><div class="activity-row"><span class="activity-icon">▦</span><span>Equipment identification</span><small>QR / ID</small></div><div class="activity-row"><span class="activity-icon">＋</span><span>Issue and damage report</span><small>Report</small></div><div class="activity-row"><span class="activity-icon">⚙</span><span>Maintenance tracking</span><small>Repair</small></div></div>
+</div></div></div></section>
+<section id="features"><div class="container"><div class="section-head"><div class="section-kicker">What TechPulse offers</div><h2>Everything organized in one place.</h2><p>Helpful tools for monitoring IT Department equipment from identification to maintenance.</p></div>
+<div class="features">
+<article class="feature"><div class="feature-icon">▦</div><h3>Equipment Management</h3><p>Keep equipment records, IDs, availability, and condition organized.</p></article>
+<article class="feature"><div class="feature-icon">⌗</div><h3>QR Identification</h3><p>Identify equipment through its assigned QR code or tracking ID.</p></article>
+<article class="feature"><div class="feature-icon">▤</div><h3>Issue Reporting</h3><p>Submit equipment concerns with descriptions and supporting images.</p></article>
+<article class="feature"><div class="feature-icon">⚙</div><h3>Maintenance Tracking</h3><p>Follow maintenance requests, repair progress, and resolution records.</p></article>
+<article class="feature"><div class="feature-icon">⇄</div><h3>Borrowing and Returns</h3><p>Record borrowers and monitor equipment borrowing and return activity.</p></article>
+<article class="feature"><div class="feature-icon">▣</div><h3>Reports and Records</h3><p>Review equipment activity and maintain clear accountability records.</p></article>
+</div></div></section>
+<section class="how" id="how-it-works"><div class="container"><div class="section-head"><div class="section-kicker">Simple workflow</div><h2>From report to resolution.</h2><p>A clear process helps the IT Department respond to equipment concerns.</p></div>
+<div class="steps"><article class="step"><div class="step-number">STEP 01</div><h3>Identify</h3><p>Scan the QR code or use the equipment ID.</p></article><article class="step"><div class="step-number">STEP 02</div><h3>Report</h3><p>Submit the issue with a description and image.</p></article><article class="step"><div class="step-number">STEP 03</div><h3>Maintain</h3><p>Authorized personnel review and document the repair.</p></article><article class="step"><div class="step-number">STEP 04</div><h3>Resolve</h3><p>Update the status and keep the repair evidence on record.</p></article></div>
+</div></section>
+<section id="about"><div class="container about-grid"><div><div class="section-kicker">About the system</div><h2>Built to support a more organized IT Department.</h2><p class="muted">TechPulse is designed to make equipment monitoring, issue reporting, borrowing, and maintenance management easier to follow.</p></div><div class="about-panel"><p><strong>Our goal</strong></p><p class="muted">To provide a centralized way to track IT Department equipment, improve reporting, and keep maintenance and borrowing records clear and accountable.</p><p class="muted" style="margin-bottom:0">TechPulse — We keep equipment information within reach.</p></div></div></section>
+<section><div class="container"><div class="cta"><div class="section-kicker">Ready to get started?</div><h2>Keep your equipment in check.</h2><p>Sign in to access the TechPulse system and its available features.</p><a class="btn btn-primary" href="{{ url_for('login') }}">Sign In to TechPulse →</a></div></div></section>
+</main>
+<footer><div class="container footer-inner"><span>© 2026 TechPulse. IT Department Equipment Management System.</span><span>Organized equipment. Clear accountability.</span></div></footer>
+</body></html>
