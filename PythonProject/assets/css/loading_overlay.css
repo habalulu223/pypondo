@@ -1,0 +1,46 @@
+#pypondo-loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(36, 50, 71, 0.38);
+}
+#pypondo-loading-overlay.pypondo-loading-show {
+    display: flex !important;
+}
+.pypondo-loading-box {
+    max-width: min(340px, calc(100vw - 32px));
+    padding: 22px 24px;
+    border-radius: 16px;
+    background: #fff;
+    border: 1px solid #dfe5ee;
+    box-shadow: 0 8px 30px rgba(25, 42, 70, 0.12);
+    text-align: center;
+}
+.pypondo-loading-spinner {
+    width: 54px;
+    height: 54px;
+    margin: 0 auto 16px;
+    border: 5px solid #e3eaf4;
+    border-top-color: #315d91;
+    border-radius: 50%;
+    animation: pypondo-spin 1s linear infinite;
+}
+#pypondo-loading-message {
+    color: #243247;
+    font-family: Inter, "Segoe UI", Arial, sans-serif;
+    font-size: 0.95rem;
+    margin-bottom: 8px;
+}
+.pypondo-loading-timer {
+    color: #68778d;
+    font-family: Inter, "Segoe UI", Arial, sans-serif;
+    font-size: 0.85rem;
+    margin-top: 8px;
+    min-height: 16px;
+}
+@keyframes pypondo-spin {
+    to { transform: rotate(360deg); }
+}

@@ -6,110 +6,18 @@
     <title>Desktop Ready</title>
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root { --bg: #0b0c15; --card: #151922; --line: #e21f3d; --ok: #d91c39; --warn: #ff0055; --text: #e0e6ed; }
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; font-size: 17px; line-height: 1.45; padding: 18px; }
-        .top { display: flex; justify-content: space-between; align-items: center; gap: 14px; border-bottom: 2px solid var(--line); padding-bottom: 12px; margin-bottom: 18px; }
-        .top h1 { margin: 0; font-family: Inter, 'Segoe UI', Arial, sans-serif; font-size: 1.35rem; color: var(--line); letter-spacing: 1px; }
-        .top-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
-        .btn, .quick-amounts button, .btn.history-cancel {
-            display: inline-block;
-            text-decoration: none;
-            border: 1px solid var(--line);
-            color: var(--line);
-            background: #000;
-            padding: 12px 16px;
-            min-height: 46px;
-            border-radius: 6px;
-            font-size: 1rem;
-            font-weight: 700;
-            box-shadow: 0 0 14px rgba(226,31,61, 0.18);
-            transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-            cursor: pointer;
-            box-sizing: border-box;
-        }
-        .btn:hover, .quick-amounts button:hover, .btn.history-cancel:hover {
-            background: var(--line);
-            color: #000;
-            border-color: var(--line);
-            box-shadow: 0 0 24px rgba(226,31,61, 0.32);
-        }
-        .warn { border-color: var(--line); color: var(--line); }
-        .warn:hover { background: var(--line); color: #000; }
-        .history-cancel {
-            border-color: var(--line);
-            color: var(--line);
-        }
-        .history-cancel:hover { background: var(--line); color: #000; }
-        .flash { margin-bottom: 12px; padding: 12px; border: 1px solid var(--ok); border-radius: 6px; background: rgba(217,28,57, 0.08); color: var(--ok); font-weight: 700; }
-        .status { margin-bottom: 14px; padding: 18px; border: 1px solid #2d3650; border-radius: 8px; background: #101725; }
-        .status strong { color: var(--ok); }
-        .status-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 10px; }
-        .status-item { border: 1px solid #2d3650; border-radius: 8px; background: #0d1422; padding: 12px; }
-        .status-label { display: block; color: #9fbad6; font-size: 0.82rem; margin-bottom: 4px; }
-        .status-value { display: block; color: var(--text); font-size: 1.05rem; font-weight: 700; }
-        .grid { display: grid; grid-template-columns: minmax(320px, 1.4fr) minmax(280px, 0.9fr); gap: 16px; align-items: start; }
-        .card { border: 1px solid #2d3650; border-radius: 10px; background: #101725; padding: 16px; }
-        .desktop-tab {
-            width: auto;
-            height: 420px;
-            min-height: 240px;
-            resize: both;
-            overflow: auto;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            background: linear-gradient(180deg, #121a2a, #0d121d);
-            box-shadow: 0 0 20px rgba(226,31,61, 0.15);
-            padding: 16px;
-        }
-        .desktop-tab h2 { margin-top: 0; font-family: Inter, 'Segoe UI', Arial, sans-serif; color: var(--line); }
-        .desktop-tab p { margin: 0 0 10px; color: #c2d0de; }
-        .actions { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
-        .quick-amounts { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
-        .quick-amounts button { flex: 1 1 110px; border: 1px solid #52617f; background: #0e1422; color: var(--text); padding: 12px 10px; border-radius: 6px; cursor: pointer; }
-        .quick-amounts button:hover { border-color: var(--line); color: var(--line); }
-        .subtle { color: #a9bdd2; font-size: 0.95rem; line-height: 1.5; }
-        label { display: block; margin: 12px 0 5px; color: #c9d8e8; font-weight: 700; }
-        input:focus, .btn:focus, button:focus { outline: 3px solid rgba(226,31,61, 0.35); outline-offset: 2px; }
-        .history-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #29324a; font-size: 0.84rem; }
-        .history-main { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex: 1; min-width: 0; }
-        .history-main span:last-child { text-align: right; }
-        .history-action form { margin: 0; }
-        .history-cancel {
-            border-color: var(--warn);
-            color: var(--warn);
-            padding: 8px 10px;
-            min-height: 36px;
-            font-size: 0.82rem;
-        }
-        .history-cancel:hover { background: var(--warn); color: #fff; }
-        .btn:disabled, .btn.btn-disabled { 
-            opacity: 0.5; 
-            cursor: not-allowed; 
-            color: #888;
-            border-color: #666;
-            background: #1a1a1a;
-            box-shadow: none;
-        }
-        .btn:disabled:hover, .btn.btn-disabled:hover { 
-            background: #1a1a1a; 
-            color: #888; 
-            box-shadow: none;
-        }
-        @media (max-width: 900px) { .grid, .status-grid { grid-template-columns: 1fr; } .top { align-items: flex-start; flex-direction: column; } .top-actions { width: 100%; } .top-actions .btn, .top-actions button { flex: 1 1 180px; text-align: center; } }
-    </style>
-{% include '_dashboard_container_theme.html' %}</head>
-<body>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/client_desktop.css') }}">{% include '_dashboard_container_theme.html' %}</head>
+<body data-user-id="{{ current_user.id }}" data-hourly-rate="{{ hourly_rate|tojson }}" data-has-desktop-access="{{ (current_user.pondo >= 1)|tojson }}" data-current-balance="{{ current_user.pondo|tojson }}">
     {% include '_animated_background.html' %}
     {% include '_startup_splash.html' %}
     {% include '_loading_overlay.html' %}
     <div class="top">
         <h1>Desktop Ready</h1>
         <div class="top-actions">
-            <button type="button" class="btn minimize-timer-btn" onclick="handleMinimizeClickDesktop(event)">Go to Desktop</button>
+            <button type="button" class="btn minimize-timer-btn" data-action="minimize-desktop">Go to Desktop</button>
             <a class="btn" href="{{ url_for('client_bookings') }}">My Bookings</a>
             <a class="btn" href="{{ url_for('profile.profile_page') }}">My Profile</a>
-            <a class="btn warn" href="{{ url_for('logout') }}" onclick="clearDashboardTimerState()">Sign Out</a>
+            <a class="btn warn" href="{{ url_for('logout') }}" data-action="clear-timer-state">Sign Out</a>
         </div>
     </div>
 
@@ -140,7 +48,7 @@
                 <strong class="status-value" id="dashboard-timer-cost">PHP 0.00</strong>
             </div>
         </div>
-        <div class="subtle" id="dashboard-timer-note" style="margin-top:8px;">
+        <div class="u-style-1 subtle" id="dashboard-timer-note">
             Your time and cost update automatically while you use the PC.
         </div>
     </div>
@@ -154,32 +62,32 @@
         </div>
 
         <div class="card">
-            <h2 style="margin-top:0; font-family: Inter, 'Segoe UI', Arial, sans-serif; color: var(--line);">Add Balance</h2>
+            <h2> class="u-style-2"Add Balance</h2>
             <p>
                 Available balance:
                 <strong id="user-balance-bottom" data-balance-display>PHP {{ "%.2f"|format(current_user.pondo) }}</strong>
             </p>
             <form action="{{ url_for('topup_online') }}" method="POST" id="topup-form">
                 <label for="topupAmount">Amount to add</label>
-                <input id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Example: 100" required style="width:100%; box-sizing:border-box; margin: 0 0 8px; padding: 13px; min-height: 48px; border-radius: 6px; border: 1px solid #52617f; background: #0e1422; color: #fff; font-size:1rem;">
+                <input class="u-style-3" id="topupAmount" type="number" name="amount" min="1" max="10000" step="0.01" placeholder="Example: 100" required>
                 <input type="hidden" name="return_to" value="{{ url_for('client_desktop') }}">
                 <div class="quick-amounts">
-                    <button type="button" onclick="setTopup(100)">PHP 100</button>
-                    <button type="button" onclick="setTopup(200)">PHP 200</button>
-                    <button type="button" onclick="setTopup(500)">PHP 500</button>
-                    <button type="button" onclick="setTopup(1000)">PHP 1000</button>
+                    <button type="button" data-action="set-topup" data-amount="100">PHP 100</button>
+                    <button type="button" data-action="set-topup" data-amount="200">PHP 200</button>
+                    <button type="button" data-action="set-topup" data-amount="500">PHP 500</button>
+                    <button type="button" data-action="set-topup" data-amount="1000">PHP 1000</button>
                 </div>
-                <button type="submit" class="btn" style="width:100%; margin-top:10px;">Next: Pay</button>
+                <button type="submit" class="u-style-4 btn">Next: Pay</button>
             </form>
             <p class="subtle">Your balance updates after the payment is confirmed.</p>
 
-            <div style="margin-top: 16px;">
-                <h2 style="margin-bottom: 8px; font-size: 1rem;">Recent Payments</h2>
+            <div> class="u-style-5"
+                <h2> class="u-style-6"Recent Payments</h2>
                 {% if recent_payments %}
                     {% for tx in recent_payments %}
                         <div class="history-row">
                             <div class="history-main">
-                                <span style="color:#9fbad6;">{{ tx.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                <span> class="u-style-7"{{ tx.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
                                 <span style="color: {{ 'var(--ok)' if tx.status == 'paid' else ('var(--warn)' if tx.status == 'cancelled' else '#d3a961') }};">
                                     {{ tx.provider.replace('_', ' ')|upper }} | {{ tx.status|upper }} | PHP {{ "%.2f"|format(tx.amount) }}
                                 </span>
@@ -202,397 +110,22 @@
 
     <div class="actions">
         <a class="btn" href="{{ url_for('client_bookings') }}">My Bookings</a>
-        <button type="button" class="btn minimize-timer-btn" onclick="handleMinimizeClickDesktop(event)">Go to Desktop</button>
+        <button type="button" class="btn minimize-timer-btn" data-action="minimize-desktop">Go to Desktop</button>
     </div>
 
     <!-- Hidden termination dialog -->
-    <div id="terminate-dialog" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
-        <div style="background: var(--card); padding: 20px; border-radius: 8px; border: 2px solid var(--warn); max-width: 400px; width: 90%;">
-            <h3 style="color: var(--warn); margin-top: 0;">Terminate Client App</h3>
-            <p style="margin-bottom: 15px; color: var(--text);">Enter the secret key to terminate the application:</p>
-            <input type="password" id="secret-key" style="width: 100%; padding: 10px; margin-bottom: 15px; background: #0e1422; border: 1px solid #37415f; color: #fff; border-radius: 4px;" placeholder="Enter secret key">
-            <div style="display: flex; gap: 10px;">
-                <button id="terminate-btn" style="flex: 1; background: var(--warn); color: #fff; border: none; padding: 10px; border-radius: 4px; cursor: pointer;">Terminate</button>
-                <button id="cancel-btn" style="flex: 1; background: transparent; color: var(--text); border: 1px solid #37415f; padding: 10px; border-radius: 4px; cursor: pointer;">Cancel</button>
+    <div class="u-style-8" id="terminate-dialog">
+        <div> class="u-style-9"
+            <h3> class="u-style-10"Terminate Client App</h3>
+            <p> class="u-style-11"Enter the secret key to terminate the application:</p>
+            <input class="u-style-12" type="password" id="secret-key" placeholder="Enter secret key">
+            <div> class="u-style-13"
+                <button class="u-style-14" id="terminate-btn">Terminate</button>
+                <button class="u-style-15" id="cancel-btn">Cancel</button>
             </div>
         </div>
     </div>
 
-    <script>
-        function withPywebviewApi(callback) {
-            function attempt() {
-                if (window.pywebview && window.pywebview.api) {
-                    callback(window.pywebview.api);
-                    return true;
-                }
-                return false;
-            }
-
-            if (attempt()) {
-                return;
-            }
-
-            window.addEventListener('pywebviewready', function () {
-                attempt();
-            }, { once: true });
-
-            setTimeout(attempt, 200);
-            setTimeout(attempt, 1000);
-        }
-
-        var dashboardTimer = (function () {
-            var storageKey = 'pypondo.timer.started_at.user.{{ current_user.id }}';
-            var hourlyRate = {{ hourly_rate|tojson }};
-            var hasDesktopAccess = {{ (current_user.pondo >= 1)|tojson }};
-            // Expose a global flag to reliably check access from other helpers
-            window._pypondo_has_desktop_access = Boolean(hasDesktopAccess);
-            var timeNode = document.getElementById('dashboard-timer-time');
-            var costNode = document.getElementById('dashboard-timer-cost');
-
-            function readStartedAt() {
-                var rawValue = window.localStorage.getItem(storageKey);
-                var parsedValue = parseInt(rawValue, 10);
-                return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
-            }
-
-            function setAccessState(unlocked) {
-                hasDesktopAccess = Boolean(unlocked);
-                window._pypondo_has_desktop_access = Boolean(unlocked);
-            }
-
-            function ensureStartedAt() {
-                if (!hasDesktopAccess) {
-                    return null;
-                }
-                var startedAt = readStartedAt();
-                if (!startedAt) {
-                    startedAt = Date.now();
-                    window.localStorage.setItem(storageKey, String(startedAt));
-                }
-                return startedAt;
-            }
-
-            function formatElapsed(elapsedMs) {
-                var totalSeconds = Math.max(Math.floor(elapsedMs / 1000), 0);
-                var hours = Math.floor(totalSeconds / 3600);
-                var minutes = Math.floor((totalSeconds % 3600) / 60);
-                var seconds = totalSeconds % 60;
-                return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
-            }
-
-            function render() {
-                if (!hasDesktopAccess) {
-                    window.localStorage.removeItem(storageKey);
-                    timeNode.textContent = '00:00:00';
-                    costNode.textContent = 'PHP 0.00';
-                    // Ensure desktop timer process is stopped when access revoked
-                    try {
-                        if (window.pywebview && window.pywebview.api && window.pywebview.api.stop_timer) {
-                            window.pywebview.api.stop_timer();
-                        }
-                    } catch (e) {}
-                    try { updateDesktopAccessUI(false); } catch (e) {}
-                    return;
-                }
-
-                var startedAt = ensureStartedAt();
-                var elapsedMs = Math.max(Date.now() - startedAt, 0);
-                timeNode.textContent = formatElapsed(elapsedMs);
-                costNode.textContent = 'PHP ' + ((elapsedMs / 3600000) * hourlyRate).toFixed(2);
-            }
-
-            render();
-            window.setInterval(render, 1000);
-
-            return {
-                ensureStartedAt: ensureStartedAt,
-                setAccessState: setAccessState,
-                clear: function () {
-                    window.localStorage.removeItem(storageKey);
-                    timeNode.textContent = '00:00:00';
-                    costNode.textContent = 'PHP 0.00';
-                }
-            };
-        })();
-
-        var currentBalance = Number({{ current_user.pondo|tojson }});
-        var lowBalanceThreshold = 10;
-
-        function updateDesktopAccessUI(unlocked) {
-            var btns = document.querySelectorAll('.minimize-timer-btn');
-            btns.forEach(function(b) {
-                try {
-                    var hasMinimizeBalance = currentBalance > 0;
-                    b.disabled = false;
-                    b.classList.toggle('btn-disabled', !hasMinimizeBalance);
-                    b.setAttribute('aria-disabled', hasMinimizeBalance ? 'false' : 'true');
-                    if (!hasMinimizeBalance) {
-                        b.title = 'No balance available';
-                    } else if (currentBalance < lowBalanceThreshold) {
-                        b.title = 'Low balance: PHP ' + currentBalance.toFixed(2);
-                    } else {
-                        b.title = '';
-                    }
-                } catch (e) {}
-            });
-
-            var note = document.getElementById('desktop-access-note');
-            if (note) {
-                note.textContent = unlocked ? 'You have enough balance to use this PC.' : 'Please add balance before using this PC.';
-            }
-
-            // Hide top-up form elements when balance is zero
-            var topupForm = document.getElementById('topup-form');
-            if (topupForm) {
-                topupForm.style.display = unlocked ? '' : 'none';
-            }
-        }
-
-        // Initialize UI state based on initial server-rendered access
-        try { updateDesktopAccessUI(hasDesktopAccess); } catch (e) {}
-
-        function startTimerIfAvailable() {
-            var startedAt = dashboardTimer ? dashboardTimer.ensureStartedAt() : null;
-            if (!startedAt) {
-                return;
-            }
-            withPywebviewApi(function (api) {
-                if (api.start_timer) {
-                    api.start_timer(startedAt);
-                }
-            });
-        }
-
-        startTimerIfAvailable();
-
-        function ensureTimerOnClose() {
-            var startedAt = dashboardTimer ? dashboardTimer.ensureStartedAt() : null;
-            if (!startedAt) {
-                return;
-            }
-            withPywebviewApi(function (api) {
-                if (api.start_timer) {
-                    api.start_timer(startedAt);
-                }
-            });
-        }
-
-        window.addEventListener('beforeunload', ensureTimerOnClose);
-        window.addEventListener('pagehide', ensureTimerOnClose);
-
-        function clearDashboardTimerState() {
-            if (dashboardTimer) {
-                dashboardTimer.clear();
-            }
-            withPywebviewApi(function (api) {
-                if (api.stop_timer) {
-                    api.stop_timer();
-                }
-            });
-            return true;
-        }
-
-        function chargeBalance() {
-            fetch('/api/charge-balance', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            })
-            .then(function (response) {
-                return response.json();
-            })
-            .then(function (result) {
-                if (!result.ok) {
-                    console.warn('Charge balance failed:', result.message);
-                }
-            })
-            .catch(function (error) {
-                console.warn('Charge balance request failed:', error);
-            });
-        }
-
-        {% if current_user.pondo >= 1 %}
-        setTimeout(chargeBalance, 5000);
-        setInterval(chargeBalance, 60000);
-        {% endif %}
-
-        var lastLowBalanceWarningTime = 0;
-        var lastLowBalance = null;
-
-        function refreshSessionStatus() {
-            fetch('/api/session-status', {
-                method: 'GET',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            })
-            .then(function (response) {
-                return response.json();
-            })
-            .then(function (result) {
-                if (result.ok) {
-                    // Update balance displays
-                    currentBalance = Number(result.balance);
-                    var balanceText = 'PHP ' + currentBalance.toFixed(2);
-                    var topBalanceElement = document.getElementById('user-balance-top');
-                    var bottomBalanceElement = document.getElementById('user-balance-bottom');
-                    var balanceElements = document.querySelectorAll('[data-balance-display]');
-                    if (topBalanceElement) {
-                        topBalanceElement.textContent = balanceText;
-                    }
-                    if (bottomBalanceElement) {
-                        bottomBalanceElement.textContent = balanceText;
-                    }
-                    balanceElements.forEach(function (element) {
-                        if (element && element !== topBalanceElement && element !== bottomBalanceElement) {
-                            element.textContent = balanceText;
-                        }
-                    });
-
-                    if (dashboardTimer && typeof dashboardTimer.setAccessState === 'function') {
-                        dashboardTimer.setAccessState(currentBalance >= 1);
-                        try { updateDesktopAccessUI(currentBalance >= 1); } catch (e) {}
-                    }
-
-                    if (currentBalance >= 1) {
-                        startTimerIfAvailable();
-                    } else if (window.pywebview && window.pywebview.api && window.pywebview.api.stop_timer) {
-                        dashboardTimer.clear();
-                        window.pywebview.api.stop_timer();
-                        try { updateDesktopAccessUI(false); } catch (e) {}
-                    }
-
-                    // Update cost display if we have session data
-                    if (result.has_session) {
-                        var costElement = document.getElementById('dashboard-timer-cost');
-                        if (costElement) {
-                            costElement.textContent = 'PHP ' + result.cost.toFixed(2);
-                        }
-                    }
-
-                    // Low balance warning (max 1 warning per 30 seconds)
-                    if (currentBalance > 0 && currentBalance < lowBalanceThreshold) {
-                        var now = Date.now();
-                        if (now - lastLowBalanceWarningTime > 30000 || lastLowBalance !== currentBalance) {
-                            var minimizeBtn = document.querySelector('.minimize-timer-btn');
-                            if (minimizeBtn) {
-                                minimizeBtn.title = 'Low balance: ' + balanceText;
-                            }
-                            lastLowBalanceWarningTime = now;
-                            lastLowBalance = currentBalance;
-                        }
-                    }
-                }
-            })
-            .catch(function (error) {
-                console.warn('Session status refresh failed:', error);
-            });
-        }
-
-        // Refresh session status every 3 seconds for live updates
-        setInterval(refreshSessionStatus, 3000);
-        // Initial refresh
-        setTimeout(refreshSessionStatus, 1000);
-
-        function handleMinimizeClickDesktop(event) {
-            if (currentBalance <= 0) {
-                event.preventDefault();
-                event.stopPropagation();
-                alert('You have no balance in your account. Please top up to use the desktop.');
-                return false;
-            }
-            if (currentBalance < lowBalanceThreshold) {
-                alert('Your balance is low. Please top up soon. Recommended minimum balance is PHP ' + lowBalanceThreshold.toFixed(2) + '.');
-            }
-            minimizeClientApp();
-            return true;
-        }
-
-        function minimizeClientApp() {
-            withPywebviewApi(function (api) {
-                if (api.minimize) {
-                    Promise.resolve(api.minimize())
-                        .catch(function (e) {
-                            console.warn('Minimize API failed:', e);
-                            if (typeof window.close === 'function') {
-                                window.close();
-                            } else {
-                                window.blur();
-                            }
-                        });
-                    return;
-                }
-                if (typeof window.close === 'function') {
-                    window.close();
-                } else {
-                    window.blur();
-                }
-            });
-        }
-        
-
-        function setTopup(amount) {
-            var field = document.getElementById('topupAmount');
-            if (field) {
-                field.value = amount;
-            }
-        }
-
-        // Termination dialog functionality
-        let terminateDialog = document.getElementById('terminate-dialog');
-        let secretKeyInput = document.getElementById('secret-key');
-        let terminateBtn = document.getElementById('terminate-btn');
-        let cancelBtn = document.getElementById('cancel-btn');
-
-        // Listen for Ctrl+Shift+T to show termination dialog
-        document.addEventListener('keydown', function(event) {
-            if (event.ctrlKey && event.shiftKey && event.key === 'T') {
-                event.preventDefault();
-                terminateDialog.style.display = 'flex';
-                secretKeyInput.focus();
-            }
-        });
-
-        // Handle terminate button click
-        terminateBtn.addEventListener('click', function() {
-            let secretKey = secretKeyInput.value.trim();
-            if (window.pywebview && window.pywebview.api && window.pywebview.api.terminate) {
-                let result = window.pywebview.api.terminate(secretKey);
-                if (result) {
-                    terminateDialog.style.display = 'none';
-                    alert('Application will terminate.');
-                } else {
-                    alert('Invalid secret key!');
-                    secretKeyInput.value = '';
-                    secretKeyInput.focus();
-                }
-            }
-        });
-
-        // Handle cancel button click
-        cancelBtn.addEventListener('click', function() {
-            terminateDialog.style.display = 'none';
-            secretKeyInput.value = '';
-        });
-
-        // Handle Enter key in input
-        secretKeyInput.addEventListener('keydown', function(event) {
-            if (event.key === 'Enter') {
-                terminateBtn.click();
-            } else if (event.key === 'Escape') {
-                cancelBtn.click();
-            }
-        });
-
-        // Close dialog when clicking outside
-        terminateDialog.addEventListener('click', function(event) {
-            if (event.target === terminateDialog) {
-                cancelBtn.click();
-            }
-        });
-    </script>
+    <script src="{{ url_for('static', filename='js/client_desktop.js') }}" defer></script>
 </body>
 </html>

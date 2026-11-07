@@ -6,115 +6,8 @@
     <title>CyberCore Cafe</title>
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root { --bg-color: #0b0c15; --card-bg: #151922; --neon-blue: #e21f3d; --neon-red: #ff0055; --neon-green: #d91c39; --text-main: #e0e6ed; }
-        body { background-color: var(--bg-color); color: var(--text-main); font-family: 'Roboto', sans-serif; margin: 0; padding: 20px; }
-        h1, h2, h3 { font-family: Inter, 'Segoe UI', Arial, sans-serif; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 20px; }
-
-        .top-bar { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--neon-blue); padding-bottom: 15px; margin-bottom: 30px; }
-        .top-bar h1 { border: none; margin: 0; padding: 0; text-align: left; font-size: 1.8em; text-shadow: 0 0 10px rgba(226,31,61, 0.5); }
-
-        .container { display: flex; flex-wrap: wrap; gap: 30px; max-width: 1200px; margin: 0 auto; }
-        .section { flex: 1; min-width: 300px; }
-
-        .alert { padding: 15px; margin-bottom: 20px; background: rgba(217,28,57, 0.1); border: 1px solid var(--neon-green); color: var(--neon-green); border-radius: 5px; text-align: center; font-weight: bold; }
-
-        .pc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
-        .card { background-color: var(--card-bg); border: 1px solid #333; border-radius: 8px; padding: 20px; position: relative; transition: transform 0.3s, box-shadow 0.3s; overflow: hidden; }
-        .card:hover { transform: translateY(-5px); }
-
-        .free { border-color: var(--neon-blue); box-shadow: 0 0 10px rgba(226,31,61, 0.1); }
-        .occupied { border-color: var(--neon-red); box-shadow: 0 0 10px rgba(255, 0, 85, 0.1); }
-
-        .status-badge { display: inline-block; padding: 5px 10px; border-radius: 4px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; }
-        .free .status-badge { background: rgba(226,31,61, 0.2); color: var(--neon-blue); }
-        .occupied .status-badge { background: rgba(255, 0, 85, 0.2); color: var(--neon-red); }
-
-        input[type="text"], input[type="number"], input[type="date"], input[type="time"] { width: 100%; padding: 10px; margin: 5px 0; background: #0b0c15; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
-        select { width: 100%; padding: 10px; margin: 5px 0; background: #0b0c15; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
-        input:focus { outline: none; border-color: var(--neon-blue); }
-        input[type="date"], input[type="time"] { color-scheme: dark; }
-        input[type="date"]::-webkit-calendar-picker-indicator,
-        input[type="time"]::-webkit-calendar-picker-indicator { filter: brightness(0) invert(1); opacity: 1; cursor: pointer; }
-        input[type="date"]::-webkit-clear-button,
-        input[type="date"]::-webkit-inner-spin-button,
-        input[type="time"]::-webkit-clear-button,
-        input[type="time"]::-webkit-inner-spin-button { display: none; }
-
-        button, .btn { background: transparent; border: 1px solid var(--neon-blue); color: var(--neon-blue); padding: 10px 20px; cursor: pointer; text-transform: uppercase; font-family: Inter, 'Segoe UI', Arial, sans-serif; font-size: 0.9em; transition: 0.3s; display: inline-block; text-decoration: none; margin-top: 10px; }
-        button:hover, .btn:hover { background: var(--neon-blue); color: #000; box-shadow: 0 0 15px var(--neon-blue); }
-
-        .btn-red { border-color: var(--neon-red); color: var(--neon-red); width: 100%; text-align: center; box-sizing: border-box; }
-        .btn-red:hover { background: var(--neon-red); color: white; box-shadow: 0 0 15px var(--neon-red); }
-
-        .add-pc-btn { font-size: 0.6em; padding: 5px 10px; margin-left: 15px; border-color: #d91c39; color: #d91c39; vertical-align: middle; }
-
-        .walk-in-link { display: block; font-size: 0.9em; color: #888; margin-top: 5px; text-decoration: none; border-bottom: 1px solid #444; padding: 5px 0; }
-        .walk-in-link:hover { color: white; border-color: white; }
-
-        table { width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 8px; overflow: hidden; }
-        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #333; }
-        th { background: #1f2430; color: var(--neon-green); font-family: Inter, 'Segoe UI', Arial, sans-serif; }
-        tr:hover { background: #1f2430; }
-        .btn-big { width: 100%; padding: 16px 22px; font-size: 1rem; border-radius: 12px; }
-        .nav-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 18px; }
-        .big-action-card { border: 1px solid #253047; border-radius: 16px; padding: 18px; background: rgba(255,255,255,0.04); margin-bottom: 18px; }
-        .big-action-card p { margin: 8px 0 0; color: #9db0c6; font-size: 0.95rem; }
-        .user-guidance { background: rgba(217,28,57, 0.08); border: 1px solid rgba(217,28,57, 0.3); border-radius: 14px; padding: 16px; margin-bottom: 18px; color: #e8f7ef; }
-        .user-guidance strong { color: #ffffff; }
-        .friendly-note { font-size: 0.95rem; color: #c8f7de; line-height: 1.5; }
-        .status-badge { display: inline-block; padding: 8px 12px; border-radius: 999px; font-size: 0.9em; font-weight: bold; text-transform: uppercase; letter-spacing: 0.6px; }
-        .free .status-badge { background: rgba(226,31,61, 0.18); color: var(--neon-blue); }
-        .occupied .status-badge { background: rgba(255, 0, 85, 0.18); color: var(--neon-red); }
-        .card h3 { margin: 0 0 12px; font-size: 1.2rem; }
-        .card p, .card small { font-size: 0.92rem; }
-        .card button, .card .btn { border-radius: 12px; }
-        .card button[type="submit"] { font-size: 1rem; padding: 14px 0; }
-        .very-simple-label { display: block; font-size: 0.95rem; margin-bottom: 6px; color: #9db0c6; }
-        .booking-date-input, .booking-time-input { font-size: 1rem; padding: 14px 12px; border-radius: 10px; }
-        .booking-form button { margin-top: 12px; }
-        .pairing-card { margin-bottom: 18px; border: 1px solid rgba(226,31,61, 0.22); border-radius: 14px; padding: 14px; background: rgba(7, 12, 20, 0.82); }
-        .pairing-card h3 { margin: 6px 0 10px; font-size: 1rem; }
-        .pairing-card p { margin: 0 0 12px; color: #9db0c6; font-size: 0.9rem; line-height: 1.45; }
-        .pairing-grid { display: grid; gap: 14px; }
-        .pairing-qr { width: min(100%, 240px); aspect-ratio: 1; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: #fff; padding: 10px; box-sizing: border-box; }
-        .pairing-qr img { width: 100%; height: 100%; object-fit: contain; display: block; }
-        .pc-qr-link { display:inline-flex; align-items:center; gap:7px; margin:2px 0 10px; padding:8px 11px; border:1px solid #d7e2f0; border-radius:9px; background:#eaf1fa; color:#315d91!important; text-decoration:none; font-size:.82rem; font-weight:750; }
-        .pc-qr-link:hover { background:#dfeafa; }
-        .status-chart { margin:8px 0 22px; padding:18px 20px; border:1px solid rgba(135,163,193,.28); border-radius:14px; background:rgba(13,22,34,.88); box-shadow:0 10px 30px rgba(0,0,0,.14); }
-        .status-chart-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
-        .status-chart-heading h3 { margin:0; font:700 1rem 'Roboto',sans-serif; letter-spacing:.3px; text-transform:none; }
-        .status-chart-heading p { margin:4px 0 0; color:#91a4b9; font-size:.82rem; }
-        .status-chart-heading > strong { color:#cfe0f2; font-size:.85rem; }
-        .status-chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px 20px; }
-        .status-chart-label { display:flex; justify-content:space-between; gap:8px; margin-bottom:7px; color:#c3d0df; font-size:.85rem; }
-        .status-chart-label b { color:#fff; }
-        .status-chart-track { height:9px; overflow:hidden; border-radius:99px; background:#263446; }
-        .status-chart-track span { display:block; height:100%; min-width:0; border-radius:inherit; transition:width .35s ease; }
-        .pairing-address { display: inline-block; padding: 8px 10px; border-radius: 10px; background: rgba(226,31,61, 0.12); border: 1px solid rgba(226,31,61, 0.18); color: #eafcff; font-family: Consolas, monospace; font-size: 0.9rem; word-break: break-all; }
-        .pairing-links { display: grid; gap: 8px; margin-top: 12px; }
-        .pairing-links a { margin-top: 0; text-align: center; }
-        .pairing-alt-list { margin-top: 12px; display: grid; gap: 8px; }
-        .pairing-alt-item { padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); color: #c8d6e5; font-size: 0.84rem; word-break: break-all; }
-        .admin-profile-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 15px; }
-        .admin-profile-tab { width: 100%; min-height: 42px; margin-top: 0; padding: 10px 12px; box-sizing: border-box; text-align: center; border-color: #4d6078; color: #9db0c6; }
-        .admin-profile-tab.active { border-color: var(--neon-blue); color: var(--neon-blue); background: rgba(226,31,61, 0.1); }
-        .admin-tab-panel[hidden] { display: none; }
-        .admin-pc-list { display: grid; gap: 12px; margin-bottom: 15px; }
-        .admin-pc-panel { border: 1px solid #333; border-radius: 8px; padding: 12px; background: rgba(255,255,255,0.025); }
-        .admin-pc-panel.free { border-color: rgba(226,31,61, 0.55); }
-        .admin-pc-panel.occupied { border-color: rgba(255, 0, 85, 0.55); }
-        .admin-pc-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
-        .admin-pc-head h3 { margin: 0; font-size: 1rem; }
-        .admin-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-        .admin-action-grid .full-row { grid-column: 1 / -1; }
-        .admin-fixed-btn { width: 100%; min-height: 42px; margin-top: 0; padding: 10px 12px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; text-align: center; font-size: 0.74rem; line-height: 1.15; }
-        .admin-inline-form { display: grid; gap: 8px; margin-top: 8px; }
-        .admin-inline-form button { width: 100%; }
-        @media (min-width: 720px) { .pairing-grid { grid-template-columns: 240px minmax(0, 1fr); align-items: start; } }
-    </style>
-{% include '_dashboard_container_theme.html' %}</head>
-<body>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">{% include '_dashboard_container_theme.html' %}</head>
+<body data-booking-lead-minutes="{{ booking_lead_minutes|tojson }}">
     {% include '_dashboard_nav.html' %}
     {% include '_startup_splash.html' %}
     {% include '_loading_overlay.html' %}
@@ -122,12 +15,12 @@
     <div class="top-bar">
         <h1>{% if current_user.is_admin %}CyberCore // System Dashboard{% else %}Hello {{ current_user.username }} — Your Dashboard{% endif %}</h1>
         <div>
-            <span style="color:#aaa; margin-right:15px; font-size: 0.9em;">
-                Logged in as: <strong style="color: white;">{{ current_user.username }}</strong>
-                {% if current_user.is_admin %} <span style="color: var(--neon-red);">(ADMIN)</span> {% endif %}
+            <span> class="u-style-1"
+                Logged in as: <strong> class="u-style-2"{{ current_user.username }}</strong>
+                {% if current_user.is_admin %} <span> class="u-style-3"(ADMIN)</span> {% endif %}
             </span>
-            {% if current_user.is_admin and mobile_pairing_primary %}<a class="btn" href="{{ url_for('mobile_pairing_page') }}" style="font-size:.72rem;padding:6px 9px;margin-right:8px;">PHONE QR</a>{% endif %}
-            <a href="/logout" style="color:var(--neon-red); text-decoration:none; border:1px solid var(--neon-red); padding:5px 10px; font-size:0.8em; border-radius: 4px;">LOGOUT</a>
+            {% if current_user.is_admin and mobile_pairing_primary %}<a class="u-style-4 btn" href="{{ url_for('mobile_pairing_page') }}">PHONE QR</a>{% endif %}
+            <a class="u-style-5" href="/logout">LOGOUT</a>
         </div>
     </div>
 
@@ -141,20 +34,20 @@
 
     <div class="container">
 
-        <div class="section" style="flex: 2;">
-            <div style="display:flex; align-items:center;">
+        <div class="u-style-6 section">
+            <div> class="u-style-7"
                 <h2>Station Status</h2>
             </div>
             {% if current_user.is_admin %}
-            <div style="display:flex; align-items:center; margin-top: 10px; margin-bottom: 20px;">
-                <a href="/admin/download_app" class="btn add-pc-btn" style="margin-right: 10px;">{{ combined_download_label }}</a>
-                <a href="/admin/download_android_app" class="btn add-pc-btn" style="margin-right: 10px;">{{ android_download_label }}</a>
-                <a href="/add_pc" class="btn add-pc-btn" style="margin-right: 10px;">+ ADD NEW PC</a>
-                <a href="/admin/refresh_ips" class="btn add-pc-btn" style="border-color: #ffd166; color: #ffd166; margin-right: 10px;">REFRESH IPs</a>
-                <a href="/admin/auto_assign_ips" class="btn add-pc-btn" style="margin-right: 10px;">AUTO ASSIGN IPs</a>
-                <button id="terminate-sys-btn" class="btn add-pc-btn" style="border-color: #ff6b6b; color: #ff6b6b; margin-right: 10px;">TERMINATE SYSTEM</button>
+            <div> class="u-style-8"
+                <a href="/admin/download_app" class="u-style-9 btn add-pc-btn">{{ combined_download_label }}</a>
+                <a href="/admin/download_android_app" class="u-style-9 btn add-pc-btn">{{ android_download_label }}</a>
+                <a href="/add_pc" class="u-style-9 btn add-pc-btn">+ ADD NEW PC</a>
+                <a href="/admin/refresh_ips" class="u-style-10 btn add-pc-btn">REFRESH IPs</a>
+                <a href="/admin/auto_assign_ips" class="u-style-9 btn add-pc-btn">AUTO ASSIGN IPs</a>
+                <button id="terminate-sys-btn" class="u-style-11 btn add-pc-btn">TERMINATE SYSTEM</button>
             </div>
-            <p style="margin-top: -10px; margin-bottom: 20px; font-size: 0.8em; color: #8ea4bb;">{{ android_download_note }}</p>
+            <p> class="u-style-12"{{ android_download_note }}</p>
             {% endif %}
 
             {% if current_user.is_admin %}
@@ -172,39 +65,39 @@
             <div class="pc-grid">
                 {% for pc in pcs %}
                 <div class="card {{ 'occupied' if pc.dashboard_in_use else 'free' }}">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div> class="u-style-13"
                         <h3>{{ pc.name }}</h3>
                         <span class="status-badge">{{ 'In Use' if pc.dashboard_in_use else 'Ready' }}</span>
                     </div>
                     {% if current_user.is_admin %}
-                        <p style="color:#bbb; font-size:0.85em; margin: 4px 0 8px;">
-                            LAN Target: <strong style="color:white;">{{ (pc.lan_ip ~ ':' ~ pc.lan_port) if pc.lan_ip and pc.lan_port else (pc.lan_ip if pc.lan_ip else 'Not assigned') }}</strong>
+                        <p> class="u-style-14"
+                            LAN Target: <strong> class="u-style-15"{{ (pc.lan_ip ~ ':' ~ pc.lan_port) if pc.lan_ip and pc.lan_port else (pc.lan_ip if pc.lan_ip else 'Not assigned') }}</strong>
                         </p>
                         <a class="pc-qr-link" href="{{ url_for('admin_pc_qr', pc_id=pc.id) }}">▦ View / Print PC QR</a>
                         <form action="/admin/set_pc_ip/{{ pc.id }}" method="POST">
                             <input type="text" name="lan_ip" placeholder="Set LAN IP (blank to clear)" value="{{ pc.lan_ip or '' }}">
-                            <button type="submit" style="width:100%">Save LAN IP</button>
+                            <button class="u-style-16" type="submit">Save LAN IP</button>
                         </form>
                     {% endif %}
 
                     {% if pc.dashboard_in_use %}
                         {% if pc.dashboard_session %}
-                            <p style="color: #aaa; font-size: 0.9em;">Logged In: <strong style="color:white;">{{ pc.dashboard_session_username or ('User #' ~ pc.dashboard_session.user_id) }}</strong></p>
-                            <p style="color: #777; font-size: 0.82em;">User ID: #{{ pc.dashboard_session.user_id }}</p>
-                            <p style="color: #aaa; font-size: 0.9em;">Started: {{ pc.dashboard_session.start_time.strftime('%H:%M') }}</p>
-                            <p style="color: #aaa; font-size: 0.9em;">Used For: <strong style="color:white;">{{ pc.dashboard_usage_duration_text }}</strong></p>
+                            <p> class="u-style-17"Logged In: <strong> class="u-style-15"{{ pc.dashboard_session_username or ('User #' ~ pc.dashboard_session.user_id) }}</strong></p>
+                            <p> class="u-style-18"User ID: #{{ pc.dashboard_session.user_id }}</p>
+                            <p> class="u-style-17"Started: {{ pc.dashboard_session.start_time.strftime('%H:%M') }}</p>
+                            <p> class="u-style-17"Used For: <strong> class="u-style-15"{{ pc.dashboard_usage_duration_text }}</strong></p>
                             {% if current_user.is_admin %}
                                 <a href="/end_session/{{ pc.dashboard_session.id }}" class="btn btn-red">END SESSION</a>
                             {% else %}
-                                <p style="color: var(--neon-red); font-size: 0.8em; margin-top: 10px;">SESSION ACTIVE</p>
+                                <p> class="u-style-19"SESSION ACTIVE</p>
                             {% endif %}
                         {% elif pc.dashboard_online %}
-                            <p style="color: var(--neon-green); font-size: 0.9em;">PC is online and treated as in use.</p>
-                            <p style="color: #aaa; font-size: 0.9em;">Online Since: {{ pc.dashboard_usage_started_text }}</p>
-                            <p style="color: #aaa; font-size: 0.9em;">Used For: {{ pc.dashboard_usage_duration_text }}</p>
+                            <p> class="u-style-20"PC is online and treated as in use.</p>
+                            <p> class="u-style-17"Online Since: {{ pc.dashboard_usage_started_text }}</p>
+                            <p> class="u-style-17"Used For: {{ pc.dashboard_usage_duration_text }}</p>
                         {% else %}
-                            <p style="color: #aaa; font-size: 0.9em;">Marked occupied in admin.</p>
-                            <p style="color: #777; font-size: 0.84em;">No active session start time is available for this PC.</p>
+                            <p> class="u-style-17"Marked occupied in admin.</p>
+                            <p> class="u-style-21"No active session start time is available for this PC.</p>
                         {% endif %}
                     {% else %}
                         <form action="/book" method="POST" class="booking-form">
@@ -213,15 +106,15 @@
                             <input id="booking_date_{{ pc.id }}" type="date" name="booking_date" class="booking-date-input" min="{{ today_date }}" value="{{ today_date }}" required>
                             <label class="very-simple-label" for="time_slot_{{ pc.id }}">Pick a time</label>
                             <input id="time_slot_{{ pc.id }}" type="time" name="time_slot" class="booking-time-input" required>
-                            <button type="submit" class="btn btn-big" style="background: #d91c39; color: #000; border: none;">Reserve this PC</button>
+                            <button type="submit" class="u-style-22 btn btn-big">Reserve this PC</button>
                         </form>
                     {% endif %}
 
                     {% if current_user.is_admin %}
                         {% if not pc.dashboard_in_use %}
-                        <div style="margin-top:15px; border-top:1px solid #333; padding-top:10px;">
-                            <small style="color:#666; text-transform:uppercase;">Admin Quick Start:</small>
-                            <div style="max-height: 100px; overflow-y: auto;">
+                        <div> class="u-style-23"
+                            <small> class="u-style-24"Admin Quick Start:</small>
+                            <div> class="u-style-25"
                                 {% for user in users %}
                                     <a href="/start_session/{{ pc.id }}/{{ user.id }}" class="walk-in-link">
                                         ▶ Start {{ user.username }}
@@ -230,8 +123,8 @@
                             </div>
                         </div>
                         {% endif %}
-                        <div style="margin-top:12px;">
-                            <small style="color:#666; text-transform:uppercase;">LAN Command:</small>
+                        <div> class="u-style-26"
+                            <small> class="u-style-24"LAN Command:</small>
                             <form action="/pc_command" method="POST">
                                 <input type="hidden" name="pc_id" value="{{ pc.id }}">
                                 <select name="command" required>
@@ -241,12 +134,12 @@
                                     <option value="wake">Wake</option>
                                 </select>
                                 <input type="text" name="reason" maxlength="200" placeholder="Reason (optional)">
-                                <button type="submit" style="width:100%">Send to {{ pc.name }}</button>
+                                <button class="u-style-16" type="submit">Send to {{ pc.name }}</button>
                             </form>
-                            <p style="font-size:0.78em; color:#777; margin:6px 0 0;">Admin power commands now run directly without asking the client user first.</p>
+                            <p> class="u-style-27"Admin power commands now run directly without asking the client user first.</p>
                         </div>
-                        <div style="margin-top:12px;">
-                            <small style="color:#666; text-transform:uppercase;">Auto Connect Target:</small>
+                        <div> class="u-style-26"
+                            <small> class="u-style-24"Auto Connect Target:</small>
                             <form action="/admin/request_connect" method="POST">
                                 <input type="hidden" name="pc_id" value="{{ pc.id }}">
                                 {% if discovered_ips or pc.lan_ip %}
@@ -266,10 +159,10 @@
                                     <input type="text" name="connect_ip" placeholder="Target LAN IP (e.g. 192.168.1.120)" required>
                                 {% endif %}
                                 <input type="number" name="connect_port" min="1024" max="65535" placeholder="Agent Port (default 5001)">
-                                <button type="submit" style="width:100%">Save/Connect {{ pc.name }}</button>
+                                <button class="u-style-16" type="submit">Save/Connect {{ pc.name }}</button>
                             </form>
-                            <form action="/admin/clear_pc_commands/{{ pc.id }}" method="POST" style="margin-top:8px;">
-                                <button type="submit" class="btn btn-red" style="width:100%">Clear Pending Commands</button>
+                            <form class="u-style-28" action="/admin/clear_pc_commands/{{ pc.id }}" method="POST">
+                                <button type="submit" class="u-style-16 btn btn-red">Clear Pending Commands</button>
                             </form>
                         </div>
                     {% endif %}
@@ -278,7 +171,7 @@
             </div>
         </div>
 
-        <div class="section" style="flex: 1;">
+        <div class="u-style-29 section">
             <h2>User Profile</h2>
 
             {% if current_user.is_admin %}
@@ -289,9 +182,9 @@
                 <div id="admin-profile-main" class="admin-tab-panel">
                 {% if mobile_pairing_primary %}
                 <div class="pairing-card">
-                    <small style="color:#666; text-transform:uppercase;">Mobile Pairing</small>
+                    <small> class="u-style-24"Mobile Pairing</small>
                     <h3>Scan from the APK</h3>
-                    <p>Open the phone app, tap <strong style="color:white;">Scan Pairing QR</strong>, and point the camera at this code. When the public route is active, the APK can connect from a different network through the internet instead of only over LAN.</p>
+                    <p>Open the phone app, tap <strong> class="u-style-15"Scan Pairing QR</strong>, and point the camera at this code. When the public route is active, the APK can connect from a different network through the internet instead of only over LAN.</p>
                     <div class="pairing-grid">
                         <div class="pairing-qr">
                             <img src="{{ mobile_pairing_primary.qr_image_url }}" alt="Techpuls pairing QR code">
@@ -303,26 +196,26 @@
                             </div>
                             <div class="pairing-links">
                                 <form action="/admin/public_route/start" method="POST">
-                                    <button type="submit" class="btn" style="width:100%; margin-top:0;">START PUBLIC ROUTE</button>
+                                    <button type="submit" class="u-style-30 btn">START PUBLIC ROUTE</button>
                                 </form>
                                 <form action="/admin/public_route/stop" method="POST">
-                                    <button type="submit" class="btn" style="width:100%; margin-top:0; border-color:#ff6b6b; color:#ff6b6b;">STOP PUBLIC ROUTE</button>
+                                    <button type="submit" class="u-style-31 btn">STOP PUBLIC ROUTE</button>
                                 </form>
                             </div>
                             {% if public_tunnel %}
-                            <p style="margin-top:12px; margin-bottom:0; font-size:0.82rem;">
+                            <p> class="u-style-32"
                                 Public route status:
-                                <strong style="color:white;">{{ public_tunnel.status|upper }}</strong>
+                                <strong> class="u-style-15"{{ public_tunnel.status|upper }}</strong>
                                 {% if public_tunnel.url %}
                                     <br>
-                                    <span style="word-break:break-all; color:#c8f7de;">{{ public_tunnel.url }}</span>
+                                    <span> class="u-style-33"{{ public_tunnel.url }}</span>
                                 {% elif public_tunnel.error %}
                                     <br>
-                                    <span style="word-break:break-all; color:#ff9a9a;">{{ public_tunnel.error }}</span>
+                                    <span> class="u-style-34"{{ public_tunnel.error }}</span>
                                 {% endif %}
                             </p>
                             {% endif %}
-                            <p style="margin-top:12px; margin-bottom:0; font-size:0.82rem;">If the QR image does not load, enter <strong style="color:white;">{{ mobile_pairing_primary.address }}</strong> manually in the APK.</p>
+                            <p> class="u-style-32"If the QR image does not load, enter <strong> class="u-style-15"{{ mobile_pairing_primary.address }}</strong> manually in the APK.</p>
                             {% if mobile_pairing_targets|length > 1 %}
                             <div class="pairing-alt-list">
                                 {% for target in mobile_pairing_targets[1:] %}
@@ -334,58 +227,58 @@
                     </div>
                 </div>
                 {% endif %}
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-                    <a href="/bookings" class="btn" style="border-color: #d91c39; color: #d91c39; text-align:center;">BOOKINGS</a>
-                    <a href="/logs" class="btn" style="border-color: #aaa; color: #aaa; text-align:center;">LOGS</a>
+                <div> class="u-style-35"
+                    <a href="/bookings" class="u-style-36 btn">BOOKINGS</a>
+                    <a href="/logs" class="u-style-37 btn">LOGS</a>
                 </div>
-                <div style="margin-bottom:15px; border:1px solid #333; border-radius:8px; padding:12px;">
-                    <small style="color:#666; text-transform:uppercase;">LAN Discovery</small>
-                    <p style="font-size:0.85em; color:#aaa; margin:8px 0 4px;">Server LAN IPs (IPv4/IPv6): {{ local_ips|join(', ') if local_ips else 'N/A' }}</p>
+                <div> class="u-style-38"
+                    <small> class="u-style-24"LAN Discovery</small>
+                    <p> class="u-style-39"Server LAN IPs (IPv4/IPv6): {{ local_ips|join(', ') if local_ips else 'N/A' }}</p>
                     {% if lan_summary %}
-                        <p style="font-size:0.85em; color:#aaa; margin:2px 0 2px;">Router: {{ lan_summary.gateway_ipv4 or 'N/A' }} | Mask: {{ lan_summary.subnet_mask or 'N/A' }}</p>
-                        <p style="font-size:0.85em; color:#aaa; margin:0 0 4px;">Network: {{ lan_summary.cidr }} | Used: {{ lan_summary.used_ipv4_count }}/{{ lan_summary.total_usable_hosts }} | Free: {{ lan_summary.available_ipv4_count }}</p>
+                        <p> class="u-style-40"Router: {{ lan_summary.gateway_ipv4 or 'N/A' }} | Mask: {{ lan_summary.subnet_mask or 'N/A' }}</p>
+                        <p> class="u-style-41"Network: {{ lan_summary.cidr }} | Used: {{ lan_summary.used_ipv4_count }}/{{ lan_summary.total_usable_hosts }} | Free: {{ lan_summary.available_ipv4_count }}</p>
                     {% endif %}
                     {% if gateway_scan %}
                         {% if gateway_scan.ok %}
-                            <p style="font-size:0.85em; color:#aaa; margin:0 0 4px;">Active Clients by Gateway Scan (DNS checked): {{ gateway_scan.client_count }}{% if gateway_scan.stale %} (refreshing...){% endif %}</p>
-                            <div style="max-height:110px; overflow-y:auto; border-top:1px solid #333; padding-top:6px; margin-bottom:6px;">
+                            <p> class="u-style-41"Active Clients by Gateway Scan (DNS checked): {{ gateway_scan.client_count }}{% if gateway_scan.stale %} (refreshing...){% endif %}</p>
+                            <div> class="u-style-42"
                                 {% for host in gateway_scan.clients %}
-                                    <div style="font-size:0.82em; color:#9db0c6;">{{ host.ip }} - {{ host.source_pc_name or host.device_name or 'unknown' }}</div>
+                                    <div> class="u-style-43"{{ host.ip }} - {{ host.source_pc_name or host.device_name or 'unknown' }}</div>
                                 {% endfor %}
                                 {% if not gateway_scan.clients %}
-                                    <div style="font-size:0.85em; color:#666;">No active client hosts found in subnet.</div>
+                                    <div> class="u-style-44"No active client hosts found in subnet.</div>
                                 {% endif %}
                             </div>
                         {% else %}
-                            <p style="font-size:0.85em; color:#d3a961; margin:0 0 4px;">Gateway scan: {{ gateway_scan.error }}</p>
+                            <p> class="u-style-45"Gateway scan: {{ gateway_scan.error }}</p>
                         {% endif %}
                     {% endif %}
-                    <p style="font-size:0.85em; color:#aaa; margin:0 0 4px;">Detected PC/Client IPs (router excluded):</p>
-                    <div style="max-height:100px; overflow-y:auto; border-top:1px solid #333; padding-top:6px;">
+                    <p> class="u-style-41"Detected PC/Client IPs (router excluded):</p>
+                    <div> class="u-style-46"
                         {% if discovered_ips %}
                             {% for ip in discovered_ips %}
                                 <div style="font-size:0.85em; color: {{ 'var(--neon-green)' if ip in assigned_ips else '#aaa' }};">{{ ip }}</div>
                             {% endfor %}
                         {% else %}
-                            <div style="font-size:0.85em; color:#666;">No LAN IPs discovered.</div>
+                            <div> class="u-style-44"No LAN IPs discovered.</div>
                         {% endif %}
                     </div>
                 </div>
-                <div style="margin-bottom:15px; border:1px solid #333; border-radius:8px; padding:12px;">
-                    <small style="color:#666; text-transform:uppercase;">Agent Status</small>
-                    <p style="font-size:0.8em; color:#777; margin:6px 0 6px;">ONLINE PCs are also shown as in use on the station cards. OFFLINE means no recent agent heartbeat; PC may be on but agent/network may be down.</p>
-                    <div style="max-height:180px; overflow-y:auto; margin-top:8px; border-top:1px solid #333; padding-top:6px;">
+                <div> class="u-style-38"
+                    <small> class="u-style-24"Agent Status</small>
+                    <p> class="u-style-47"ONLINE PCs are also shown as in use on the station cards. OFFLINE means no recent agent heartbeat; PC may be on but agent/network may be down.</p>
+                    <div> class="u-style-48"
                         {% if agent_status %}
                             {% for row in agent_status %}
-                                <div style="display:flex; justify-content:space-between; gap:8px; font-size:0.82em; padding:5px 0; border-bottom:1px solid #222;">
-                                    <span style="color:#9db0c6;">{{ row.pc_name }}{% if row.lan_ip %} ({{ row.lan_ip }}){% endif %}</span>
+                                <div> class="u-style-49"
+                                    <span> class="u-style-50"{{ row.pc_name }}{% if row.lan_ip %} ({{ row.lan_ip }}){% endif %}</span>
                                     <span style="color: {{ 'var(--neon-green)' if row.online else '#d3a961' }};">{{ 'ONLINE' if row.online else 'OFFLINE' }}</span>
-                                    <span style="color:#aaa;">{{ row.seen_text }}</span>
+                                    <span> class="u-style-51"{{ row.seen_text }}</span>
                                     <span style="color: {{ 'var(--neon-red)' if row.queue_count > 0 else '#666' }};">Q: {{ row.queue_count }}</span>
                                 </div>
                             {% endfor %}
                         {% else %}
-                            <div style="font-size:0.85em; color:#666;">No agent status data yet.</div>
+                            <div> class="u-style-44"No agent status data yet.</div>
                         {% endif %}
                     </div>
                 </div>
@@ -398,15 +291,15 @@
                                 <h3>{{ pc.name }}</h3>
                                 <span class="status-badge">{{ 'In Use' if pc.dashboard_in_use else 'Ready' }}</span>
                             </div>
-                            <p style="color:#bbb; font-size:0.85em; margin: 4px 0 8px;">
-                                LAN Target: <strong style="color:white;">{{ (pc.lan_ip ~ ':' ~ pc.lan_port) if pc.lan_ip and pc.lan_port else (pc.lan_ip if pc.lan_ip else 'Not assigned') }}</strong>
+                            <p> class="u-style-14"
+                                LAN Target: <strong> class="u-style-15"{{ (pc.lan_ip ~ ':' ~ pc.lan_port) if pc.lan_ip and pc.lan_port else (pc.lan_ip if pc.lan_ip else 'Not assigned') }}</strong>
                             </p>
                             {% if pc.dashboard_session %}
-                                <p style="color:#aaa; font-size:0.85em; margin:4px 0;">User: <strong style="color:white;">{{ pc.dashboard_session_username or ('User #' ~ pc.dashboard_session.user_id) }}</strong></p>
-                                <p style="color:#aaa; font-size:0.85em; margin:4px 0 8px;">Used For: {{ pc.dashboard_usage_duration_text }}</p>
+                                <p> class="u-style-52"User: <strong> class="u-style-15"{{ pc.dashboard_session_username or ('User #' ~ pc.dashboard_session.user_id) }}</strong></p>
+                                <p> class="u-style-53"Used For: {{ pc.dashboard_usage_duration_text }}</p>
                                 <a href="/end_session/{{ pc.dashboard_session.id }}" class="btn btn-red admin-fixed-btn full-row">END SESSION</a>
                             {% elif pc.dashboard_online %}
-                                <p style="color:var(--neon-green); font-size:0.85em; margin:4px 0 8px;">Online since {{ pc.dashboard_usage_started_text }}</p>
+                                <p> class="u-style-54"Online since {{ pc.dashboard_usage_started_text }}</p>
                             {% endif %}
 
                             <form action="/admin/set_pc_ip/{{ pc.id }}" method="POST" class="admin-inline-form">
@@ -415,9 +308,9 @@
                             </form>
 
                             {% if not pc.dashboard_in_use %}
-                            <div style="margin-top:10px;">
-                                <small style="color:#666; text-transform:uppercase;">Quick Start User</small>
-                                <div class="admin-action-grid" style="margin-top:8px; max-height:104px; overflow-y:auto;">
+                            <div> class="u-style-55"
+                                <small> class="u-style-24"Quick Start User</small>
+                                <div class="u-style-56 admin-action-grid">
                                     {% for user in users %}
                                         <a href="/start_session/{{ pc.id }}/{{ user.id }}" class="btn admin-fixed-btn">Start {{ user.username }}</a>
                                     {% endfor %}
@@ -471,9 +364,9 @@
                     <p class="friendly-note">Pick a ready computer below and tap the big button to reserve time. If the card is red, the computer is busy. If it is green, it is ready.</p>
                 </div>
                 <div class="nav-grid">
-                    <a href="/bookings" class="btn btn-big" style="border-color: #d91c39; color: #d91c39;">My Bookings</a>
-                    <a href="/logs" class="btn btn-big" style="border-color: #fff; color: #fff;">History</a>
-                    <a href="/logout" class="btn btn-big" style="border-color: #ff6b6b; color: #ff6b6b;">Logout</a>
+                    <a href="/bookings" class="u-style-57 btn btn-big">My Bookings</a>
+                    <a href="/logs" class="u-style-58 btn btn-big">History</a>
+                    <a href="/logout" class="u-style-59 btn btn-big">Logout</a>
                 </div>
             {% endif %}
 
@@ -488,9 +381,9 @@
                 <tbody>
                     {% for user in users %}
                     <tr>
-                        <td style="font-weight:bold; color:white;">{{ user.username }}</td>
+                        <td> class="u-style-60"{{ user.username }}</td>
                         <td>
-                            <a href="/force_stop_user/{{ user.id }}" class="btn btn-red" style="margin-top:0; padding:6px 10px;">Force Stop</a>
+                            <a href="/force_stop_user/{{ user.id }}" class="u-style-61 btn btn-red">Force Stop</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -501,135 +394,7 @@
 
     </div>
 
-    <script>
-        function wireAdminProfileTabs() {
-            var tabs = document.querySelectorAll('[data-admin-tab-target]');
-            if (!tabs.length) {
-                return;
-            }
-
-            tabs.forEach(function (tab) {
-                tab.addEventListener('click', function () {
-                    tabs.forEach(function (candidate) {
-                        var panel = document.getElementById(candidate.dataset.adminTabTarget);
-                        var active = candidate === tab;
-                        candidate.classList.toggle('active', active);
-                        candidate.setAttribute('aria-selected', active ? 'true' : 'false');
-                        if (panel) {
-                            panel.hidden = !active;
-                        }
-                    });
-                });
-            });
-        }
-
-        function wireBookingDatePicker() {
-            var dateInputs = document.querySelectorAll('input.booking-date-input');
-            dateInputs.forEach(function (input) {
-                function openNativeCalendar() {
-                    if (typeof input.showPicker === 'function') {
-                        try { input.showPicker(); } catch (e) {}
-                    }
-                }
-                input.addEventListener('focus', openNativeCalendar);
-                input.addEventListener('click', openNativeCalendar);
-            });
-        }
-
-        function formatLocalDate(date) {
-            return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
-        }
-
-        function formatLocalTime(date) {
-            return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
-        }
-
-        function wireBookingLeadTime() {
-            var leadMinutes = {{ booking_lead_minutes|tojson }};
-            var bookingForms = document.querySelectorAll('form.booking-form');
-
-            bookingForms.forEach(function (form) {
-                var dateInput = form.querySelector('input.booking-date-input');
-                var timeInput = form.querySelector('input.booking-time-input');
-                if (!dateInput || !timeInput) {
-                    return;
-                }
-
-                function syncConstraints() {
-                    var now = new Date();
-                    var cutoff = new Date(now.getTime() + leadMinutes * 60000);
-                    var today = formatLocalDate(now);
-                    var cutoffDate = formatLocalDate(cutoff);
-
-                    dateInput.min = today;
-                    if (!dateInput.value || dateInput.value < cutoffDate) {
-                        dateInput.value = cutoffDate;
-                    }
-
-                    if (dateInput.value === cutoffDate) {
-                        var minTime = formatLocalTime(cutoff);
-                        timeInput.min = minTime;
-                        if (!timeInput.value || timeInput.value < minTime) {
-                            timeInput.value = minTime;
-                        }
-                        return;
-                    }
-
-                    timeInput.min = '';
-                }
-
-                dateInput.addEventListener('change', syncConstraints);
-                timeInput.addEventListener('focus', syncConstraints);
-                syncConstraints();
-            });
-        }
-
-        wireAdminProfileTabs();
-        wireBookingDatePicker();
-        wireBookingLeadTime();
-
-        // Handle system terminate button
-        let terminateSysBtn = document.getElementById('terminate-sys-btn');
-        if (terminateSysBtn) {
-            terminateSysBtn.addEventListener('click', function() {
-                if (confirm('WARNING: This will close the client app!\n\nContinue?')) {
-                    if (confirm('Are you ABSOLUTELY SURE? The client app will close!')) {
-                        fetch('/admin/terminate-system', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            }
-                        })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.ok) {
-                                alert(data.message);
-                                // Close the app by calling the JavaScript API if available
-                                if (typeof window.pywebview !== 'undefined' && window.pywebview.api) {
-                                    window.pywebview.api.terminate('PYPONDO_TERMINATE_2026').then(result => {
-                                        if (!result) {
-                                            console.log('Terminating app...');
-                                            window.close();
-                                        }
-                                    });
-                                } else {
-                                    // Fallback for non-pywebview mode
-                                    window.close();
-                                }
-                            } else {
-                                alert('Error: ' + (data.error || 'Failed to terminate app'));
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error:', error);
-                            alert('Error: Failed to send terminate command');
-                        });
-                    }
-                }
-            });
-        }
-
-    </script>
+    <script src="{{ url_for('static', filename='js/index.js') }}" defer></script>
 </body>
 </html>
 

@@ -2,52 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Logs</title>
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            background-color: #0b0c15;
-            color: #e0e6ed;
-            font-family: 'Roboto', sans-serif;
-            padding: 30px;
-        }
-        h1 {
-            font-family: Inter, 'Segoe UI', Arial, sans-serif;
-            color: #e21f3d;
-            border-bottom: 2px solid #e21f3d;
-            padding-bottom: 10px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            background: #151922;
-            margin-top: 20px;
-            box-shadow: 0 0 20px rgba(226,31,61, 0.1);
-        }
-        th, td {
-            padding: 15px;
-            text-align: left;
-            border-bottom: 1px solid #333;
-        }
-        th {
-            color: #e21f3d;
-            text-transform: uppercase;
-            font-family: Inter, 'Segoe UI', Arial, sans-serif;
-        }
-        tr:hover { background-color: #1f2430; }
-        .back-btn {
-            display: inline-block;
-            margin-bottom: 20px;
-            color: #ff0055;
-            text-decoration: none;
-            border: 1px solid #ff0055;
-            padding: 10px 20px;
-            font-family: Inter, 'Segoe UI', Arial, sans-serif;
-        }
-        .back-btn:hover { background: #ff0055; color: white; }
-    </style>
-{% include '_dashboard_container_theme.html' %}</head>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/logs.css') }}">{% include '_dashboard_container_theme.html' %}</head>
 <body>
     {% include '_dashboard_nav.html' %}
     {% include '_loading_overlay.html' %}
@@ -69,69 +28,17 @@
             {% for log in logs %}
             <tr>
                 <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                <td style="font-weight: bold; color: white;">{{ log.admin_name }}</td>
+                <td> class="u-style-1"{{ log.admin_name }}</td>
                 <td>{{ log.action }}</td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="3" style="text-align:center; color:#666;">No logs found.</td>
+                <td class="u-style-2" colspan="3">No logs found.</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
 
-    <script>
-        function isTypingField(target) {
-            if (!target || !target.tagName) {
-                return false;
-            }
-            var tag = target.tagName.toLowerCase();
-            return tag === 'input' || tag === 'textarea' || target.isContentEditable;
-        }
-
-        // Block Windows shortcuts and dangerous key combinations
-        document.addEventListener('keydown', function(event) {
-            if (isTypingField(event.target) || isTypingField(document.activeElement)) {
-                if (
-                    (event.altKey && event.key === 'Tab') ||
-                    (event.altKey && event.key === 'Escape') ||
-                    (event.ctrlKey && event.altKey && event.key === 'Delete') ||
-                    event.key === 'Meta' ||
-                    event.key === 'Win' ||
-                    event.key === 'OS' ||
-                    event.keyCode === 91 || event.keyCode === 92 ||
-                    (event.code && event.code.toLowerCase().includes('meta')) ||
-                    (event.altKey && event.key === 'F4') ||
-                    (event.ctrlKey && event.key === 'w') ||
-                    (event.ctrlKey && event.key === 'W') ||
-                    (event.ctrlKey && event.key === 'Escape') ||
-                    (event.ctrlKey && event.altKey && event.key === 'Escape')
-                ) {
-                    event.preventDefault();
-                    return false;
-                }
-                return;
-            }
-
-            if (
-                (event.altKey && event.key === 'Tab') ||
-                (event.altKey && event.key === 'Escape') ||
-                (event.ctrlKey && event.altKey && event.key === 'Delete') ||
-                event.key === 'Meta' ||
-                event.key === 'Win' ||
-                event.key === 'OS' ||
-                event.keyCode === 91 || event.keyCode === 92 ||
-                (event.code && event.code.toLowerCase().includes('meta')) ||
-                (event.altKey && event.key === 'F4') ||
-                (event.ctrlKey && event.key === 'w') ||
-                (event.ctrlKey && event.key === 'W') ||
-                (event.ctrlKey && event.key === 'Escape') ||
-                (event.ctrlKey && event.altKey && event.key === 'Escape')
-            ) {
-                event.preventDefault();
-                return false;
-            }
-        });
-    </script>
+    <script src="{{ url_for('static', filename='js/logs.js') }}" defer></script>
 </body>
 </html>

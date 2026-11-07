@@ -2,80 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Join CyberCore</title>
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            background-color: #0b0c15;
-            color: #e0e6ed;
-            font-family: 'Roboto', sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .register-box {
-            background: #151922;
-            padding: 40px;
-            border-radius: 10px;
-            border: 1px solid #d91c39; /* Green for Register */
-            box-shadow: 0 0 30px rgba(217,28,57, 0.15);
-            width: 300px;
-            text-align: center;
-        }
-        h1 {
-            font-family: Inter, 'Segoe UI', Arial, sans-serif;
-            color: #d91c39;
-            margin-bottom: 30px;
-            text-transform: uppercase;
-        }
-        input {
-            width: 100%;
-            padding: 12px;
-            margin-bottom: 15px;
-            background: #0b0c15;
-            border: 1px solid #333;
-            color: white;
-            border-radius: 5px;
-            box-sizing: border-box;
-        }
-        input:focus {
-            border-color: #d91c39;
-            outline: none;
-        }
-        button {
-            width: 100%;
-            padding: 12px;
-            background: #d91c39;
-            border: none;
-            color: #000;
-            font-weight: bold;
-            font-family: Inter, 'Segoe UI', Arial, sans-serif;
-            cursor: pointer;
-            transition: 0.3s;
-        }
-        button:hover {
-            box-shadow: 0 0 15px #d91c39;
-            background: white;
-        }
-        a {
-            display: block;
-            margin-top: 20px;
-            color: #666;
-            text-decoration: none;
-            font-size: 0.9em;
-        }
-        a:hover { color: white; }
-        .error { color: #ff0055; margin-bottom: 15px; }
-    </style>
-{% include '_dashboard_container_theme.html' %}</head>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/register.css') }}">{% include '_dashboard_container_theme.html' %}</head>
 <body>
     {% include '_animated_background.html' %}
     {% include '_startup_splash.html' %}
     <div class="register-box">
-        <h1>New Player</h1>
+        <h1>New User</h1>
 
         {% with messages = get_flashed_messages(category_filter=["error"]) %}
             {% if messages %}
@@ -94,63 +30,6 @@
         <a href="/login">Already have an account? Login</a>
     </div>
 
-    <script>
-        // Keep kiosk lock enabled on register page until a user/admin is authenticated.
-        if (window.pywebview && window.pywebview.api && window.pywebview.api.enable_kiosk_lock) {
-            window.pywebview.api.enable_kiosk_lock();
-        }
-
-        function isTypingField(target) {
-            if (!target || !target.tagName) {
-                return false;
-            }
-            var tag = target.tagName.toLowerCase();
-            return tag === 'input' || tag === 'textarea' || target.isContentEditable;
-        }
-
-        // Block Windows shortcuts and dangerous key combinations when not logged in
-        document.addEventListener('keydown', function(event) {
-            if (isTypingField(event.target) || isTypingField(document.activeElement)) {
-                if (
-                    (event.altKey && event.key === 'Tab') ||
-                    (event.altKey && event.key === 'Escape') ||
-                    (event.ctrlKey && event.altKey && event.key === 'Delete') ||
-                    event.key === 'Meta' ||
-                    event.key === 'Win' ||
-                    event.key === 'OS' ||
-                    event.keyCode === 91 || event.keyCode === 92 ||
-                    (event.code && event.code.toLowerCase().includes('meta')) ||
-                    (event.altKey && event.key === 'F4') ||
-                    (event.ctrlKey && event.key === 'w') ||
-                    (event.ctrlKey && event.key === 'W') ||
-                    (event.ctrlKey && event.key === 'Escape') ||
-                    (event.ctrlKey && event.altKey && event.key === 'Escape')
-                ) {
-                    event.preventDefault();
-                    return false;
-                }
-                return;
-            }
-
-            if (
-                (event.altKey && event.key === 'Tab') ||
-                (event.altKey && event.key === 'Escape') ||
-                (event.ctrlKey && event.altKey && event.key === 'Delete') ||
-                event.key === 'Meta' ||
-                event.key === 'Win' ||
-                event.key === 'OS' ||
-                event.keyCode === 91 || event.keyCode === 92 ||
-                (event.code && event.code.toLowerCase().includes('meta')) ||
-                (event.altKey && event.key === 'F4') ||
-                (event.ctrlKey && event.key === 'w') ||
-                (event.ctrlKey && event.key === 'W') ||
-                (event.ctrlKey && event.key === 'Escape') ||
-                (event.ctrlKey && event.altKey && event.key === 'Escape')
-            ) {
-                event.preventDefault();
-                return false;
-            }
-        });
-    </script>
+    <script src="{{ url_for('static', filename='js/register.js') }}" defer></script>
 </body>
 </html>

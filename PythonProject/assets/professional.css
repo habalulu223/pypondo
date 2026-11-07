@@ -1,6 +1,6 @@
 /* ==========================================================================
    Techpuls design system
-   Light "Techpulse dashboard" layout: flat light surfaces, crimson accent,
+   Light "Techpulse dashboard" layout: flat light surfaces, blue accent,
    and a fixed dark left sidebar (.dash-nav). This stylesheet is included
    LAST in each page's <head> (via _dashboard_container_theme.html) and uses
    !important with body-scoped selectors so the older dark palettes stacked
@@ -14,10 +14,10 @@
   --tp-ink: #17263b;
   --tp-muted: #68788d;
   --tp-line: #e3eaf2;
-  --tp-accent: #b4233d;
-  --tp-accent-strong: #9f1d35;
-  --tp-accent-hover: #8f1b31;
-  --tp-accent-soft: #fff0f2;
+  --tp-accent: #315d91;
+  --tp-accent-strong: #274d7b;
+  --tp-accent-hover: #274d7b;
+  --tp-accent-soft: #eef3fa;
   --tp-sidebar: #17263b;
   --tp-sidebar-line: #26364d;
   --tp-sidebar-ink: #c4d0df;
@@ -27,13 +27,17 @@
   --tp-navy-border: #17263b;
   --tp-success: #1c7a4d;
   --tp-warn: #8a5a1f;
-  --tp-danger: #a83e48;
+  --tp-danger: #274d7b;
   --tp-shadow: 0 4px 16px rgba(24, 39, 60, .045);
   --tp-radius: 14px;
 }
 
 /* ---- Base ---------------------------------------------------------------- */
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  /* Fluid base size: every rem-based font in the system scales with the screen. */
+  font-size: clamp(13px, 0.4vw + 11.5px, 16px);
+}
 body {
   background: var(--tp-bg) !important;
   color: var(--tp-ink) !important;
@@ -60,16 +64,16 @@ small, .muted, .sub, .label, .tile-label, .helper, .fine-print, .subtle,
 
 /* ---- Links --------------------------------------------------------------- */
 a { color: var(--tp-accent-strong); text-decoration: none; transition: color .15s ease, background-color .15s ease, border-color .15s ease, transform .15s ease; }
-a:hover { color: #741327; }
+a:hover { color: #274d7b; }
 
 /* ---- Layout -------------------------------------------------------------- */
-main { max-width: 1440px; margin: 0 auto; padding: 26px; }
+main { max-width: 1440px; margin: 0 auto; padding: clamp(12px, 2.5vw, 26px); }
 .container, .grid, .columns, .cols, .stats, .cards, .analytics-grid, .nav-grid { min-width: 0; }
 .container { width: min(1280px, calc(100% - 40px)); margin: 22px auto; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
-.grid, .cards, .columns, .cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.grid, .cards, .columns, .cols { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
 .section { min-width: min(100%, 320px); }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 14px; margin: 18px 0; }
-.cards { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(175px, 100%), 1fr)); gap: 14px; margin: 18px 0; }
+.cards { grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); }
 
 /* ---- Surfaces: cards / panels / stats ------------------------------------ */
 .card, .panel, .stat, .metric, .section, article, .status, .status-item, .item,
@@ -183,7 +187,7 @@ tr:hover td { background: #fbfcfe; }
 .flash, .alert, .user-guidance, .friendly-note, .notice {
   background: var(--tp-accent-soft) !important;
   color: #6a1526 !important;
-  border: 1px solid #f2c2cb !important;
+  border: 1px solid #c3d4ea !important;
   border-radius: 10px !important;
   padding: 12px 14px !important;
   margin-bottom: 14px !important;
@@ -242,7 +246,7 @@ body:not(:has(.dash-nav)) .view-tabs { padding: 0 20px; }
   border: 1px solid var(--tp-line) !important; font-weight: 600; text-decoration: none;
   box-shadow: var(--tp-shadow) !important;
 }
-.view-tabs a:hover { background: var(--tp-accent-soft) !important; border-color: #f0c2ca !important; }
+.view-tabs a:hover { background: var(--tp-accent-soft) !important; border-color: #c3d4ea !important; }
 .view-tabs a[aria-current=page] { background: var(--tp-accent) !important; color: #fff !important; border-color: var(--tp-accent) !important; }
 
 /* ==========================================================================
@@ -274,7 +278,7 @@ a.brand { color: var(--tp-accent-strong); font-weight: 750; text-decoration: non
   display: grid; place-items: center; overflow: hidden;
   border-radius: 50% !important;
   background: var(--tp-accent-soft) !important; color: var(--tp-accent-strong) !important;
-  border: 1px solid #f0aab4 !important; box-shadow: none !important;
+  border: 1px solid #c3d4ea !important; box-shadow: none !important;
 }
 .profile-avatar-link img, .profile-avatar-link svg { width: 100%; height: 100%; object-fit: cover; }
 .profile-avatar-link svg { width: 24px; height: 24px; fill: currentColor; }
@@ -303,8 +307,8 @@ a.brand { color: var(--tp-accent-strong); font-weight: 750; text-decoration: non
   -webkit-text-fill-color: var(--tp-warn) !important; border: 1px solid #f0dfba !important;
 }
 .tag.status-danger, .badge.status-danger, .occupied .status-badge {
-  background: #fbecee !important; color: var(--tp-danger) !important;
-  -webkit-text-fill-color: var(--tp-danger) !important; border: 1px solid #ebd3d6 !important;
+  background: #eef3fa !important; color: var(--tp-danger) !important;
+  -webkit-text-fill-color: var(--tp-danger) !important; border: 1px solid #c3d4ea !important;
 }
 .tag.status-neutral, .badge.status-neutral {
   background: #eef1f6 !important; color: #43536b !important;
@@ -314,6 +318,9 @@ a.brand { color: var(--tp-accent-strong); font-weight: 750; text-decoration: non
 /* ==========================================================================
    Responsive
    ========================================================================== */
+.card, .panel, .section { padding: clamp(14px, 2vw, 20px); }
+h2 { font-size: clamp(1rem, 0.4vw + 0.95rem, 1.12rem); }
+
 @media (max-width: 760px) {
   .dash-nav {
     position: static; width: auto; bottom: auto;
@@ -328,6 +335,20 @@ a.brand { color: var(--tp-accent-strong); font-weight: 750; text-decoration: non
   .view-tabs { padding: 0 16px; }
   .grid, .cards, .columns, .cols { grid-template-columns: 1fr; }
   .analytics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .container { width: calc(100% - 24px); margin: 14px auto; gap: 12px; }
+  /* Tables stay readable: scroll sideways instead of crushing columns. */
+  table { display: block; overflow-x: auto; white-space: nowrap; }
+  th, td { padding: 9px 10px !important; font-size: .85rem; }
+  .stat b, .stat strong, .metric-value, .analytics-tile strong { font-size: 1.3rem; }
+  button, .btn, .button, .workspace-link, input[type=submit], input[type=button], input[type=reset] {
+    padding: 9px 12px !important; font-size: .9rem;
+  }
 }
-@media (max-width: 520px) { .analytics-grid { grid-template-columns: 1fr; } }
+@media (max-width: 520px) {
+  .analytics-grid { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .stat { padding: 12px; }
+  .view-tabs a { padding: 7px 10px; font-size: .85rem; }
+  header, .top-bar, .top, .head { font-size: .9rem; }
+}
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

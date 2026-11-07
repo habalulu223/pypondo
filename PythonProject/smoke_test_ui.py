@@ -40,7 +40,7 @@ check('register renders', page.status_code == 200)
 check('register uses theme + Inter', b'professional.css' in page.data and b'family=Inter' in page.data)
 
 page = client.get('/definitely-not-a-page')
-check('error page renders themed', page.status_code == 404 and b'Inter' in page.data and b'#16090d' not in page.data)
+check('error page renders themed', page.status_code == 404 and b'css/error.css' in page.data and b'#16090d' not in page.data)
 
 # Authenticated pages (admin seed account)
 client.post('/login', data={'username': 'admin', 'password': 'admin123'})

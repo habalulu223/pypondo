@@ -1,0 +1,16 @@
+        body { background-color: #0b0c15; color: #e0e6ed; font-family: 'Roboto', sans-serif; padding: 30px; }
+        h1 { font-family: Inter, 'Segoe UI', Arial, sans-serif; color: #315d91; border-bottom: 2px solid #315d91; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; background: #151922; margin-top: 20px; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #333; }
+        th { color: #315d91; text-transform: uppercase; font-family: Inter, 'Segoe UI', Arial, sans-serif; }
+        tr:hover { background-color: #1f2430; }
+        .back-btn { display: inline-block; margin-bottom: 20px; color: #315d91; text-decoration: none; border: 1px solid #315d91; padding: 10px 20px; font-family: Inter, 'Segoe UI', Arial, sans-serif; }
+        .back-btn:hover { background: #315d91; color: black; }
+        .del-btn { color: #315d91; text-decoration: none; border: 1px solid #315d91; padding: 5px 10px; font-size: 0.8em; }
+        .del-btn:hover { background: #315d91; color: white; }
+    
+
+/* Extracted inline styles */
+.u-style-1 { font-weight: bold; color: white; }
+.u-style-2 { color: #315d91; }
+.u-style-3 { text-align:center; color:#666; }

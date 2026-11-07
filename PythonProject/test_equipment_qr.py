@@ -378,7 +378,7 @@ def test_pc_qr_png_endpoint_serves_png(client, app):
 def test_print_stylesheet_suppresses_animated_background():
     """The background partial sets an !important body colour and fixed-position
     artwork, which otherwise print a grey wash plus neon graphics over the QR."""
-    with open(os.path.join(HERE, 'templates', '_animated_background.html'),
+    with open(os.path.join(HERE, 'assets', 'css', 'animated_background.css'),
               encoding='utf-8') as handle:
         css = handle.read()
     assert '@media print' in css

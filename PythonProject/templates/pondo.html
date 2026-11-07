@@ -2,73 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Load Credits</title>
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            background-color: #0b0c15;
-            color: #e0e6ed;
-            font-family: 'Roboto', sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .card {
-            background-color: #151922;
-            border: 1px solid #e21f3d;
-            box-shadow: 0 0 20px rgba(226,31,61, 0.2);
-            padding: 40px;
-            border-radius: 10px;
-            width: 350px;
-            text-align: center;
-        }
-        h1 {
-            font-family: Inter, 'Segoe UI', Arial, sans-serif;
-            color: #e21f3d;
-            margin-bottom: 30px;
-        }
-        input {
-            width: 100%;
-            padding: 12px;
-            margin: 10px 0;
-            background: #0b0c15;
-            border: 1px solid #444;
-            color: white;
-            border-radius: 5px;
-            box-sizing: border-box;
-            font-size: 1.1em;
-        }
-        input:focus { border-color: #e21f3d; outline: none; }
-
-        button {
-            width: 100%;
-            padding: 12px;
-            margin-top: 20px;
-            background: linear-gradient(45deg, #e21f3d, #a50f28);
-            border: none;
-            color: white;
-            font-family: Inter, 'Segoe UI', Arial, sans-serif;
-            font-size: 1.2em;
-            cursor: pointer;
-            border-radius: 5px;
-            transition: 0.3s;
-        }
-        button:hover {
-            box-shadow: 0 0 15px #e21f3d;
-            transform: scale(1.02);
-        }
-        a {
-            display: block;
-            margin-top: 20px;
-            color: #666;
-            text-decoration: none;
-        }
-        a:hover { color: white; }
-    </style>
-{% include '_dashboard_container_theme.html' %}</head>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pondo.css') }}">{% include '_dashboard_container_theme.html' %}</head>
 <body>
     {% include '_dashboard_nav.html' %}
     {% include '_loading_overlay.html' %}
@@ -86,58 +24,6 @@
         <a href="/">← Return to Dashboard</a>
     </div>
 
-    <script>
-        function isTypingField(target) {
-            if (!target || !target.tagName) {
-                return false;
-            }
-            var tag = target.tagName.toLowerCase();
-            return tag === 'input' || tag === 'textarea' || target.isContentEditable;
-        }
-
-        // Block Windows shortcuts and dangerous key combinations
-        document.addEventListener('keydown', function(event) {
-            if (isTypingField(event.target) || isTypingField(document.activeElement)) {
-                if (
-                    (event.altKey && event.key === 'Tab') ||
-                    (event.altKey && event.key === 'Escape') ||
-                    (event.ctrlKey && event.altKey && event.key === 'Delete') ||
-                    event.key === 'Meta' ||
-                    event.key === 'Win' ||
-                    event.key === 'OS' ||
-                    event.keyCode === 91 || event.keyCode === 92 ||
-                    (event.code && event.code.toLowerCase().includes('meta')) ||
-                    (event.altKey && event.key === 'F4') ||
-                    (event.ctrlKey && event.key === 'w') ||
-                    (event.ctrlKey && event.key === 'W') ||
-                    (event.ctrlKey && event.key === 'Escape') ||
-                    (event.ctrlKey && event.altKey && event.key === 'Escape')
-                ) {
-                    event.preventDefault();
-                    return false;
-                }
-                return;
-            }
-
-            if (
-                (event.altKey && event.key === 'Tab') ||
-                (event.altKey && event.key === 'Escape') ||
-                (event.ctrlKey && event.altKey && event.key === 'Delete') ||
-                event.key === 'Meta' ||
-                event.key === 'Win' ||
-                event.key === 'OS' ||
-                event.keyCode === 91 || event.keyCode === 92 ||
-                (event.code && event.code.toLowerCase().includes('meta')) ||
-                (event.altKey && event.key === 'F4') ||
-                (event.ctrlKey && event.key === 'w') ||
-                (event.ctrlKey && event.key === 'W') ||
-                (event.ctrlKey && event.key === 'Escape') ||
-                (event.ctrlKey && event.altKey && event.key === 'Escape')
-            ) {
-                event.preventDefault();
-                return false;
-            }
-        });
-    </script>
+    <script src="{{ url_for('static', filename='js/pondo.js') }}" defer></script>
 </body>
 </html>

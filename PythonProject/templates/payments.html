@@ -6,66 +6,7 @@
     <title>Payment Logs</title>
     <link rel='icon' type='image/x-icon' href='/favicon.ico'>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root { --bg: #0b0c15; --card: #151922; --line: #e21f3d; --ok: #d91c39; --warn: #ff0055; --gold: #ffd166; --text: #e0e6ed; }
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Roboto', sans-serif; padding: 20px; }
-        .shell { max-width: 1220px; margin: 0 auto; }
-        .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 20px; border-bottom: 2px solid var(--line); padding-bottom: 12px; }
-        .top h1 { margin: 0; font-family: Inter, 'Segoe UI', Arial, sans-serif; color: var(--line); text-transform: uppercase; letter-spacing: 1px; }
-        .btn, button {
-            background: transparent;
-            border: 1px solid var(--line);
-            color: var(--line);
-            padding: 10px 14px;
-            border-radius: 6px;
-            text-decoration: none;
-            font-family: Inter, 'Segoe UI', Arial, sans-serif;
-            text-transform: uppercase;
-            cursor: pointer;
-            transition: 0.25s;
-        }
-        .btn:hover, button:hover { background: var(--line); color: #000; box-shadow: 0 0 12px rgba(226,31,61, 0.4); }
-        .btn.warn { border-color: var(--warn); color: var(--warn); }
-        .btn.warn:hover { background: var(--warn); color: #fff; box-shadow: 0 0 12px rgba(255, 0, 85, 0.35); }
-        .card { background: var(--card); border: 1px solid #2b3446; border-radius: 12px; padding: 18px; box-shadow: 0 0 24px rgba(226,31,61, 0.08); }
-        .flash { margin-bottom: 14px; padding: 12px; border-radius: 8px; border: 1px solid var(--ok); background: rgba(217,28,57, 0.08); color: var(--ok); font-weight: 700; }
-        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-        th, td { padding: 14px 12px; border-bottom: 1px solid #273046; text-align: left; vertical-align: middle; }
-        th { color: var(--gold); font-family: Inter, 'Segoe UI', Arial, sans-serif; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.08em; }
-        tr.selectable { cursor: pointer; transition: background 0.2s ease, box-shadow 0.2s ease; }
-        tr.selectable:hover { background: rgba(255, 209, 102, 0.06); }
-        tr.selected { background: rgba(255, 209, 102, 0.12); box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.28); }
-        .status { font-weight: 700; }
-        .status.pending_confirmation, .status.pending, .status.awaiting_cash { color: var(--gold); }
-        .status.paid { color: var(--ok); }
-        .status.cancelled, .status.failed { color: var(--warn); }
-        .muted { color: #91a7bd; font-size: 0.88rem; }
-        .actions { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 18px; flex-wrap: wrap; }
-        .summary { color: #9bb0c5; font-size: 0.9rem; }
-        .confirm-btn { border-color: var(--gold); color: var(--gold); }
-        .confirm-btn:hover { background: var(--gold); color: #000; box-shadow: 0 0 12px rgba(255, 209, 102, 0.35); }
-        .confirm-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; background: #666; color: #999; border-color: #666; }
-        .empty { padding: 28px 0; color: #70839a; text-align: center; }
-        input[type="radio"] { accent-color: var(--gold); }
-        @media (max-width: 860px) {
-            body { padding: 14px; }
-            .top { flex-direction: column; align-items: flex-start; }
-            table, thead, tbody, tr, th, td { display: block; width: 100%; box-sizing: border-box; }
-            thead { display: none; }
-            tr { border-bottom: 1px solid #273046; padding: 12px 0; }
-            td { border-bottom: none; padding: 6px 0; }
-            td::before {
-                content: attr(data-label);
-                display: block;
-                color: var(--gold);
-                font-size: 0.74rem;
-                font-family: Inter, 'Segoe UI', Arial, sans-serif;
-                margin-bottom: 3px;
-                text-transform: uppercase;
-            }
-        }
-    </style>
-{% include '_dashboard_container_theme.html' %}</head>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/payments.css') }}">{% include '_dashboard_container_theme.html' %}</head>
 <body>
     {% include '_dashboard_nav.html' %}
     {% include '_loading_overlay.html' %}
@@ -109,7 +50,7 @@
                                 <input type="radio" name="payment_id" value="{{ tx.id }}" {% if loop.first %}checked{% endif %} {% if tx.status == 'paid' %}data-paid="1"{% endif %} {% if tx.status == 'cancelled' %}data-cancelled="1"{% endif %}>
                             </td>
                             <td data-label="Created">{{ tx.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
-                            <td data-label="User" style="font-weight:700; color:#fff;">{{ tx.display_username }}</td>
+                            <td class="u-style-1" data-label="User">{{ tx.display_username }}</td>
                             <td data-label="Provider">{{ tx.provider.replace('_', ' ')|upper }}</td>
                             <td data-label="Reference">{{ tx.external_id }}</td>
                             <td data-label="Amount">PHP {{ "%.2f"|format(tx.amount) }}</td>
@@ -134,46 +75,6 @@
         </div>
     </div>
 
-    <script>
-        (function() {
-            var rows = Array.prototype.slice.call(document.querySelectorAll('[data-payment-row]'));
-            var radios = Array.prototype.slice.call(document.querySelectorAll('input[name="payment_id"]'));
-            var confirmBtn = document.getElementById('confirmPaymentBtn');
-
-            function syncSelectedState() {
-                rows.forEach(function(row) {
-                    var radio = row.querySelector('input[name="payment_id"]');
-                    row.classList.toggle('selected', !!(radio && radio.checked));
-                });
-
-                if (!confirmBtn) {
-                    return;
-                }
-
-                var selected = radios.find(function(radio) { return radio.checked; });
-                confirmBtn.disabled = !selected || selected.getAttribute('data-paid') === '1' || selected.getAttribute('data-cancelled') === '1';
-            }
-
-            rows.forEach(function(row) {
-                row.addEventListener('click', function(event) {
-                    if (event.target && event.target.tagName === 'INPUT') {
-                        syncSelectedState();
-                        return;
-                    }
-                    var radio = row.querySelector('input[name="payment_id"]');
-                    if (radio) {
-                        radio.checked = true;
-                        syncSelectedState();
-                    }
-                });
-            });
-
-            radios.forEach(function(radio) {
-                radio.addEventListener('change', syncSelectedState);
-            });
-
-            syncSelectedState();
-        })();
-    </script>
+    <script src="{{ url_for('static', filename='js/payments.js') }}" defer></script>
 </body>
 </html>

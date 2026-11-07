@@ -1013,6 +1013,8 @@ def ensure_equipment_transaction_columns():
 def ensure_user_role_columns():
     """Small SQLite migration for installations created before staff roles existed."""
     cols = [row[1] for row in db.session.execute(text("PRAGMA table_info(user)")).fetchall()]
+    if "pondo" not in cols:
+        db.session.execute(text("ALTER TABLE user ADD COLUMN pondo FLOAT DEFAULT 0.0"))
     if "is_admin" not in cols:
         db.session.execute(text("ALTER TABLE user ADD COLUMN is_admin BOOLEAN DEFAULT 0"))
     if "password_hash" not in cols:
@@ -1464,7 +1466,6 @@ def create_borrow_request(account, equipment_id, values):
 def initialize_database():
     """Initialize both the cafe database and the community ERD database."""
     db.create_all()
-    ensure_auth_database()
     community_engine = db.engines['community']
     with community_engine.begin() as connection:
         equipment_columns = {row[1] for row in connection.exec_driver_sql('PRAGMA table_info(equipment)').fetchall()}
